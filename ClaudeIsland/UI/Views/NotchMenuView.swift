@@ -64,6 +64,7 @@ struct SoundSelectionView: View {
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var updateManager = UpdateManager.shared
+    @ObservedObject private var screenSelector = ScreenSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
 
@@ -83,6 +84,9 @@ struct NotchMenuView: View {
 
             // Accessibility permission row - check live every render
             AccessibilityRow(isEnabled: AXIsProcessTrusted())
+
+            // Screen picker
+            ScreenPickerRow(screenSelector: screenSelector)
 
             // Hooks toggle
             MenuToggleRow(
@@ -172,6 +176,7 @@ struct NotchMenuView: View {
     private func refreshStates() {
         hooksInstalled = HookInstaller.isInstalled()
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        screenSelector.refreshScreens()
     }
 }
 
