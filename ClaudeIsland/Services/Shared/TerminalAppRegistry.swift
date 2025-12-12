@@ -40,6 +40,7 @@ struct TerminalAppRegistry: Sendable {
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",
         "io.alacritty",
+        "org.alacritty",
         "net.kovidgoyal.kitty",
         "co.zeit.hyper",
         "dev.warp.Warp-Stable",
