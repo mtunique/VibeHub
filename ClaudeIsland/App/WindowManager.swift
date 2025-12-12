@@ -16,10 +16,11 @@ class WindowManager {
 
     /// Set up or recreate the notch window
     func setupNotchWindow() -> NotchWindowController? {
-        // Find the screen with the notch (built-in display), or fallback to main
-        let screen = NSScreen.builtin ?? NSScreen.main
+        // Use ScreenSelector for screen selection
+        let screenSelector = ScreenSelector.shared
+        screenSelector.refreshScreens()
 
-        guard let screen = screen else {
+        guard let screen = screenSelector.selectedScreen else {
             logger.warning("No screen found")
             return nil
         }
