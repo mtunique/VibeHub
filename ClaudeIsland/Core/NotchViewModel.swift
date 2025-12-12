@@ -26,12 +26,14 @@ enum NotchOpenReason {
 enum NotchContentType: Equatable {
     case instances
     case menu
+    case soundSelection
     case chat(SessionState)
 
     var id: String {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
+        case .soundSelection: return "soundSelection"
         case .chat(let session): return "chat-\(session.sessionId)"
         }
     }
@@ -65,10 +67,16 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Taller size for settings menu
+            // Compact size for settings menu
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 400
+                height: 420
+            )
+        case .soundSelection:
+            // Taller size for sound selection list
+            return CGSize(
+                width: min(screenRect.width * 0.4, 480),
+                height: 500
             )
         case .instances:
             return CGSize(

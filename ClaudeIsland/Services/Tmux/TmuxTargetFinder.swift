@@ -69,6 +69,28 @@ actor TmuxTargetFinder {
         return nil
     }
 
+    /// Check if a session's tmux pane is currently the active pane
+    func isSessionPaneActive(claudePid: Int) async -> Bool {
+        guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
+            return false
+        }
+
+        // Find which pane the Claude session is in
+        guard let sessionTarget = await findTarget(forClaudePid: claudePid) else {
+            return false
+        }
+
+        // Get the currently active pane
+        guard let output = await runTmuxCommand(tmuxPath: tmuxPath, args: [
+            "display-message", "-p", "#{session_name}:#{window_index}.#{pane_index}"
+        ]) else {
+            return false
+        }
+
+        let activeTarget = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sessionTarget.targetString == activeTarget
+    }
+
     // MARK: - Private Methods
 
     private func runTmuxCommand(tmuxPath: String, args: [String]) async -> String? {

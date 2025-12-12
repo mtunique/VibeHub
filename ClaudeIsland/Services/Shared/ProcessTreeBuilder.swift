@@ -71,6 +71,25 @@ struct ProcessTreeBuilder: Sendable {
         return false
     }
 
+    /// Walk up the process tree to find the terminal app PID
+    nonisolated func findTerminalPid(forProcess pid: Int, tree: [Int: ProcessInfo]) -> Int? {
+        var current = pid
+        var depth = 0
+
+        while current > 1 && depth < 20 {
+            guard let info = tree[current] else { break }
+
+            if TerminalAppRegistry.isTerminal(info.command) {
+                return current
+            }
+
+            current = info.ppid
+            depth += 1
+        }
+
+        return nil
+    }
+
     /// Check if targetPid is a descendant of ancestorPid
     nonisolated func isDescendant(targetPid: Int, ofAncestor ancestorPid: Int, tree: [Int: ProcessInfo]) -> Bool {
         var current = targetPid
