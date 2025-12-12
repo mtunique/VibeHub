@@ -11,60 +11,13 @@ import SwiftUI
 import ServiceManagement
 import Sparkle
 
-// MARK: - SoundSelectionView
-
-struct SoundSelectionView: View {
-    @ObservedObject var viewModel: NotchViewModel
-    @State private var selectedSound: NotificationSound = AppSettings.notificationSound
-
-    var body: some View {
-        VStack(spacing: 4) {
-            // Back button
-            MenuRow(
-                icon: "chevron.left",
-                label: "Back"
-            ) {
-                viewModel.contentType = .menu
-            }
-
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
-
-            // Sound options
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(NotificationSound.allCases, id: \.self) { sound in
-                        SoundOptionRow(
-                            sound: sound,
-                            isSelected: selectedSound == sound
-                        ) {
-                            // Play preview sound
-                            if let soundName = sound.soundName {
-                                NSSound(named: soundName)?.play()
-                            }
-                            selectedSound = sound
-                            AppSettings.notificationSound = sound
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            selectedSound = AppSettings.notificationSound
-        }
-    }
-}
-
 // MARK: - NotchMenuView
 
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
+    @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
 
@@ -82,28 +35,15 @@ struct NotchMenuView: View {
                 .background(Color.white.opacity(0.08))
                 .padding(.vertical, 4)
 
-            // Accessibility permission row - check live every render
-            AccessibilityRow(isEnabled: AXIsProcessTrusted())
-
-            // Screen picker
+            // Appearance settings
             ScreenPickerRow(screenSelector: screenSelector)
+            SoundPickerRow(soundSelector: soundSelector)
 
-            // Hooks toggle
-            MenuToggleRow(
-                icon: "arrow.triangle.2.circlepath",
-                label: "Hooks",
-                isOn: hooksInstalled
-            ) {
-                if hooksInstalled {
-                    HookInstaller.uninstall()
-                    hooksInstalled = false
-                } else {
-                    HookInstaller.installIfNeeded()
-                    hooksInstalled = true
-                }
-            }
+            Divider()
+                .background(Color.white.opacity(0.08))
+                .padding(.vertical, 4)
 
-            // Launch at Login toggle
+            // System settings
             MenuToggleRow(
                 icon: "power",
                 label: "Launch at Login",
@@ -122,20 +62,29 @@ struct NotchMenuView: View {
                 }
             }
 
-            // Notification sound - navigates to sound selection
-            MenuNavigationRow(
-                icon: "speaker.wave.2",
-                label: "Notification Sound",
-                value: AppSettings.notificationSound.rawValue
+            MenuToggleRow(
+                icon: "arrow.triangle.2.circlepath",
+                label: "Hooks",
+                isOn: hooksInstalled
             ) {
-                viewModel.contentType = .soundSelection
+                if hooksInstalled {
+                    HookInstaller.uninstall()
+                    hooksInstalled = false
+                } else {
+                    HookInstaller.installIfNeeded()
+                    hooksInstalled = true
+                }
             }
+
+            AccessibilityRow(isEnabled: AXIsProcessTrusted())
 
             Divider()
                 .background(Color.white.opacity(0.08))
                 .padding(.vertical, 4)
 
-            // GitHub link
+            // About
+            UpdateRow(updateManager: updateManager)
+
             MenuRow(
                 icon: "star",
                 label: "Star on GitHub"
@@ -144,9 +93,6 @@ struct NotchMenuView: View {
                     NSWorkspace.shared.open(url)
                 }
             }
-
-            // Update row
-            UpdateRow(updateManager: updateManager)
 
             Divider()
                 .background(Color.white.opacity(0.08))
@@ -576,83 +522,5 @@ struct MenuToggleRow: View {
 
     private var textColor: Color {
         .white.opacity(isHovered ? 1.0 : 0.7)
-    }
-}
-
-struct MenuNavigationRow: View {
-    let icon: String
-    let label: String
-    let value: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundColor(textColor)
-                    .frame(width: 16)
-
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(textColor)
-
-                Spacer()
-
-                Text(value)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-
-    private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
-    }
-}
-
-struct SoundOptionRow: View {
-    let sound: NotificationSound
-    let isSelected: Bool
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(isSelected ? TerminalColors.green : Color.white.opacity(0.2))
-                    .frame(width: 6, height: 6)
-
-                Text(sound.rawValue)
-                    .font(.system(size: 12))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }
