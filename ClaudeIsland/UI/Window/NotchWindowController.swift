@@ -41,7 +41,8 @@ class NotchWindowController: NSWindowController {
         self.viewModel = NotchViewModel(
             deviceNotchRect: deviceNotchRect,
             screenRect: screenFrame,
-            windowHeight: windowHeight
+            windowHeight: windowHeight,
+            hasPhysicalNotch: screen.hasPhysicalNotch
         )
 
         // Create the window
@@ -65,13 +66,16 @@ class NotchWindowController: NSWindowController {
         // - Opened: ignoresMouseEvents = false (buttons inside panel work)
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow] status in
+            .sink { [weak notchWindow, weak viewModel] status in
                 switch status {
                 case .opened:
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
-                    NSApp.activate(ignoringOtherApps: false)
-                    notchWindow?.makeKey()
+                    // Don't steal focus when opened by notification (task finished)
+                    if viewModel?.openReason != .notification {
+                        NSApp.activate(ignoringOtherApps: false)
+                        notchWindow?.makeKey()
+                    }
                 case .closed, .popping:
                     // Ignore mouse events when closed so clicks pass through
                     notchWindow?.ignoresMouseEvents = true
