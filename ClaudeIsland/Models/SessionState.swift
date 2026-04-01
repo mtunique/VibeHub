@@ -22,6 +22,25 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var isInTmux: Bool
+    /// OpenCode local server address (if available)
+    var serverPort: Int?
+    var serverHostname: String?
+
+    /// If non-nil, this session is coming from a remote host.
+    var remoteHostId: String?
+
+    nonisolated var isRemote: Bool { remoteHostId != nil }
+
+    nonisolated var opencodeRawSessionId: String? {
+        guard let range = sessionId.range(of: "opencode-") else { return nil }
+        return String(sessionId[range.upperBound...])
+    }
+
+    nonisolated var openCodeControlSocketPath: String? {
+        guard opencodeRawSessionId != nil else { return nil }
+        guard let pid else { return nil }
+        return "/tmp/claude-island-opencode-\(pid).sock"
+    }
 
     // MARK: - State Machine
 
@@ -71,6 +90,9 @@ struct SessionState: Equatable, Identifiable, Sendable {
         pid: Int? = nil,
         tty: String? = nil,
         isInTmux: Bool = false,
+        serverPort: Int? = nil,
+        serverHostname: String? = nil,
+        remoteHostId: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -89,6 +111,9 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.pid = pid
         self.tty = tty
         self.isInTmux = isInTmux
+        self.serverPort = serverPort
+        self.serverHostname = serverHostname
+        self.remoteHostId = remoteHostId
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker
@@ -126,12 +151,73 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     /// Display title: summary > first user message > project name
     var displayTitle: String {
-        conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
+        func cleaned(_ s: String?) -> String? {
+            let t = s?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return t.isEmpty ? nil : t
+        }
+
+        func truncate(_ s: String, maxLength: Int) -> String {
+            let oneLine = s.replacingOccurrences(of: "\n", with: " ")
+            if oneLine.count > maxLength {
+                return String(oneLine.prefix(maxLength - 3)) + "..."
+            }
+            return oneLine
+        }
+
+        let project = projectName
+
+        if let summary = cleaned(conversationInfo.summary) {
+            // Keep old behavior if summary already contains the project name.
+            if summary == project { return summary }
+            return "\(project) - \(summary)"
+        }
+
+        if let first = cleaned(conversationInfo.firstUserMessage) {
+            if first == project { return first }
+            return "\(project) - \(first)"
+        }
+
+        if let last = cleaned(conversationInfo.lastMessage) {
+            let short = truncate(last, maxLength: 60)
+            if short == project { return short }
+            return "\(project) - \(short)"
+        }
+
+        return project
+    }
+
+    /// Short title used in compact UI (closed notch).
+    /// Prefer meaning over uniqueness; keep it brief.
+    var compactDisplayTitle: String {
+        func cleaned(_ s: String?) -> String? {
+            let t = s?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return t.isEmpty ? nil : t
+        }
+
+        func truncate(_ s: String, maxLength: Int) -> String {
+            let oneLine = s.replacingOccurrences(of: "\n", with: " ")
+            if oneLine.count > maxLength {
+                return String(oneLine.prefix(maxLength - 3)) + "..."
+            }
+            return oneLine
+        }
+
+        if let summary = cleaned(conversationInfo.summary) {
+            return truncate(summary, maxLength: 44)
+        }
+        if let first = cleaned(conversationInfo.firstUserMessage) {
+            return truncate(first, maxLength: 44)
+        }
+        if let last = cleaned(conversationInfo.lastMessage) {
+            return truncate(last, maxLength: 44)
+        }
+        return projectName
     }
 
     /// Best hint for matching window title
     var windowHint: String {
-        conversationInfo.summary ?? projectName
+        // Prefer more context for window matching (eg OpenCode tabs).
+        conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
     }
 
     /// Pending tool name if waiting for approval
