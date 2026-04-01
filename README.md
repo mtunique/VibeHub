@@ -39,6 +39,14 @@ xcodebuild -scheme ClaudeIsland -configuration Release build
 
 Claude Island installs hooks into `~/.claude/hooks/` that communicate session state via a Unix socket. The app listens for events and displays them in the notch overlay.
 
+## OpenCode Support
+
+Claude Island can also monitor OpenCode sessions.
+
+On first launch, the app installs an OpenCode plugin at `~/.config/opencode/plugins/claude-island.js` and adds it to `~/.config/opencode/opencode.json`.
+
+The plugin forwards OpenCode events to the same Unix socket (`/tmp/claude-island.sock`), enabling live session status and permission approvals from the notch.
+
 When Claude needs permission to run a tool, the notch expands with approve/deny buttons—no need to switch to the terminal.
 
 ## Analytics

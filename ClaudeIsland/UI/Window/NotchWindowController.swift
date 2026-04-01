@@ -71,11 +71,15 @@ class NotchWindowController: NSWindowController {
                 case .opened:
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by notification (task finished)
-                    if viewModel?.openReason != .notification {
-                        NSApp.activate(ignoringOtherApps: false)
-                        notchWindow?.makeKey()
+                    // Don't steal focus when opened by passive notification (task finished)
+                    guard let reason = viewModel?.openReason, reason != .notification else {
+                        return
                     }
+
+                    // For interaction-driven opens, bring the panel forward even if another app is active.
+                    let force = (reason == .interaction)
+                    NSApp.activate(ignoringOtherApps: force)
+                    notchWindow?.makeKey()
                 case .closed, .popping:
                     // Ignore mouse events when closed so clicks pass through
                     notchWindow?.ignoresMouseEvents = true

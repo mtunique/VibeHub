@@ -30,6 +30,26 @@ enum ProcessExecutorError: Error, LocalizedError {
     }
 }
 
+extension ProcessExecutorError {
+    var exitCode: Int32? {
+        switch self {
+        case .executionFailed(_, let exitCode, _):
+            return exitCode
+        default:
+            return nil
+        }
+    }
+
+    var rawStderr: String? {
+        switch self {
+        case .executionFailed(_, _, let stderr):
+            return stderr
+        default:
+            return nil
+        }
+    }
+}
+
 /// Result type for process execution
 struct ProcessResult: Sendable {
     let output: String

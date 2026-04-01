@@ -75,6 +75,7 @@ struct ClaudeInstancesView: View {
                         onChat: { openChat(session) },
                         onArchive: { archiveSession(session) },
                         onApprove: { approveSession(session) },
+                        onApproveAlways: { approveSessionAlways(session) },
                         onReject: { rejectSession(session) }
                     )
                     .id(session.stableId)
@@ -107,6 +108,14 @@ struct ClaudeInstancesView: View {
         sessionMonitor.approvePermission(sessionId: session.sessionId)
     }
 
+    private func approveSessionAlways(_ session: SessionState) {
+        if session.opencodeRawSessionId != nil {
+            sessionMonitor.approvePermissionAlways(sessionId: session.sessionId)
+        } else {
+            sessionMonitor.approvePermission(sessionId: session.sessionId)
+        }
+    }
+
     private func rejectSession(_ session: SessionState) {
         sessionMonitor.denyPermission(sessionId: session.sessionId, reason: nil)
     }
@@ -124,6 +133,7 @@ struct InstanceRow: View {
     let onChat: () -> Void
     let onArchive: () -> Void
     let onApprove: () -> Void
+    let onApproveAlways: () -> Void
     let onReject: () -> Void
 
     @State private var isHovered = false
@@ -143,6 +153,11 @@ struct InstanceRow: View {
     private var isInteractiveTool: Bool {
         guard let toolName = session.pendingToolName else { return false }
         return toolName == "AskUserQuestion"
+    }
+
+    /// Whether the approval UI should show an "Always" option (OpenCode only)
+    private var allowAlways: Bool {
+        session.opencodeRawSessionId != nil
     }
 
     var body: some View {
@@ -247,7 +262,9 @@ struct InstanceRow: View {
                 InlineApprovalButtons(
                     onChat: onChat,
                     onApprove: onApprove,
-                    onReject: onReject
+                    onReject: onReject,
+                    allowAlways: allowAlways,
+                    onAlways: allowAlways ? onApproveAlways : nil
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             } else {
@@ -329,10 +346,13 @@ struct InlineApprovalButtons: View {
     let onChat: () -> Void
     let onApprove: () -> Void
     let onReject: () -> Void
+    let allowAlways: Bool
+    let onAlways: (() -> Void)?
 
     @State private var showChatButton = false
     @State private var showDenyButton = false
     @State private var showAllowButton = false
+    @State private var showAlwaysButton = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -358,6 +378,25 @@ struct InlineApprovalButtons: View {
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
 
+                if allowAlways {
+                    Button {
+                        onAlways?()
+                    } label: {
+                        Text("Always")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.75))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.14))
+                            .clipShape(Capsule())
+                    }
+                .buttonStyle(.plain)
+                .opacity(showAlwaysButton ? 1 : 0)
+                .scaleEffect(showAlwaysButton ? 1 : 0.8)
+            }
+
             Button {
                 onApprove()
             } label: {
@@ -380,8 +419,17 @@ struct InlineApprovalButtons: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.05)) {
                 showDenyButton = true
             }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1)) {
-                showAllowButton = true
+            if allowAlways {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1)) {
+                    showAlwaysButton = true
+                }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.15)) {
+                    showAllowButton = true
+                }
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1)) {
+                    showAllowButton = true
+                }
             }
         }
     }

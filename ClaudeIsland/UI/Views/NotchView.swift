@@ -15,6 +15,11 @@ private let cornerRadiusInsets = (
     closed: (top: CGFloat(6), bottom: CGFloat(14))
 )
 
+// Visual tuning: closed notch should track the hardware more closely.
+// The old value (closed.bottom) made the pill look noticeably wider than the camera housing
+// on some setups (e.g. screen sharing / different menu bar layouts).
+private let closedHorizontalPadding: CGFloat = cornerRadiusInsets.closed.top
+
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @StateObject private var sessionMonitor = ClaudeSessionMonitor()
@@ -23,6 +28,8 @@ struct NotchView: View {
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
+    @State private var pendingCompletionOpenWork: DispatchWorkItem? = nil
+    @State private var lastCompletionShownAt: [String: Date] = [:]
     @State private var isVisible: Bool = false
     @State private var isHovering: Bool = false
     @State private var isBouncing: Bool = false
@@ -54,6 +61,40 @@ struct NotchView: View {
         }
     }
 
+    /// Label for the closed pill center.
+    /// Only shown while at least one session is actively running.
+    private var activeSessionLabel: String? {
+        guard showClosedActivity else { return nil }
+
+        // If nothing is running, keep the closed pill minimal: icon + count badge only.
+        guard isAnyProcessing else { return nil }
+
+        return closedPillActiveSession?.compactDisplayTitle
+    }
+
+    private var activeSessionProjectLabel: String? {
+        guard showClosedActivity else { return nil }
+        guard isAnyProcessing else { return nil }
+        return closedPillActiveSession?.projectName
+    }
+
+    private var closedPillActiveSession: SessionState? {
+        sessionMonitor.instances
+            .filter { $0.phase == .processing || $0.phase == .compacting }
+            .sorted(by: { $0.lastActivity > $1.lastActivity })
+            .first
+    }
+
+    private var activeSessionMarqueeTrigger: String? {
+        guard let active = closedPillActiveSession else { return nil }
+        return "\(active.stableId)-\(active.phase.uiKey)"
+    }
+
+    /// Total number of tracked sessions
+    private var sessionCount: Int {
+        sessionMonitor.instances.count
+    }
+
     // MARK: - Sizing
 
     private var closedNotchSize: CGSize {
@@ -63,33 +104,26 @@ struct NotchView: View {
         )
     }
 
+    private let countBadgeWidth: CGFloat = 16
+
     /// Extra width for expanding activities (like Dynamic Island)
     private var expansionWidth: CGFloat {
-        // Permission indicator adds width on left side only
         let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 18 : 0
+        let sessionBadgeWidth: CGFloat = (showClosedActivity && sessionCount > 0) ? countBadgeWidth : 0
 
-        // Expand for processing activity
-        if activityCoordinator.expandingActivity.show {
-            switch activityCoordinator.expandingActivity.type {
-            case .claude:
-                let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
-                return baseWidth + permissionIndicatorWidth
-            case .none:
-                break
-            }
+        // When we show a title (running only), give it extra breathing room.
+        let titleExtra: CGFloat = {
+            guard viewModel.status != .opened, isAnyProcessing, let label = activeSessionLabel else { return 0 }
+            return min(140, max(70, CGFloat(label.count) * 4))
+        }()
+
+        // If we're only showing the idle indicator (crab + count badge), keep the default notch width.
+        if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput {
+            return 0
         }
 
-        // Expand for pending permissions (left indicator) or waiting for input (checkmark on right)
-        if hasPendingPermission {
-            return 2 * max(0, closedNotchSize.height - 12) + 20 + permissionIndicatorWidth
-        }
-
-        // Waiting for input just shows checkmark on right, no extra left indicator
-        if hasWaitingForInput {
-            return 2 * max(0, closedNotchSize.height - 12) + 20
-        }
-
-        return 0
+        let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
+        return baseWidth + permissionIndicatorWidth + sessionBadgeWidth + titleExtra
     }
 
     private var notchSize: CGSize {
@@ -105,6 +139,7 @@ struct NotchView: View {
     private var closedContentWidth: CGFloat {
         closedNotchSize.width + expansionWidth
     }
+
 
     // MARK: - Corner Radii
 
@@ -139,14 +174,14 @@ struct NotchView: View {
             VStack(spacing: 0) {
                 notchLayout
                     .frame(
-                        maxWidth: viewModel.status == .opened ? notchSize.width : nil,
+                        width: viewModel.status == .opened ? notchSize.width : closedContentWidth,
                         alignment: .top
                     )
                     .padding(
                         .horizontal,
                         viewModel.status == .opened
                             ? cornerRadiusInsets.opened.top
-                            : cornerRadiusInsets.closed.bottom
+                            : closedHorizontalPadding
                     )
                     .padding([.horizontal, .bottom], viewModel.status == .opened ? 12 : 0)
                     .background(.black)
@@ -162,8 +197,8 @@ struct NotchView: View {
                         radius: 6
                     )
                     .frame(
-                        maxWidth: viewModel.status == .opened ? notchSize.width : nil,
-                        maxHeight: viewModel.status == .opened ? notchSize.height : nil,
+                        width: viewModel.status == .opened ? notchSize.width : closedContentWidth,
+                        height: viewModel.status == .opened ? notchSize.height : nil,
                         alignment: .top
                     )
                     .animation(viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status)
@@ -213,9 +248,10 @@ struct NotchView: View {
         activityCoordinator.expandingActivity.show && activityCoordinator.expandingActivity.type == .claude
     }
 
-    /// Whether to show the expanded closed state (processing, pending permission, or waiting for input)
+    /// Whether to show something in the closed notch.
+    /// We keep a minimal indicator (crab + session count) whenever there are tracked sessions.
     private var showClosedActivity: Bool {
-        isProcessing || hasPendingPermission || hasWaitingForInput
+        sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
     }
 
     @ViewBuilder
@@ -272,10 +308,46 @@ struct NotchView: View {
                     .fill(.clear)
                     .frame(width: closedNotchSize.width - 20)
             } else {
-                // Closed with activity: black spacer (with optional bounce)
-                Rectangle()
-                    .fill(.black)
-                    .frame(width: closedNotchSize.width - cornerRadiusInsets.closed.top + (isBouncing ? 16 : 0))
+                // Closed with activity: project label or black spacer (with optional bounce)
+                if let label = activeSessionLabel {
+                    let leftWidth = sideWidth + (hasPendingPermission ? 18 : 0)
+                    let rightWidth = sideWidth
+                    let badgeWidth = (viewModel.status != .opened && sessionCount > 0) ? countBadgeWidth : 0
+                    let labelWidth = max(0, closedContentWidth - leftWidth - rightWidth - badgeWidth)
+
+                    HStack(spacing: 6) {
+                        if let project = activeSessionProjectLabel {
+                            Text(project)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.45))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(width: min(84, labelWidth * 0.38), alignment: .leading)
+                        }
+
+                        if let project = activeSessionProjectLabel, label != project {
+                            Text("·")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.35))
+                        }
+
+                        MarqueeText(
+                            text: label,
+                            fontSize: 10,
+                            fontWeight: .medium,
+                            nsFontWeight: .medium,
+                            color: .white.opacity(0.6),
+                            trigger: activeSessionMarqueeTrigger ?? label
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(width: labelWidth, height: closedNotchSize.height, alignment: .leading)
+                    .offset(x: isBouncing ? 8 : 0)
+                } else {
+                    Rectangle()
+                        .fill(.black)
+                        .frame(maxWidth: .infinity)
+                }
             }
 
             // Right side - spinner when processing/pending, checkmark when waiting for input
@@ -285,10 +357,17 @@ struct NotchView: View {
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                 } else if hasWaitingForInput {
-                    // Checkmark for waiting-for-input on the right side
                     ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
+                }
+
+                // Session count badge — far right
+                if viewModel.status != .opened && sessionCount > 0 {
+                    Text("\(sessionCount)")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.45))
+                        .frame(width: countBadgeWidth, alignment: .center)
                 }
             }
         }
@@ -356,6 +435,8 @@ struct NotchView: View {
                 )
             case .menu:
                 NotchMenuView(viewModel: viewModel)
+            case .remote:
+                RemoteHostsView(viewModel: viewModel)
             case .chat(let session):
                 ChatView(
                     sessionId: session.sessionId,
@@ -419,10 +500,27 @@ struct NotchView: View {
         let currentIds = Set(sessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
-        if !newPendingIds.isEmpty &&
-           viewModel.status == .closed &&
-           !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
-            viewModel.notchOpen(reason: .notification)
+        // If a session transitions into an approval state, proactively open the notch so the UI is immediately available.
+        // (Completion is handled separately by handleWaitingForInputChange to avoid stealing focus.)
+        if !newPendingIds.isEmpty,
+           (viewModel.status == .closed || viewModel.status == .popping) {
+            let newlyPendingSessions = sessions
+                .filter { newPendingIds.contains($0.stableId) }
+                .filter { $0.phase.isWaitingForApproval }
+
+            guard !newlyPendingSessions.isEmpty else {
+                previousPendingIds = currentIds
+                return
+            }
+
+            // Prefer jumping directly into chat for interactive tools (eg OpenCode AskUserQuestion),
+            // since the instances list only shows a "Needs your input" hint.
+            if let interactive = newlyPendingSessions.first(where: { $0.pendingToolName == "AskUserQuestion" }) {
+                viewModel.notchOpen(reason: .interaction)
+                viewModel.showChat(for: interactive)
+            } else {
+                viewModel.notchOpen(reason: .interaction)
+            }
         }
 
         previousPendingIds = currentIds
@@ -450,6 +548,37 @@ struct NotchView: View {
         if !newWaitingIds.isEmpty {
             // Get the sessions that just entered waitingForInput
             let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
+
+            // When work completes, proactively open the notch so the user can see the outcome.
+            // Use the notification reason so we don't steal focus.
+            if (viewModel.status == .closed || viewModel.status == .popping),
+               let focusSession = newlyWaitingSessions.sorted(by: { $0.lastActivity > $1.lastActivity }).first {
+                // Debounce: wait a moment so message history/title has time to sync.
+                // Cancel if the session goes back to processing.
+                pendingCompletionOpenWork?.cancel()
+
+                let stableId = focusSession.stableId
+                let work = DispatchWorkItem {
+                    // Re-fetch the latest snapshot.
+                    guard let latest = sessionMonitor.instances.first(where: { $0.stableId == stableId }) else { return }
+                    guard latest.phase == .waitingForInput else { return }
+
+                    // Avoid popping empty/stale content.
+                    let lastMsg = latest.conversationInfo.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    guard !lastMsg.isEmpty else { return }
+
+                    if let lastShown = lastCompletionShownAt[stableId], latest.lastActivity <= lastShown {
+                        return
+                    }
+                    lastCompletionShownAt[stableId] = Date()
+
+                    viewModel.notchOpen(reason: .notification)
+                    viewModel.showChat(for: latest)
+                }
+
+                pendingCompletionOpenWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+            }
 
             // Play notification sound if the session is not actively focused
             if let soundName = AppSettings.notificationSound.soundName {
