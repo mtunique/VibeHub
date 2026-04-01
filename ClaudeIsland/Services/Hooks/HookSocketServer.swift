@@ -18,36 +18,81 @@ struct HookEvent: Codable, Sendable {
     let cwd: String
     let event: String
     let status: String
+    /// Source process PID (Claude Code hook uses `pid`, OpenCode plugin uses `_ppid`)
     let pid: Int?
+    let sourcePid: Int?
     let tty: String?
     let tool: String?
     let toolInput: [String: AnyCodable]?
     let toolUseId: String?
     let notificationType: String?
     let message: String?
+    // Extra metadata used by non-Claude sources (eg OpenCode)
+    let prompt: String?
+    let codexTitle: String?
+    let lastAssistantMessage: String?
+    // OpenCode server address for programmatic control
+    let serverPort: Int?
+    let serverHostname: String?
+
+    // Remote session metadata (set by Claude Island when ingesting via SSH)
+    let remoteHostId: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case cwd, event, status, pid, tty, tool
+        case sourcePid = "_ppid"
         case toolInput = "tool_input"
         case toolUseId = "tool_use_id"
         case notificationType = "notification_type"
         case message
+        case prompt
+        case codexTitle = "codex_title"
+        case lastAssistantMessage = "last_assistant_message"
+        case serverPort = "_server_port"
+        case serverHostname = "_server_hostname"
+        case remoteHostId = "_remote_host_id"
     }
 
     /// Create a copy with updated toolUseId
-    init(sessionId: String, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?) {
+    init(
+        sessionId: String,
+        cwd: String,
+        event: String,
+        status: String,
+        pid: Int?,
+        sourcePid: Int? = nil,
+        tty: String?,
+        tool: String?,
+        toolInput: [String: AnyCodable]?,
+        toolUseId: String?,
+        notificationType: String?,
+        message: String?,
+        prompt: String? = nil,
+        codexTitle: String? = nil,
+        lastAssistantMessage: String? = nil,
+        serverPort: Int? = nil,
+        serverHostname: String? = nil,
+        remoteHostId: String? = nil
+    ) {
         self.sessionId = sessionId
         self.cwd = cwd
         self.event = event
         self.status = status
         self.pid = pid
+        self.sourcePid = sourcePid
         self.tty = tty
         self.tool = tool
         self.toolInput = toolInput
         self.toolUseId = toolUseId
         self.notificationType = notificationType
         self.message = message
+        self.prompt = prompt
+        self.codexTitle = codexTitle
+        self.lastAssistantMessage = lastAssistantMessage
+        self.serverPort = serverPort
+        self.serverHostname = serverHostname
+        self.remoteHostId = remoteHostId
     }
 
     var sessionPhase: SessionPhase {
@@ -83,9 +128,15 @@ struct HookEvent: Codable, Sendable {
 }
 
 /// Response to send back to the hook
+///
+/// For Claude Code hooks, only `decision` (+ optional `reason`) is used.
+/// For OpenCode plugin integration, we also support:
+/// - `decision == "always"` (maps to OpenCode permission reply "always")
+/// - `answers` for AskUserQuestion (maps to OpenCode /question/{id}/reply)
 struct HookResponse: Codable {
-    let decision: String // "allow", "deny", or "ask"
+    let decision: String // "allow", "deny", "ask", or "always"
     let reason: String?
+    let answers: [[String]]?
 }
 
 /// Pending permission request waiting for user decision
@@ -106,8 +157,13 @@ typealias PermissionFailureHandler = @Sendable (_ sessionId: String, _ toolUseId
 /// Unix domain socket server that receives events from Claude Code hooks
 /// Uses GCD DispatchSource for non-blocking I/O
 class HookSocketServer {
-    static let shared = HookSocketServer()
     static let socketPath = "/tmp/claude-island.sock"
+
+    static let shared = HookSocketServer(socketPath: HookSocketServer.socketPath)
+
+    private let socketPath: String
+    private let namespacePrefix: String?
+    private let remoteHostId: String?
 
     private var serverSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
@@ -125,7 +181,11 @@ class HookSocketServer {
     private var toolUseIdCache: [String: [String]] = [:]
     private let cacheLock = NSLock()
 
-    private init() {}
+    init(socketPath: String, namespacePrefix: String? = nil, remoteHostId: String? = nil) {
+        self.socketPath = socketPath
+        self.namespacePrefix = namespacePrefix
+        self.remoteHostId = remoteHostId
+    }
 
     /// Start the socket server
     func start(onEvent: @escaping HookEventHandler, onPermissionFailure: PermissionFailureHandler? = nil) {
@@ -140,7 +200,7 @@ class HookSocketServer {
         eventHandler = onEvent
         permissionFailureHandler = onPermissionFailure
 
-        unlink(Self.socketPath)
+        unlink(socketPath)
 
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
@@ -153,7 +213,7 @@ class HookSocketServer {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        Self.socketPath.withCString { ptr in
+        socketPath.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBufferPtr = UnsafeMutableRawPointer(pathPtr)
                     .assumingMemoryBound(to: CChar.self)
@@ -174,7 +234,7 @@ class HookSocketServer {
             return
         }
 
-        chmod(Self.socketPath, 0o777)
+        chmod(socketPath, 0o777)
 
         guard listen(serverSocket, 10) == 0 else {
             logger.error("Failed to listen: \(errno)")
@@ -183,7 +243,7 @@ class HookSocketServer {
             return
         }
 
-        logger.info("Listening on \(Self.socketPath, privacy: .public)")
+        logger.info("Listening on \(self.socketPath, privacy: .public)")
 
         acceptSource = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         acceptSource?.setEventHandler { [weak self] in
@@ -202,7 +262,7 @@ class HookSocketServer {
     func stop() {
         acceptSource?.cancel()
         acceptSource = nil
-        unlink(Self.socketPath)
+        unlink(socketPath)
 
         permissionsLock.lock()
         for (_, pending) in pendingPermissions {
@@ -212,17 +272,47 @@ class HookSocketServer {
         permissionsLock.unlock()
     }
 
+    private func namespaced(_ event: HookEvent) -> HookEvent {
+        guard let prefix = namespacePrefix, !prefix.isEmpty else {
+            return event
+        }
+
+        let sid = prefix + event.sessionId
+        let toolUseId = event.toolUseId.map { prefix + $0 }
+
+        return HookEvent(
+            sessionId: sid,
+            cwd: event.cwd,
+            event: event.event,
+            status: event.status,
+            pid: event.pid,
+            sourcePid: event.sourcePid,
+            tty: event.tty,
+            tool: event.tool,
+            toolInput: event.toolInput,
+            toolUseId: toolUseId,
+            notificationType: event.notificationType,
+            message: event.message,
+            prompt: event.prompt,
+            codexTitle: event.codexTitle,
+            lastAssistantMessage: event.lastAssistantMessage,
+            serverPort: event.serverPort,
+            serverHostname: event.serverHostname,
+            remoteHostId: remoteHostId
+        )
+    }
+
     /// Respond to a pending permission request by toolUseId
-    func respondToPermission(toolUseId: String, decision: String, reason: String? = nil) {
+    func respondToPermission(toolUseId: String, decision: String, reason: String? = nil, answers: [[String]]? = nil) {
         queue.async { [weak self] in
-            self?.sendPermissionResponse(toolUseId: toolUseId, decision: decision, reason: reason)
+            self?.sendPermissionResponse(toolUseId: toolUseId, decision: decision, reason: reason, answers: answers)
         }
     }
 
     /// Respond to permission by sessionId (finds the most recent pending for that session)
-    func respondToPermissionBySession(sessionId: String, decision: String, reason: String? = nil) {
+    func respondToPermissionBySession(sessionId: String, decision: String, reason: String? = nil, answers: [[String]]? = nil) {
         queue.async { [weak self] in
-            self?.sendPermissionResponseBySession(sessionId: sessionId, decision: decision, reason: reason)
+            self?.sendPermissionResponseBySession(sessionId: sessionId, decision: decision, reason: reason, answers: answers)
         }
     }
 
@@ -405,11 +495,13 @@ class HookSocketServer {
 
         let data = allData
 
-        guard let event = try? JSONDecoder().decode(HookEvent.self, from: data) else {
+        guard let decoded = try? JSONDecoder().decode(HookEvent.self, from: data) else {
             logger.warning("Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)")
             close(clientSocket)
             return
         }
+
+        let event = namespaced(decoded)
 
         logger.debug("Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
 
@@ -442,12 +534,19 @@ class HookSocketServer {
                 event: event.event,
                 status: event.status,
                 pid: event.pid,
+                sourcePid: event.sourcePid,
                 tty: event.tty,
                 tool: event.tool,
                 toolInput: event.toolInput,
                 toolUseId: toolUseId,  // Use resolved toolUseId
                 notificationType: event.notificationType,
-                message: event.message
+                message: event.message,
+                prompt: event.prompt,
+                codexTitle: event.codexTitle,
+                lastAssistantMessage: event.lastAssistantMessage,
+                serverPort: event.serverPort,
+                serverHostname: event.serverHostname,
+                remoteHostId: event.remoteHostId
             )
 
             let pending = PendingPermission(
@@ -470,7 +569,7 @@ class HookSocketServer {
         eventHandler?(event)
     }
 
-    private func sendPermissionResponse(toolUseId: String, decision: String, reason: String?) {
+    private func sendPermissionResponse(toolUseId: String, decision: String, reason: String?, answers: [[String]]?) {
         permissionsLock.lock()
         guard let pending = pendingPermissions.removeValue(forKey: toolUseId) else {
             permissionsLock.unlock()
@@ -479,7 +578,7 @@ class HookSocketServer {
         }
         permissionsLock.unlock()
 
-        let response = HookResponse(decision: decision, reason: reason)
+        let response = HookResponse(decision: decision, reason: reason, answers: answers)
         guard let data = try? JSONEncoder().encode(response) else {
             close(pending.clientSocket)
             return
@@ -504,7 +603,7 @@ class HookSocketServer {
         close(pending.clientSocket)
     }
 
-    private func sendPermissionResponseBySession(sessionId: String, decision: String, reason: String?) {
+    private func sendPermissionResponseBySession(sessionId: String, decision: String, reason: String?, answers: [[String]]?) {
         permissionsLock.lock()
         let matchingPending = pendingPermissions.values
             .filter { $0.sessionId == sessionId }
@@ -520,7 +619,7 @@ class HookSocketServer {
         pendingPermissions.removeValue(forKey: pending.toolUseId)
         permissionsLock.unlock()
 
-        let response = HookResponse(decision: decision, reason: reason)
+        let response = HookResponse(decision: decision, reason: reason, answers: answers)
         guard let data = try? JSONEncoder().encode(response) else {
             close(pending.clientSocket)
             permissionFailureHandler?(sessionId, pending.toolUseId)

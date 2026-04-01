@@ -83,13 +83,75 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketServer.shared.respondToPermission(
+            HookSocketRouter.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "allow"
             )
 
             await SessionStore.shared.process(
                 .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
+            )
+        }
+    }
+
+    /// Approve a permission request and remember (OpenCode only)
+    func approvePermissionAlways(sessionId: String) {
+        Task {
+            guard let session = await SessionStore.shared.session(for: sessionId),
+                  session.opencodeRawSessionId != nil,
+                  let permission = session.activePermission else {
+                return
+            }
+
+            HookSocketRouter.respondToPermission(
+                toolUseId: permission.toolUseId,
+                decision: "always"
+            )
+
+            await SessionStore.shared.process(
+                .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
+            )
+        }
+    }
+
+    /// Submit answers for an OpenCode AskUserQuestion prompt
+    func submitAskUserQuestion(sessionId: String, answers: [[String]]) {
+        Task {
+            guard let session = await SessionStore.shared.session(for: sessionId),
+                  session.opencodeRawSessionId != nil,
+                  let permission = session.activePermission else {
+                return
+            }
+
+            HookSocketRouter.respondToPermission(
+                toolUseId: permission.toolUseId,
+                decision: "allow",
+                answers: answers
+            )
+
+            await SessionStore.shared.process(
+                .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
+            )
+        }
+    }
+
+    /// Close the Claude Island prompt and let OpenCode handle it in-terminal.
+    func deferAskUserQuestionToTerminal(sessionId: String) {
+        Task {
+            guard let session = await SessionStore.shared.session(for: sessionId),
+                  session.opencodeRawSessionId != nil,
+                  let permission = session.activePermission else {
+                return
+            }
+
+            HookSocketRouter.respondToPermission(
+                toolUseId: permission.toolUseId,
+                decision: "ask"
+            )
+
+            // Clear the in-app prompt UI; OpenCode will still ask in terminal.
+            await SessionStore.shared.process(
+                .permissionDenied(sessionId: sessionId, toolUseId: permission.toolUseId, reason: nil)
             )
         }
     }
@@ -101,7 +163,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketServer.shared.respondToPermission(
+            HookSocketRouter.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "deny",
                 reason: reason

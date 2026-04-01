@@ -173,6 +173,26 @@ enum SessionPhase: Sendable {
     }
 }
 
+extension SessionPhase {
+    /// Stable key for UI triggers/animations.
+    var uiKey: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .processing:
+            return "processing"
+        case .waitingForInput:
+            return "waitingForInput"
+        case .waitingForApproval:
+            return "waitingForApproval"
+        case .compacting:
+            return "compacting"
+        case .ended:
+            return "ended"
+        }
+    }
+}
+
 // MARK: - Equatable
 
 extension SessionPhase: Equatable {

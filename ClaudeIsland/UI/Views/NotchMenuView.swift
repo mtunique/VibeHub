@@ -39,6 +39,13 @@ struct NotchMenuView: View {
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
 
+            MenuRow(
+                icon: "network",
+                label: "Remote"
+            ) {
+                viewModel.contentType = .remote
+            }
+
             Divider()
                 .background(Color.white.opacity(0.08))
                 .padding(.vertical, 4)
@@ -460,6 +467,7 @@ struct MenuRow: View {
 
                 Spacer()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
@@ -468,6 +476,7 @@ struct MenuRow: View {
             )
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
     }
 
@@ -509,6 +518,7 @@ struct MenuToggleRow: View {
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.4))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
@@ -517,6 +527,7 @@ struct MenuToggleRow: View {
             )
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
     }
 

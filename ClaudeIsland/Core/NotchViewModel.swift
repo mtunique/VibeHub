@@ -18,6 +18,8 @@ enum NotchStatus: Equatable {
 enum NotchOpenReason {
     case click
     case hover
+    /// Auto-open because the session requires user interaction (approval / question / input)
+    case interaction
     case notification
     case boot
     case unknown
@@ -26,12 +28,14 @@ enum NotchOpenReason {
 enum NotchContentType: Equatable {
     case instances
     case menu
+    case remote
     case chat(SessionState)
 
     var id: String {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
+        case .remote: return "remote"
         case .chat(let session): return "chat-\(session.sessionId)"
         }
     }
@@ -74,12 +78,18 @@ class NotchViewModel: ObservableObject {
             // Compact size for settings menu
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 420 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                // Ensure the full menu (including Quit) stays clickable within the hit-test rect.
+                height: 520 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
             )
         case .instances:
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
                 height: 320
+            )
+        case .remote:
+            return CGSize(
+                width: min(screenRect.width * 0.45, 540),
+                height: 420
             )
         }
     }
@@ -231,9 +241,11 @@ class NotchViewModel: ObservableObject {
         openReason = reason
         status = .opened
 
-        // Don't restore chat on notification - show instances list instead
+        // Don't restore chat on notification - show instances list instead.
+        // Notifications are used for passive events (eg task finished) and shouldn't steal focus.
         if reason == .notification {
             currentChatSession = nil
+            contentType = .instances
             return
         }
 
@@ -271,10 +283,14 @@ class NotchViewModel: ObservableObject {
     }
 
     func showChat(for session: SessionState) {
-        // Avoid unnecessary updates if already showing this chat
+        // If we're already showing this session, still update the snapshot so title/history don't get stuck.
         if case .chat(let current) = contentType, current.sessionId == session.sessionId {
+            if current != session {
+                contentType = .chat(session)
+            }
             return
         }
+
         contentType = .chat(session)
     }
 

@@ -5,6 +5,7 @@
 //  Redesigned chat interface with clean visual hierarchy
 //
 
+import AppKit
 import Combine
 import SwiftUI
 
@@ -24,6 +25,7 @@ struct ChatView: View {
     @State private var newMessageCount: Int = 0
     @State private var previousHistoryCount: Int = 0
     @State private var isBottomVisible: Bool = true
+    @State private var inputHintText: String? = nil
     @FocusState private var isInputFocused: Bool
 
     init(sessionId: String, initialSession: SessionState, sessionMonitor: ClaudeSessionMonitor, viewModel: NotchViewModel) {
@@ -70,12 +72,27 @@ struct ChatView: View {
                 // Approval bar, interactive prompt, or Input bar
                 if let tool = approvalTool {
                     if tool == "AskUserQuestion" {
-                        // Interactive tools - show prompt to answer in terminal
-                        interactivePromptBar
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                removal: .opacity
-                            ))
+                        Group {
+                            if isOpenCodeSession,
+                               let payload = AskUserQuestionPayload.from(toolInput: session.activePermission?.toolInput) {
+                                AskUserQuestionBar(
+                                    payload: payload,
+                                    onSubmit: { answers in
+                                        sessionMonitor.submitAskUserQuestion(sessionId: sessionId, answers: answers)
+                                    },
+                                    onUseTerminal: {
+                                        sessionMonitor.deferAskUserQuestionToTerminal(sessionId: sessionId)
+                                    }
+                                )
+                            } else {
+                                // Claude Code interactive tools - show prompt to answer in terminal
+                                interactivePromptBar
+                            }
+                        }
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .bottom)),
+                            removal: .opacity
+                        ))
                     } else {
                         approvalBar(tool: tool)
                             .transition(.asymmetric(
@@ -353,14 +370,28 @@ struct ChatView: View {
 
     // MARK: - Input Bar
 
-    /// Can send messages only if session is in tmux
+    private var isOpenCodeSession: Bool {
+        session.opencodeRawSessionId != nil
+    }
+
+    /// Can send messages if we can reach the session.
+    /// - Claude Code: requires tmux + tty so we can paste into the pane.
+    /// - OpenCode: we currently copy-to-clipboard and focus the terminal.
     private var canSendMessages: Bool {
-        session.isInTmux && session.tty != nil
+        if session.isRemote {
+            return true
+        }
+        return (session.isInTmux && session.tty != nil) || isOpenCodeSession
     }
 
     private var inputBar: some View {
         HStack(spacing: 10) {
-            TextField(canSendMessages ? "Message Claude..." : "Open Claude Code in tmux to enable messaging", text: $inputText)
+            TextField(
+                canSendMessages
+                    ? (isOpenCodeSession ? "Message OpenCode..." : "Message Claude...")
+                    : "Open Claude Code in tmux to enable messaging",
+                text: $inputText
+            )
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundColor(canSendMessages ? .white : .white.opacity(0.4))
@@ -390,6 +421,20 @@ struct ChatView: View {
             .buttonStyle(.plain)
             .disabled(!canSendMessages || inputText.isEmpty)
         }
+        .overlay(alignment: .topLeading) {
+            if let inputHintText {
+                Text(inputHintText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.85))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.9))
+                    .clipShape(Capsule())
+                    .offset(x: 18, y: -10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .allowsHitTesting(false)
+            }
+        }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.black.opacity(0.2))
@@ -412,7 +457,9 @@ struct ChatView: View {
         ChatApprovalBar(
             tool: tool,
             toolInput: session.pendingToolInput,
+            allowAlways: isOpenCodeSession,
             onApprove: { approvePermission() },
+            onAlways: { approvePermissionAlways() },
             onDeny: { denyPermission() }
         )
     }
@@ -458,6 +505,10 @@ struct ChatView: View {
         sessionMonitor.approvePermission(sessionId: sessionId)
     }
 
+    private func approvePermissionAlways() {
+        sessionMonitor.approvePermissionAlways(sessionId: sessionId)
+    }
+
     private func denyPermission() {
         sessionMonitor.denyPermission(sessionId: sessionId, reason: nil)
     }
@@ -479,6 +530,63 @@ struct ChatView: View {
     }
 
     private func sendToSession(_ text: String) async {
+        if session.isRemote {
+            if isOpenCodeSession {
+                let res = await RemoteActions.sendOpenCodePrompt(session: session, text: text)
+                if !res.ok {
+                    await MainActor.run {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            inputHintText = "Remote send failed\(res.hint.map { " (\($0))" } ?? "")"
+                        }
+                    }
+                }
+            } else {
+                let res = await RemoteActions.sendClaudeMessage(session: session, text: text)
+                if !res.ok {
+                    await MainActor.run {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            inputHintText = "Remote send failed\(res.hint.map { " (\($0))" } ?? "")"
+                        }
+                    }
+                }
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    inputHintText = nil
+                }
+            }
+            return
+        }
+
+        if isOpenCodeSession {
+            let result = await sendToOpenCode(text)
+            if !result.success {
+                await MainActor.run {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(text, forType: .string)
+
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        if let hint = result.hint {
+                            inputHintText = "Copied (\(hint))"
+                        } else {
+                            inputHintText = "Copied. Paste in terminal"
+                        }
+                    }
+                }
+
+                focusTerminal()
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    inputHintText = nil
+                }
+            }
+            return
+        }
+
         guard session.isInTmux else { return }
         guard let tty = session.tty else { return }
 
@@ -515,6 +623,115 @@ struct ChatView: View {
         }
 
         return nil
+    }
+
+    private var openCodeServerSessionId: String? {
+        guard isOpenCodeSession else { return nil }
+        return session.opencodeRawSessionId
+    }
+
+    private func sendToOpenCode(_ text: String) async -> (success: Bool, hint: String?) {
+        if let result = await sendToOpenCodeControlSocket(text) {
+            return result
+        }
+
+        // Fallback to HTTP server if the OpenCode instance is exposing one.
+        return await sendToOpenCodeHTTP(text)
+    }
+
+    private func sendToOpenCodeControlSocket(_ text: String) async -> (success: Bool, hint: String?)? {
+        guard let sid = openCodeServerSessionId else {
+            return (false, "no session id")
+        }
+        guard let socketPath = session.openCodeControlSocketPath else {
+            return (false, "no control socket (restart opencode)")
+        }
+
+        let body: [String: Any] = [
+            "type": "prompt",
+            "session_id": sid,
+            "text": text,
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
+            return (false, "bad payload")
+        }
+
+        guard let data = await UnixSocketClient.sendAndReceive(
+            socketPath: socketPath,
+            payload: payload,
+            timeoutSeconds: 2,
+            allowNoResponse: true
+        ) else {
+            return (false, "control socket unreachable")
+        }
+
+        // Best-effort: if the control socket accepted the payload but didn't reply in time,
+        // treat it as success (the prompt may still have been queued).
+        if data.isEmpty {
+            return (true, nil)
+        }
+
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (false, "bad control response")
+        }
+
+        if let ok = obj["ok"] as? Bool, ok {
+            return (true, nil)
+        }
+
+        if let err = obj["error"] as? String, !err.isEmpty {
+            return (false, err)
+        }
+
+        return (false, "control failed")
+    }
+
+    private func sendToOpenCodeHTTP(_ text: String) async -> (success: Bool, hint: String?) {
+        guard let sid = openCodeServerSessionId else {
+            return (false, "no session id")
+        }
+        guard let port = session.serverPort else {
+            return (false, "no server info (restart opencode)")
+        }
+
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = (session.serverHostname?.isEmpty == false) ? session.serverHostname : "localhost"
+        components.port = port
+        // Use prompt_async to avoid blocking until completion.
+        components.path = "/session/\(sid)/prompt_async"
+
+        guard let url = components.url else { return (false, "invalid server url") }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "parts": [[
+                "type": "text",
+                "text": text,
+            ]]
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return (false, "bad payload")
+        }
+        request.httpBody = data
+
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: request)
+            if let http = resp as? HTTPURLResponse {
+                // prompt_async returns 204 on success.
+                if (200..<300).contains(http.statusCode) {
+                    return (true, nil)
+                }
+                return (false, "OpenCode API HTTP \(http.statusCode)")
+            }
+        } catch {
+            return (false, "OpenCode API unreachable")
+        }
+
+        return (false, "unexpected response")
     }
 }
 
@@ -1049,11 +1266,14 @@ struct ChatInteractivePromptBar: View {
 struct ChatApprovalBar: View {
     let tool: String
     let toolInput: String?
+    let allowAlways: Bool
     let onApprove: () -> Void
+    let onAlways: () -> Void
     let onDeny: () -> Void
 
     @State private var showContent = false
     @State private var showAllowButton = false
+    @State private var showAlwaysButton = false
     @State private var showDenyButton = false
 
     var body: some View {
@@ -1091,6 +1311,25 @@ struct ChatApprovalBar: View {
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
 
+            if allowAlways {
+                Button {
+                    onAlways()
+                } label: {
+                    Text("Always")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(showAlwaysButton ? 1 : 0)
+                .scaleEffect(showAlwaysButton ? 1 : 0.8)
+            }
+
             // Allow button
             Button {
                 onApprove()
@@ -1118,8 +1357,17 @@ struct ChatApprovalBar: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.1)) {
                 showDenyButton = true
             }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.15)) {
-                showAllowButton = true
+            if allowAlways {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.15)) {
+                    showAlwaysButton = true
+                }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.2)) {
+                    showAllowButton = true
+                }
+            } else {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.15)) {
+                    showAllowButton = true
+                }
             }
         }
     }

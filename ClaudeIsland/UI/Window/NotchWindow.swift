@@ -79,11 +79,15 @@ class NotchPanel: NSPanel {
                 // No view wants this event - pass it through to windows behind
                 // by temporarily ignoring mouse events and re-posting
                 let screenLocation = convertPoint(toScreen: locationInWindow)
+                let prevIgnores = ignoresMouseEvents
                 ignoresMouseEvents = true
 
                 // Re-post the event after a tiny delay
                 DispatchQueue.main.async { [weak self] in
                     self?.repostMouseEvent(event, at: screenLocation)
+                    // Restore original behavior so the panel remains interactive.
+                    // Without this, a single "empty" click would permanently disable clicks.
+                    self?.ignoresMouseEvents = prevIgnores
                 }
                 return
             }
