@@ -24,6 +24,10 @@ actor SessionStore {
     /// All sessions keyed by sessionId
     private var sessions: [String: SessionState] = [:]
 
+    /// OpenCode: ID of the currently streaming assistant message item (per session)
+    /// We update this item in-place as new partial text arrives.
+    private var opencodeActiveAssistantItemId: [String: String] = [:]
+
     /// Pending file syncs (debounced)
     private var pendingSyncs: [String: Task<Void, Never>] = [:]
 
@@ -126,12 +130,28 @@ actor SessionStore {
         }
 
         session.pid = event.pid
-        if let pid = event.pid {
+        // OpenCode events provide `_ppid` instead of `pid`.
+        if session.pid == nil, let sourcePid = event.sourcePid {
+            session.pid = sourcePid
+        }
+
+        if let pid = session.pid {
             let tree = ProcessTreeBuilder.shared.buildTree()
             session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
         }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
+        }
+
+        if let serverPort = event.serverPort {
+            session.serverPort = serverPort
+        }
+        if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
+            session.serverHostname = serverHostname
+        }
+
+        if let remoteHostId = event.remoteHostId {
+            session.remoteHostId = remoteHostId
         }
         session.lastActivity = Date()
 
@@ -154,6 +174,9 @@ actor SessionStore {
             updateToolStatus(in: &session, toolId: toolUseId, status: .waitingForApproval)
         }
 
+        applyNonClaudeMetadata(event: event, session: &session)
+        applyOpenCodeChatItems(event: event, session: &session)
+
         processToolTracking(event: event, session: &session)
         processSubagentTracking(event: event, session: &session)
 
@@ -169,6 +192,120 @@ actor SessionStore {
         }
     }
 
+    private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
+        // OpenCode doesn't have Claude JSONL; use forwarded metadata for titles/messages.
+        guard session.opencodeRawSessionId != nil else { return }
+
+        var summary = session.conversationInfo.summary
+        var lastMessage = session.conversationInfo.lastMessage
+        var lastMessageRole = session.conversationInfo.lastMessageRole
+        var lastToolName = session.conversationInfo.lastToolName
+        var firstUserMessage = session.conversationInfo.firstUserMessage
+        var lastUserMessageDate = session.conversationInfo.lastUserMessageDate
+
+        if let title = event.codexTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            summary = truncateInline(title, maxLength: 80)
+        }
+
+        if let prompt = event.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let clean = truncateInline(prompt, maxLength: 80)
+            lastMessage = clean
+            lastMessageRole = "user"
+            lastUserMessageDate = Date()
+            if firstUserMessage == nil {
+                firstUserMessage = truncateInline(prompt, maxLength: 50)
+            }
+        }
+
+        if event.event == "PreToolUse", let tool = event.tool {
+            lastMessageRole = "tool"
+            lastToolName = tool
+            // Keep lastMessage as-is; list row uses pendingToolInput for approvals.
+        }
+
+        if let assistant = event.lastAssistantMessage, !assistant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lastMessage = truncateInline(assistant, maxLength: 80)
+            lastMessageRole = "assistant"
+        }
+
+        session.conversationInfo = ConversationInfo(
+            summary: summary,
+            lastMessage: lastMessage,
+            lastMessageRole: lastMessageRole,
+            lastToolName: lastToolName,
+            firstUserMessage: firstUserMessage,
+            lastUserMessageDate: lastUserMessageDate
+        )
+    }
+
+    private func applyOpenCodeChatItems(event: HookEvent, session: inout SessionState) {
+        guard session.opencodeRawSessionId != nil else { return }
+
+        let now = Date()
+
+        if event.event == "UserPromptSubmit",
+           let prompt = event.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !prompt.isEmpty {
+            // New user turn starts a new assistant stream.
+            opencodeActiveAssistantItemId[session.sessionId] = nil
+
+            // De-dupe if the last item is already this exact prompt.
+            if case .user(let last) = session.chatItems.last?.type, last == prompt {
+                return
+            }
+
+            session.chatItems.append(
+                ChatHistoryItem(
+                    id: "opencode-user-\(UUID().uuidString)",
+                    type: .user(prompt),
+                    timestamp: now
+                )
+            )
+        }
+
+        // OpenCode assistant streaming: we receive partial text via last_assistant_message.
+        if (event.event == "AssistantMessage" || event.event == "Stop"),
+           let text = event.lastAssistantMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty {
+            let activeId = opencodeActiveAssistantItemId[session.sessionId]
+
+            if let activeId,
+               let idx = session.chatItems.firstIndex(where: { $0.id == activeId }),
+               case .assistant = session.chatItems[idx].type {
+                session.chatItems[idx] = ChatHistoryItem(
+                    id: activeId,
+                    type: .assistant(text),
+                    timestamp: session.chatItems[idx].timestamp
+                )
+            } else {
+                let id = "opencode-assistant-\(UUID().uuidString)"
+                opencodeActiveAssistantItemId[session.sessionId] = id
+                session.chatItems.append(
+                    ChatHistoryItem(
+                        id: id,
+                        type: .assistant(text),
+                        timestamp: now
+                    )
+                )
+            }
+
+            // Stop means the turn is done; finalize the assistant item.
+            if event.event == "Stop" {
+                opencodeActiveAssistantItemId[session.sessionId] = nil
+            }
+        }
+    }
+
+    private func truncateInline(_ s: String?, maxLength: Int) -> String? {
+        guard let s else { return nil }
+        let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        if cleaned.count > maxLength {
+            return String(cleaned.prefix(maxLength - 3)) + "..."
+        }
+        return cleaned
+    }
+
     private func createSession(from event: HookEvent) -> SessionState {
         SessionState(
             sessionId: event.sessionId,
@@ -177,6 +314,9 @@ actor SessionStore {
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
             isInTmux: false,  // Will be updated
+            serverPort: event.serverPort,
+            serverHostname: event.serverHostname,
+            remoteHostId: event.remoteHostId,
             phase: .idle
         )
     }
