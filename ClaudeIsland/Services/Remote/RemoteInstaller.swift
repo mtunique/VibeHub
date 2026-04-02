@@ -1,53 +1,31 @@
 import Foundation
 
 enum RemoteInstaller {
-    static func installAllWithTimeout(host: RemoteHost, timeoutSeconds: UInt64 = 25) async -> RemoteInstallReport {
-        await withTaskGroup(of: RemoteInstallReport.self) { group in
-            group.addTask {
-                await installAll(host: host)
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
-                let step = RemoteInstallStep(
-                    name: "install timeout",
-                    command: "(timeout)",
-                    ok: false,
-                    exitCode: 124,
-                    stdout: "",
-                    stderr: "install timed out after \(timeoutSeconds)s"
-                )
-                return RemoteInstallReport(startedAt: Date(), finishedAt: Date(), steps: [step])
-            }
-
-            let first = await group.next()!
-            group.cancelAll()
-            return first
-        }
-    }
-    static func installAll(host: RemoteHost) async -> RemoteInstallReport {
+    static func installAll(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> RemoteInstallReport {
         let startedAt = Date()
         var steps: [RemoteInstallStep] = []
 
-        steps.append(contentsOf: await installClaudeHooks(host: host))
-        steps.append(contentsOf: await installOpenCodePlugin(host: host))
+        steps.append(contentsOf: await installClaudeHooks(host: host, progress: progress))
+        steps.append(contentsOf: await installOpenCodePlugin(host: host, progress: progress))
 
-        // Verify presence
+        if let progress { await progress("verify files") }
+
         steps.append(await step(
             name: "verify claude hook",
             command: "test -f ~/.claude/hooks/claude-island-state.py && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/claude-island-state.py && echo ok || echo missing")
+            result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/claude-island-state.py && echo ok || echo missing", timeoutSeconds: 12)
         ))
 
         steps.append(await step(
             name: "verify opencode plugin",
             command: "test -f ~/.config/opencode/plugins/claude-island.js && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/claude-island.js && echo ok || echo missing")
+            result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/claude-island.js && echo ok || echo missing", timeoutSeconds: 12)
         ))
 
         return RemoteInstallReport(startedAt: startedAt, finishedAt: Date(), steps: steps)
     }
 
-    static func installClaudeHooks(host: RemoteHost) async -> [RemoteInstallStep] {
+    static func installClaudeHooks(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> [RemoteInstallStep] {
         guard let script = Bundle.main.url(forResource: "claude-island-state", withExtension: "py") else {
             return []
         }
@@ -56,19 +34,19 @@ enum RemoteInstaller {
 
         steps.append(await step(
             name: "mkdir ~/.claude/hooks",
-            command: "mkdir -p ~/.claude/hooks",
-            result: await runSSHResult(host: host, command: "mkdir -p ~/.claude/hooks")
+            command: "ssh \(host.sshTarget) 'mkdir -p ~/.claude/hooks'",
+            result: await runSSHResult(host: host, command: "mkdir -p ~/.claude/hooks", timeoutSeconds: 12)
         ))
-        // Use a path relative to $HOME for scp compatibility (newer scp uses SFTP and may not expand ~).
+        if let progress { await progress("upload claude hook") }
         steps.append(await step(
-            name: "scp claude hook",
-            command: "scp \"\(script.lastPathComponent)\" -> \(host.sshTarget):.claude/hooks/claude-island-state.py",
-            result: await runSCPResult(host: host, localPath: script.path, remotePath: ".claude/hooks/claude-island-state.py")
+            name: "upload claude hook",
+            command: "ssh \(host.sshTarget) 'base64 -d > ~/.claude/hooks/claude-island-state.py'",
+            result: await uploadFileViaSSH(host: host, localURL: script, remotePath: "~/.claude/hooks/claude-island-state.py", timeoutSeconds: 20)
         ))
         steps.append(await step(
             name: "chmod claude hook",
-            command: "chmod 755 ~/.claude/hooks/claude-island-state.py",
-            result: await runSSHResult(host: host, command: "chmod 755 ~/.claude/hooks/claude-island-state.py")
+            command: "ssh \(host.sshTarget) 'chmod 755 ~/.claude/hooks/claude-island-state.py'",
+            result: await runSSHResult(host: host, command: "chmod 755 ~/.claude/hooks/claude-island-state.py", timeoutSeconds: 12)
         ))
 
         // Merge hook config into ~/.claude/settings.json (best effort)
@@ -151,13 +129,13 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
         steps.append(await step(
             name: "update ~/.claude/settings.json",
             command: "python3 - <<'PY' ... PY",
-            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY")
+            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY", timeoutSeconds: 20)
         ))
 
         return steps
     }
 
-    static func installOpenCodePlugin(host: RemoteHost) async -> [RemoteInstallStep] {
+    static func installOpenCodePlugin(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> [RemoteInstallStep] {
         guard let plugin = Bundle.main.url(forResource: "claude-island-opencode", withExtension: "js") else {
             return []
         }
@@ -165,7 +143,7 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
         var steps: [RemoteInstallStep] = []
 
         // Only install if OpenCode config exists.
-        let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json && echo ok || echo missing")
+        let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json && echo ok || echo missing", timeoutSeconds: 12)
         steps.append(await step(name: "check opencode config", command: "test -f ~/.config/opencode/opencode.json", result: checkResult))
         guard (checkResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok") else {
             return steps
@@ -173,14 +151,14 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
         steps.append(await step(
             name: "mkdir ~/.config/opencode/plugins",
-            command: "mkdir -p ~/.config/opencode/plugins",
-            result: await runSSHResult(host: host, command: "mkdir -p ~/.config/opencode/plugins")
+            command: "ssh \(host.sshTarget) 'mkdir -p ~/.config/opencode/plugins'",
+            result: await runSSHResult(host: host, command: "mkdir -p ~/.config/opencode/plugins", timeoutSeconds: 12)
         ))
-        // Use a path relative to $HOME for scp compatibility (newer scp uses SFTP and may not expand ~).
+        if let progress { await progress("upload opencode plugin") }
         steps.append(await step(
-            name: "scp opencode plugin",
-            command: "scp \"\(plugin.lastPathComponent)\" -> \(host.sshTarget):.config/opencode/plugins/claude-island.js",
-            result: await runSCPResult(host: host, localPath: plugin.path, remotePath: ".config/opencode/plugins/claude-island.js")
+            name: "upload opencode plugin",
+            command: "ssh \(host.sshTarget) 'base64 -d > ~/.config/opencode/plugins/claude-island.js'",
+            result: await uploadFileViaSSH(host: host, localURL: plugin, remotePath: "~/.config/opencode/plugins/claude-island.js", timeoutSeconds: 20)
         ))
 
         let py = """
@@ -211,7 +189,7 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
         steps.append(await step(
             name: "update opencode.json plugins",
             command: "python3 - <<'PY' ... PY",
-            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY")
+            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY", timeoutSeconds: 20)
         ))
 
         return steps
@@ -227,8 +205,12 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
             "-o", "ServerAliveCountMax=2",
             // Avoid interactive host key prompts; accept new hosts and still protect against MITM changes.
             "-o", "StrictHostKeyChecking=accept-new",
-            // Prefer gssapi, but fall back to publickey if available.
-            "-o", "PreferredAuthentications=gssapi-with-mic,publickey",
+            // Force GSSAPI auth only: prevents intermittent "Miscellaneous failure" that occurs
+            // when SSH tries gssapi-with-mic alongside other methods.
+            "-o", "PreferredAuthentications=gssapi-with-mic",
+            // ControlPath: reuse the ControlMaster socket created by SSHForwarder.
+            // Must match the path in SSHForwarder.buildArgs exactly.
+            "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
         ]
         if let port = host.port { args += ["-p", String(port)] }
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
@@ -236,12 +218,12 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
     }
 
     static func runSSH(host: RemoteHost, command: String) async -> String? {
-        let r = await runSSHResult(host: host, command: command)
+        let r = await runSSHResult(host: host, command: command, timeoutSeconds: 20)
         guard r.exitCode == 0 else { return nil }
         return r.output
     }
 
-    static func runSSHResult(host: RemoteHost, command: String) async -> ProcessResult {
+    static func runSSHResult(host: RemoteHost, command: String, timeoutSeconds: Int) async -> ProcessResult {
         let sshPath = "/usr/bin/ssh"
         var args = sshBaseArgs(host: host)
         args.append(host.sshTarget)
@@ -250,32 +232,25 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
         // Run via login shell so ssh inherits the same environment as Terminal
         // (eg SSH_AUTH_SOCK / corp auth envs), which often fixes jump-proxy auth.
         let cmd = shellEnvPrefix() + shellJoin([sshPath] + args)
-        return await runShellResult(cmd)
+        return await runShellResult(cmd, timeoutSeconds: timeoutSeconds)
     }
 
-    private static func runSCP(host: RemoteHost, localPath: String, remotePath: String) async -> String? {
-        let r = await runSCPResult(host: host, localPath: localPath, remotePath: remotePath)
-        guard r.exitCode == 0 else { return nil }
-        return r.output
+    // Upload a local file to the remote by base64-encoding its content and piping it through SSH.
+    // This avoids SCP/SFTP entirely and works with any standard SSH connection.
+    private static func uploadFileViaSSH(host: RemoteHost, localURL: URL, remotePath: String, timeoutSeconds: Int) async -> ProcessResult {
+        guard let data = try? Data(contentsOf: localURL) else {
+            return ProcessResult(output: "", exitCode: 1, stderr: "failed to read local file: \(localURL.path)")
+        }
+        // base64 output uses only A-Za-z0-9+/= — safe inside single quotes on the remote shell
+        let encoded = data.base64EncodedString()
+        let command = "printf '%s' '\(encoded)' | base64 -d > \(remotePath)"
+        return await runSSHResult(host: host, command: command, timeoutSeconds: timeoutSeconds)
     }
 
-    static func runSCPResult(host: RemoteHost, localPath: String, remotePath: String) async -> ProcessResult {
-        let scpPath = "/usr/bin/scp"
-        var scpArgs: [String] = []
-        if let port = host.port { scpArgs += ["-P", String(port)] }
-        if let key = host.identityFile, !key.isEmpty { scpArgs += ["-i", key] }
-        scpArgs += ["-o", "BatchMode=yes"]
-        scpArgs += [localPath, "\(host.sshTarget):\(remotePath)"]
-
-        // scp may still need the same auth env (agent/kerberos) as ssh.
-        let cmd = shellEnvPrefix() + shellJoin([scpPath] + scpArgs)
-        return await runShellResult(cmd)
-    }
-
-    private static func runShellResult(_ command: String) async -> ProcessResult {
+    private static func runShellResult(_ command: String, timeoutSeconds: Int) async -> ProcessResult {
         let zsh = "/bin/zsh"
         let args = ["-lc", command]
-        let res = await ProcessExecutor.shared.runWithResult(zsh, arguments: args)
+        let res = await ProcessExecutor.shared.runWithResult(zsh, arguments: args, timeoutSeconds: timeoutSeconds)
         switch res {
         case .success(let r):
             return r

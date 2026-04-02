@@ -74,6 +74,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager()
         _ = windowManager?.setupNotchWindow()
 
+        // Auto-connect remote hosts.
+        RemoteManager.shared.startup()
+
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()
         }
