@@ -132,29 +132,75 @@ export default async ({ client, serverUrl }) => {
             const sessionID = req.session_id;
             const text = req.text;
 
-            const ok = await (async () => {
-              // Prefer prompting the session directly.
-              if (client?.session?.prompt) {
-                client.session
-                  .prompt({
+            function errToString(e) {
+              try {
+                if (!e) return "";
+                if (typeof e === "string") return e;
+                if (e.message) return e.message;
+                return JSON.stringify(e);
+              } catch {
+                return String(e);
+              }
+            }
+
+            const result = await (async () => {
+              const errors = [];
+
+              // Strategy 1: SDK session prompt APIs (multiple shapes across versions).
+              const candidates = [
+                { ctx: client?.session, fn: client?.session?.prompt },
+                { ctx: client?.sessions, fn: client?.sessions?.prompt },
+                { ctx: client?._client?.session, fn: client?._client?.session?.prompt },
+                { ctx: client?._client?.sessions, fn: client?._client?.sessions?.prompt },
+              ].filter((c) => typeof c.fn === "function");
+
+              for (const c of candidates) {
+                try {
+                  await c.fn.call(c.ctx || client, {
                     path: { id: sessionID },
                     body: { parts: [{ type: "text", text }] },
-                  })
-                  .catch(() => {});
-                return true;
+                  });
+                  return { ok: true, via: "session.prompt" };
+                } catch (e) {
+                  errors.push(errToString(e));
+                }
               }
 
-              // Fallback: drive the TUI prompt buffer.
+              // Strategy 2: internal HTTP (works even when external HTTP server isn't reachable).
+              const fetcher = internalFetch || globalThis.fetch;
+              if (fetcher && parsedServerUrl) {
+                try {
+                  const origin = parsedServerUrl.origin;
+                  const url = `${origin}/session/${sessionID}/prompt_async`;
+                  const resp = await fetcher(url, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ parts: [{ type: "text", text }] }),
+                  });
+                  if (resp && (resp.status >= 200 && resp.status < 300)) {
+                    return { ok: true, via: "http.prompt_async" };
+                  }
+                  errors.push(`http ${resp ? resp.status : "no response"}`);
+                } catch (e) {
+                  errors.push(errToString(e));
+                }
+              }
+
+              // Strategy 3: drive the TUI prompt buffer.
               if (client?.tui?.appendPrompt && client?.tui?.submitPrompt) {
-                await client.tui.appendPrompt({ body: { text } });
-                await client.tui.submitPrompt();
-                return true;
+                try {
+                  await client.tui.appendPrompt({ body: { text } });
+                  await client.tui.submitPrompt();
+                  return { ok: true, via: "tui.submitPrompt" };
+                } catch (e) {
+                  errors.push(errToString(e));
+                }
               }
 
-              return false;
+              return { ok: false, error: errors[0] || "no client api" };
             })();
 
-            sock.write(JSON.stringify(ok ? { ok: true } : { ok: false, error: "no client api" }));
+            sock.write(JSON.stringify(result));
             sock.end();
             return;
           }
@@ -257,77 +303,10 @@ export default async ({ client, serverUrl }) => {
         lastUserText: "",
         lastAssistantText: "",
         pendingTitle: null,
-        lastAssistantSentAt: 0,
-        lastAssistantSentLen: 0,
-        idleStopTimer: null,
         lastActivityAt: Date.now(),
       });
     }
     return sessions.get(rawSessionId);
-  }
-
-  function clearIdleStop(rawSessionId) {
-    const s = getSession(rawSessionId);
-    if (s.idleStopTimer) {
-      try {
-        clearTimeout(s.idleStopTimer);
-      } catch {
-        // ignore
-      }
-      s.idleStopTimer = null;
-    }
-  }
-
-  function scheduleIdleStop(rawSessionId) {
-    const s = getSession(rawSessionId);
-    clearIdleStop(rawSessionId);
-
-    const scheduledAt = Date.now();
-    const lastActivitySnapshot = s.lastActivityAt || scheduledAt;
-
-    // Safety net: some OpenCode versions do not emit a session.status idle event.
-    // If we haven't seen new activity for a moment after assistant/tool output,
-    // emit a Stop to transition the UI into waiting_for_input.
-    s.idleStopTimer = setTimeout(() => {
-      s.idleStopTimer = null;
-      // If there was recent activity, don't stop yet.
-      const now = Date.now();
-      const last = s.lastActivityAt || now;
-      if (now - last < 3000) return;
-      // If activity happened after we scheduled, also don't stop.
-      if (last > lastActivitySnapshot || last > scheduledAt) return;
-      const sid = `opencode-${rawSessionId}`;
-      const cwd = sessionCwd.get(rawSessionId) || "";
-      sendToSocket(
-        base(sid, {
-          event: "Stop",
-          status: "waiting_for_input",
-          cwd,
-          last_assistant_message: s.lastAssistantText || undefined,
-        }),
-      ).catch(() => {});
-    }, 3500);
-  }
-
-  function shouldEmitAssistant(s, text) {
-    const now = Date.now();
-    const len = (text || "").length;
-
-    // If a new turn started (text got shorter), reset.
-    if (len < (s.lastAssistantSentLen || 0)) {
-      s.lastAssistantSentLen = 0;
-      s.lastAssistantSentAt = 0;
-    }
-
-    const delta = len - (s.lastAssistantSentLen || 0);
-    const elapsed = now - (s.lastAssistantSentAt || 0);
-
-    // Throttle: emit if we made meaningful progress OR enough time passed.
-    if (delta < 24 && elapsed < 600) return false;
-
-    s.lastAssistantSentLen = len;
-    s.lastAssistantSentAt = now;
-    return true;
   }
 
   function base(sessionId, extra) {
@@ -410,7 +389,6 @@ export default async ({ client, serverUrl }) => {
           extra.codex_title = s.pendingTitle;
           s.pendingTitle = null;
         }
-        clearIdleStop(rawSessionId);
         return base(sid, extra);
       }
       return null;
@@ -433,10 +411,6 @@ export default async ({ client, serverUrl }) => {
       if (meta.role === "user" && text) {
         s.lastUserText = text;
         s.lastActivityAt = Date.now();
-        // New user turn => reset assistant streaming throttle.
-        s.lastAssistantSentAt = 0;
-        s.lastAssistantSentLen = 0;
-        clearIdleStop(meta.sessionID);
         setTabTitle(`opencode-${meta.sessionID}`, cwd, text, null);
         return base(`opencode-${meta.sessionID}`, {
           event: "UserPromptSubmit",
@@ -448,8 +422,10 @@ export default async ({ client, serverUrl }) => {
       if (meta.role === "assistant" && text) {
         s.lastAssistantText = text;
         s.lastActivityAt = Date.now();
-        if (shouldEmitAssistant(s, text)) {
-          scheduleIdleStop(meta.sessionID);
+        // Throttle: only emit every ~800ms to keep chat view updated without flooding.
+        const now = Date.now();
+        if (now - (s._lastAssistantEmitAt || 0) > 800) {
+          s._lastAssistantEmitAt = now;
           return base(`opencode-${meta.sessionID}`, {
             event: "AssistantMessage",
             status: "processing",
@@ -470,7 +446,6 @@ export default async ({ client, serverUrl }) => {
 
       if (st === "running" || st === "pending") {
         getSession(p.part.sessionID).lastActivityAt = Date.now();
-        clearIdleStop(p.part.sessionID);
         return base(sid, {
           event: "PreToolUse",
           status: "running_tool",
@@ -483,7 +458,6 @@ export default async ({ client, serverUrl }) => {
 
       if (st === "completed" || st === "error") {
         getSession(p.part.sessionID).lastActivityAt = Date.now();
-        scheduleIdleStop(p.part.sessionID);
         return base(sid, {
           event: "PostToolUse",
           status: "processing",
@@ -498,7 +472,6 @@ export default async ({ client, serverUrl }) => {
 
     if (t === "permission.asked" && p.id && p.sessionID) {
       getSession(p.sessionID).lastActivityAt = Date.now();
-      clearIdleStop(p.sessionID);
       const requestId = p.id;
       const toolName = titleCase(p.permission || "Tool");
       const patterns = p.patterns || [];
@@ -534,7 +507,6 @@ export default async ({ client, serverUrl }) => {
 
     if (t === "permission.replied" && p.sessionID && p.id) {
       getSession(p.sessionID).lastActivityAt = Date.now();
-      scheduleIdleStop(p.sessionID);
       const sid = `opencode-${p.sessionID}`;
       const cwd = sessionCwd.get(p.sessionID) || "";
       return base(sid, {
@@ -547,7 +519,6 @@ export default async ({ client, serverUrl }) => {
 
     if (t === "question.asked" && p.id && p.sessionID) {
       getSession(p.sessionID).lastActivityAt = Date.now();
-      clearIdleStop(p.sessionID);
       const sid = `opencode-${p.sessionID}`;
       const cwd = sessionCwd.get(p.sessionID) || "";
       const questions = (p.questions || []).map((q) => ({
@@ -576,7 +547,6 @@ export default async ({ client, serverUrl }) => {
 
     if ((t === "question.replied" || t === "question.rejected") && p.sessionID && p.id) {
       getSession(p.sessionID).lastActivityAt = Date.now();
-      scheduleIdleStop(p.sessionID);
       const sid = `opencode-${p.sessionID}`;
       const cwd = sessionCwd.get(p.sessionID) || "";
       return base(sid, {

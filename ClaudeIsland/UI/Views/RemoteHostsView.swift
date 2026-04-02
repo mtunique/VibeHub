@@ -81,6 +81,10 @@ struct RemoteHostsView: View {
                                     .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.45))
 
+                                Text("id: \(String(host.id.prefix(8)))  sock: \(host.localSocketPath)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.35))
+
                                 Text(statusLine(for: status))
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundColor(statusColor(for: status))

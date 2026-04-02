@@ -14,9 +14,20 @@ final class SSHForwarder: ObservableObject {
 
     private var process: Process?
     private var stderrPipe: Pipe?
+    private var hostId: String?
+    /// Monotonically increasing counter incremented on each connect(). Stale
+    /// terminationHandler / stderrMonitor callbacks compare their captured
+    /// generation to this value and bail out if they no longer match, preventing
+    /// old SSH processes from corrupting the current connection status.
+    private var generation: UInt64 = 0
 
     func connect(host: RemoteHost) {
+        hostId = host.id
         disconnect()
+
+        generation &+= 1
+        let gen = generation
+
         status = .connecting
 
         let sshPath = "/usr/bin/ssh"
@@ -46,8 +57,13 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
         p.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Stale callback from an old SSH process — ignore it.
+                guard self.generation == gen else { return }
                 if case .disconnected = self.status { return }
                 let code = proc.terminationStatus
+                // Exit 0 with ControlMaster=auto is normal: SSH multiplexed through an
+                // existing master socket and exited cleanly. This is not an error.
+                if code == 0 { return }
                 self.status = .failed("ssh exited (\(code))")
             }
         }
@@ -57,10 +73,12 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             process = p
             // Only mark connected after we know the process is alive.
             status = .connecting
-            startStderrMonitor(err)
+            startStderrMonitor(err, generation: gen)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak p] in
                 guard let self else { return }
+                // Stale callback — a newer connect() has started.
+                guard self.generation == gen else { return }
                 guard let p else { return }
                 if p.isRunning {
                     self.status = .connected
@@ -84,7 +102,10 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
         }
         process = nil
         stderrPipe = nil
-        status = .disconnected
+        // Do NOT set status = .disconnected here. The process terminationHandler
+        // (set up when the process was started) will handle the status transition.
+        // Calling setStatus(.disconnected) here would trigger scheduleReconnectIfNeeded,
+        // which interferes with reconnect() calls that are about to start a new process.
     }
 
     private func buildArgs(host: RemoteHost) -> [String] {
@@ -94,10 +115,23 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             "-N",
             "-T",
             "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=yes",
-            "-o", "ServerAliveInterval=30",
+            "-o", "ExitOnForwardFailure=no",
+            "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=3",
             "-o", "StreamLocalBindUnlink=yes",
+            // Make the remote unix socket connectable by the actual CLI process user.
+            // Default is 0177 (srw-------) which often breaks hooks.
+            "-o", "StreamLocalBindMask=0000",
+            // Jump proxy and devserver1 only support GSSAPI auth. Using PreferredAuthentications
+            // forces gssapi-with-mic first, avoiding the intermittent "Miscellaneous failure" that
+            // occurs when SSH tries gssapi-with-mic alongside other methods.
+            "-o", "PreferredAuthentications=gssapi-with-mic",
+            // ControlMaster=auto: reuse an existing socket if present, otherwise create one.
+            // This avoids killing a stale SSH process that holds the socket.
+            // ControlPersist=300: keeps the master socket alive for 5 min after the last session.
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
+            "-o", "ControlPersist=300",
         ]
 
         if let port = host.port {
@@ -114,15 +148,20 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
         return args
     }
 
-    private func startStderrMonitor(_ pipe: Pipe) {
+    private func startStderrMonitor(_ pipe: Pipe, generation gen: UInt64) {
         let handle = pipe.fileHandleForReading
         handle.readabilityHandler = { [weak self] h in
             let data = h.availableData
             guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+            let msg = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !msg.isEmpty else { return }
+
+            Task { await RemoteLog.shared.log(.debug, "ssh stderr: \(msg)", hostId: self?.hostId) }
+
             DispatchQueue.main.async {
                 guard let self else { return }
-                let msg = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !msg.isEmpty else { return }
+                // Stale callback from an old SSH process — ignore it.
+                guard self.generation == gen else { return }
 
                 // During connect, treat stderr as failure (eg Permission denied).
                 if case .connecting = self.status {
