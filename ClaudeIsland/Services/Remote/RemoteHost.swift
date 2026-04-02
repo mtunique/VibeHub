@@ -34,6 +34,14 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
         }
         return host
     }
+
+    /// Used to de-dupe multiple entries pointing at the same remote.
+    var hostKey: String {
+        let u = (user ?? "").lowercased()
+        let h = host.lowercased()
+        let p = port.map(String.init) ?? ""
+        return "\(u)@\(h):\(p)"
+    }
     var namespacePrefix: String { "remote:\(id):" }
     var localSocketPath: String { "/tmp/claude-island-remote-\(id).sock" }
     var remoteSocketPath: String { "/tmp/claude-island.sock" }

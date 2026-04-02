@@ -63,6 +63,7 @@ struct ProcessResult: Sendable {
 protocol ProcessExecuting: Sendable {
     func run(_ executable: String, arguments: [String]) async throws -> String
     func runWithResult(_ executable: String, arguments: [String]) async -> Result<ProcessResult, ProcessExecutorError>
+    func runWithResult(_ executable: String, arguments: [String], timeoutSeconds: Int) async -> Result<ProcessResult, ProcessExecutorError>
     func runSync(_ executable: String, arguments: [String]) -> Result<String, ProcessExecutorError>
 }
 
@@ -135,6 +136,80 @@ actor ProcessExecutor: ProcessExecuting {
                 }
             } catch {
                 Self.logger.error("Failed to launch command: \(executable, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                continuation.resume(returning: .failure(.launchFailed(command: executable, underlying: error)))
+            }
+        }
+    }
+
+    func runWithResult(_ executable: String, arguments: [String], timeoutSeconds: Int) async -> Result<ProcessResult, ProcessExecutorError> {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now() + .seconds(timeoutSeconds))
+            timer.setEventHandler {
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+
+            do {
+                try process.run()
+                timer.resume()
+                process.waitUntilExit()
+                timer.cancel()
+
+                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                let stderr = String(data: stderrData, encoding: .utf8)
+
+                let timedOut = (process.terminationStatus == SIGTERM) && timeoutSeconds > 0
+
+                if timedOut {
+                    continuation.resume(returning: .failure(.executionFailed(
+                        command: executable,
+                        exitCode: 124,
+                        stderr: "timed out after \(timeoutSeconds)s\n" + (stderr ?? "")
+                    )))
+                    return
+                }
+
+                let result = ProcessResult(
+                    output: stdout,
+                    exitCode: process.terminationStatus,
+                    stderr: stderr
+                )
+
+                if process.terminationStatus == 0 {
+                    continuation.resume(returning: .success(result))
+                } else {
+                    continuation.resume(returning: .failure(.executionFailed(
+                        command: executable,
+                        exitCode: process.terminationStatus,
+                        stderr: stderr
+                    )))
+                }
+            } catch let error as NSError {
+                // Must resume before cancel: releasing a never-resumed DispatchSource crashes libdispatch.
+                timer.resume()
+                timer.cancel()
+                if error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                    continuation.resume(returning: .failure(.commandNotFound(executable)))
+                } else {
+                    continuation.resume(returning: .failure(.launchFailed(command: executable, underlying: error)))
+                }
+            } catch {
+                timer.resume()
+                timer.cancel()
                 continuation.resume(returning: .failure(.launchFailed(command: executable, underlying: error)))
             }
         }

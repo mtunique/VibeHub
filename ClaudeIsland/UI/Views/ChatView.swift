@@ -375,13 +375,17 @@ struct ChatView: View {
     }
 
     /// Can send messages if we can reach the session.
-    /// - Claude Code: requires tmux + tty so we can paste into the pane.
-    /// - OpenCode: we currently copy-to-clipboard and focus the terminal.
+    /// - Claude Code: tmux send-keys (if in tmux) or TTY injection (if tty available).
+    /// - OpenCode: control socket / HTTP API / clipboard fallback.
     private var canSendMessages: Bool {
         if session.isRemote {
             return true
         }
-        return (session.isInTmux && session.tty != nil) || isOpenCodeSession
+        // Claude Code: either tmux or raw TTY is sufficient
+        if !isOpenCodeSession {
+            return session.tty != nil
+        }
+        return true // OpenCode always has a path (control socket / HTTP / clipboard)
     }
 
     private var inputBar: some View {
@@ -389,7 +393,7 @@ struct ChatView: View {
             TextField(
                 canSendMessages
                     ? (isOpenCodeSession ? "Message OpenCode..." : "Message Claude...")
-                    : "Open Claude Code in tmux to enable messaging",
+                    : "No TTY available for this session",
                 text: $inputText
             )
                 .textFieldStyle(.plain)
@@ -587,7 +591,30 @@ struct ChatView: View {
             return
         }
 
-        guard session.isInTmux else { return }
+        guard session.isInTmux else {
+            // Not in tmux - try TTY injection directly
+            if let tty = session.tty {
+                let ok = await sendViaTTY(text, tty: tty)
+                if !ok {
+                    // Fallback: clipboard + focus
+                    await MainActor.run {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(text, forType: .string)
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            inputHintText = "Copied. Paste in terminal"
+                        }
+                    }
+                    focusTerminal()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            inputHintText = nil
+                        }
+                    }
+                }
+            }
+            return
+        }
         guard let tty = session.tty else { return }
 
         if let target = await findTmuxTarget(tty: tty) {
@@ -623,6 +650,45 @@ struct ChatView: View {
         }
 
         return nil
+    }
+
+    /// Send text to a TTY device using TIOCSTI ioctl (injects as keyboard input).
+    /// Works for non-tmux terminal sessions where we know the TTY path.
+    private func sendViaTTY(_ text: String, tty: String) async -> Bool {
+        // Ensure tty path is a full device path
+        let ttyPath = tty.hasPrefix("/dev/") ? tty : "/dev/\(tty)"
+
+        // Use a small Python script to inject chars via TIOCSTI ioctl.
+        // Each character is injected individually into the TTY input queue,
+        // then a newline is sent to submit.
+        let script = """
+import os, fcntl, termios, struct, sys, base64
+tty_path = sys.argv[1]
+text = base64.b64decode(sys.argv[2]).decode('utf-8')
+try:
+    fd = os.open(tty_path, os.O_RDWR)
+    for ch in text:
+        for b in ch.encode('utf-8'):
+            fcntl.ioctl(fd, termios.TIOCSTI, struct.pack('B', b))
+    # Send Enter (newline)
+    fcntl.ioctl(fd, termios.TIOCSTI, struct.pack('B', 10))
+    os.close(fd)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
+"""
+
+        let b64 = Data(text.utf8).base64EncodedString()
+
+        do {
+            _ = try await ProcessExecutor.shared.run(
+                "/usr/bin/python3",
+                arguments: ["-c", script, ttyPath, b64]
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     private var openCodeServerSessionId: String? {
