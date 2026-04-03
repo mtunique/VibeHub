@@ -32,14 +32,8 @@ final class SSHForwarder: ObservableObject {
 
         let sshPath = "/usr/bin/ssh"
         let args = buildArgs(host: host)
-        let envPrefix = """
-SSH_AUTH_SOCK_VAL=$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true);
-if [ -n \"$SSH_AUTH_SOCK_VAL\" ]; then export SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK_VAL\"; fi;
-KRB5CCNAME_VAL=$(launchctl getenv KRB5CCNAME 2>/dev/null || true);
-if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
-"""
 
-        let cmd = envPrefix + " " + ([sshPath] + args)
+        let cmd = ([sshPath] + args)
             .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
             .joined(separator: " ")
 
@@ -47,6 +41,7 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
         // Run via login shell so ssh sees same auth env as Terminal.
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", cmd]
+        p.environment = RemoteInstaller.getSSHEnvironment()
 
         let err = Pipe()
         p.standardError = err
