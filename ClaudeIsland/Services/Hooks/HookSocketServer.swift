@@ -159,6 +159,13 @@ typealias PermissionFailureHandler = @Sendable (_ sessionId: String, _ toolUseId
 class HookSocketServer {
     static let socketPath = "/tmp/claude-island.sock"
 
+#if APP_STORE
+    // App Sandbox cannot accept connections on a world-writable unix socket path.
+    // Use a loopback TCP listener instead (hook scripts can connect to 127.0.0.1).
+    static let tcpHost = "127.0.0.1"
+    static let tcpPort: UInt16 = 39283
+#endif
+
     static let shared = HookSocketServer(socketPath: HookSocketServer.socketPath)
 
     private let socketPath: String
@@ -200,9 +207,13 @@ class HookSocketServer {
         eventHandler = onEvent
         permissionFailureHandler = onPermissionFailure
 
+        // Bind + listen
+#if APP_STORE
+        serverSocket = socket(AF_INET, SOCK_STREAM, 0)
+#else
         unlink(socketPath)
-
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+#endif
         guard serverSocket >= 0 else {
             logger.error("Failed to create socket: \(errno)")
             return
@@ -211,6 +222,22 @@ class HookSocketServer {
         let flags = fcntl(serverSocket, F_GETFL)
         _ = fcntl(serverSocket, F_SETFL, flags | O_NONBLOCK)
 
+        let bindResult: Int32
+
+#if APP_STORE
+        var yes: Int32 = 1
+        _ = setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout.size(ofValue: yes)))
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = HookSocketServer.tcpPort.bigEndian
+        addr.sin_addr = in_addr(s_addr: inet_addr(HookSocketServer.tcpHost))
+        bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+#else
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         socketPath.withCString { ptr in
@@ -221,11 +248,12 @@ class HookSocketServer {
             }
         }
 
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
+        bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
+#endif
 
         guard bindResult == 0 else {
             logger.error("Failed to bind socket: \(errno)")
@@ -234,7 +262,10 @@ class HookSocketServer {
             return
         }
 
+        // Make the unix socket world-connectable.
+#if !APP_STORE
         chmod(socketPath, 0o777)
+#endif
 
         guard listen(serverSocket, 10) == 0 else {
             logger.error("Failed to listen: \(errno)")
@@ -243,7 +274,11 @@ class HookSocketServer {
             return
         }
 
+#if APP_STORE
+        logger.info("Listening on tcp://\(HookSocketServer.tcpHost, privacy: .public):\(HookSocketServer.tcpPort, privacy: .public)")
+#else
         logger.info("Listening on \(self.socketPath, privacy: .public)")
+#endif
 
         acceptSource = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         acceptSource?.setEventHandler { [weak self] in
@@ -262,7 +297,10 @@ class HookSocketServer {
     func stop() {
         acceptSource?.cancel()
         acceptSource = nil
+
+#if !APP_STORE
         unlink(socketPath)
+#endif
 
         permissionsLock.lock()
         for (_, pending) in pendingPermissions {
