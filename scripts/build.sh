@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 
 echo "=== Building Claude Island ==="
@@ -20,14 +20,14 @@ cd "$PROJECT_DIR"
 # Build and archive
 echo "Archiving..."
 xcodebuild archive \
-    -scheme ClaudeIsland \
+    -scheme VibeHub \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS" \
     ENABLE_HARDENED_RUNTIME=YES \
     CODE_SIGN_STYLE=Automatic \
     | xcpretty || xcodebuild archive \
-    -scheme ClaudeIsland \
+    -scheme VibeHub \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS" \
