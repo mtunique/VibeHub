@@ -8,7 +8,7 @@
             <sparkle:version>4</sparkle:version>
             <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/mtunique/claude-island/releases/download/v1.2.1/ClaudeIsland-1.2.1.dmg" length="5333243" type="application/octet-stream" sparkle:edSignature="Bhbrka8cXhN2YdOXm1pATvkS0xzgNTiZ1gVUUUvl4qizYNgPDDodpvmK5TmIQuvBfGH6Hv+hGkJV4E6Em9MvBw=="/>
+            <enclosure url="https://github.com/mtunique/vibehub/releases/download/v1.2.1/VibeHub-1.2.1.dmg" length="5333243" type="application/octet-stream" sparkle:edSignature="Bhbrka8cXhN2YdOXm1pATvkS0xzgNTiZ1gVUUUvl4qizYNgPDDodpvmK5TmIQuvBfGH6Hv+hGkJV4E6Em9MvBw=="/>
         </item>
     </channel>
 </rss>
