@@ -41,8 +41,6 @@ enum L10n {
     static var notificationSound: String { isChinese ? "通知音" : "Notification Sound" }
     static var screen: String { isChinese ? "屏幕" : "Screen" }
 
-    static var version: String { isChinese ? "版本" : "Version" }
-
     // MARK: - Update Row
 
     static var checkForUpdates: String { isChinese ? "检查更新" : "Check for Updates" }
