@@ -122,10 +122,6 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             // Make the remote unix socket connectable by the actual CLI process user.
             // Default is 0177 (srw-------) which often breaks hooks.
             "-o", "StreamLocalBindMask=0000",
-            // Jump proxy and devserver1 only support GSSAPI auth. Using PreferredAuthentications
-            // forces gssapi-with-mic first, avoiding the intermittent "Miscellaneous failure" that
-            // occurs when SSH tries gssapi-with-mic alongside other methods.
-            "-o", "PreferredAuthentications=gssapi-with-mic",
             // ControlMaster=auto: reuse an existing socket if present, otherwise create one.
             // This avoids killing a stale SSH process that holds the socket.
             // ControlPersist=300: keeps the master socket alive for 5 min after the last session.
@@ -133,6 +129,14 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
             "-o", "ControlPersist=300",
         ]
+
+        // GSSAPI authentication for Jump proxy, devserver1, etc.
+        if host.useGSSAPI {
+            // Using PreferredAuthentications forces gssapi-with-mic first,
+            // avoiding the intermittent "Miscellaneous failure" that occurs
+            // when SSH tries gssapi-with-mic alongside other methods.
+            args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
+        }
 
         if let port = host.port {
             args += ["-p", String(port)]

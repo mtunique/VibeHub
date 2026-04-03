@@ -24,11 +24,11 @@ struct ClaudeInstancesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text(L10n.noSessions)
+            Text("No sessions")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.4))
 
-            Text(L10n.runClaudeInTerminal)
+            Text("Run claude in terminal")
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.25))
         }
@@ -161,60 +161,93 @@ struct InstanceRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // State indicator on left
-            stateIndicator
-                .frame(width: 14)
+        VStack(alignment: .leading, spacing: 4) {
+            // First row: indicator, title, and tags
+            HStack(alignment: .center, spacing: 10) {
+                // State indicator on left
+                stateIndicator
+                    .frame(width: 14)
 
-            // Text content
-            VStack(alignment: .leading, spacing: 2) {
                 Text(session.displayTitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white)
                     .lineLimit(1)
 
-                // Show tool call when waiting for approval, otherwise last activity
-                if isWaitingForApproval, let toolName = session.pendingToolName {
-                    // Show tool name in amber + input on same line
-                    HStack(spacing: 4) {
-                        Text(MCPToolFormatter.formatToolName(toolName))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(TerminalColors.amber.opacity(0.9))
-                        if isInteractiveTool {
-                            Text(L10n.needsYourInput)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        } else if let input = session.pendingToolInput {
-                            Text(input)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        }
-                    }
-                } else if let role = session.lastMessageRole {
-                    switch role {
-                    case "tool":
-                        // Tool call - show tool name + input
+                Spacer(minLength: 0)
+
+                // Tags: software label + time
+                HStack(spacing: 6) {
+                    // Software tag (Claude/OpenCode)
+                    let isOpencode = session.opencodeRawSessionId != nil
+                    Text(isOpencode ? "opencode" : "claude")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(isOpencode ? TerminalColors.green : claudeOrange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background((isOpencode ? TerminalColors.green : claudeOrange).opacity(0.15))
+                        .clipShape(Capsule())
+
+                    // Time tag
+                    Text(formatTimeAgo(session.lastActivity))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Capsule())
+                }
+            }
+
+            // Second row: description + buttons
+            HStack(spacing: 10) {
+                // Description text
+                Group {
+                    if isWaitingForApproval, let toolName = session.pendingToolName {
                         HStack(spacing: 4) {
-                            if let toolName = session.lastToolName {
-                                Text(MCPToolFormatter.formatToolName(toolName))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            Text(MCPToolFormatter.formatToolName(toolName))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(TerminalColors.amber.opacity(0.9))
+                            if isInteractiveTool {
+                                Text("Needs your input")
+                                    .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.5))
-                            }
-                            if let input = session.lastMessage {
+                                    .lineLimit(1)
+                            } else if let input = session.pendingToolInput {
                                 Text(input)
                                     .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
+                                    .foregroundColor(.white.opacity(0.5))
                                     .lineLimit(1)
                             }
                         }
-                    case "user":
-                        // User message - prefix with "You:"
-                        HStack(spacing: 4) {
-                            Text(L10n.you)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                    } else if let role = session.lastMessageRole {
+                        switch role {
+                        case "tool":
+                            HStack(spacing: 4) {
+                                if let toolName = session.lastToolName {
+                                    Text(MCPToolFormatter.formatToolName(toolName))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.5))
+                                }
+                                if let input = session.lastMessage {
+                                    Text(input)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                            }
+                        case "user":
+                            HStack(spacing: 4) {
+                                Text("You:")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.5))
+                                if let msg = session.lastMessage {
+                                    Text(msg)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                            }
+                        default:
                             if let msg = session.lastMessage {
                                 Text(msg)
                                     .font(.system(size: 11))
@@ -222,78 +255,63 @@ struct InstanceRow: View {
                                     .lineLimit(1)
                             }
                         }
-                    default:
-                        // Assistant message - just show text
-                        if let msg = session.lastMessage {
-                            Text(msg)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.4))
-                                .lineLimit(1)
-                        }
-                    }
-                } else if let lastMsg = session.lastMessage {
-                    Text(lastMsg)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            // Action icons or approval buttons
-            if isWaitingForApproval && isInteractiveTool {
-                // Interactive tools like AskUserQuestion - show chat + terminal buttons
-                HStack(spacing: 8) {
-                    IconButton(icon: "bubble.left") {
-                        onChat()
-                    }
-
-                    // Go to Terminal button (only if yabai available)
-                    if isYabaiAvailable {
-                        TerminalButton(
-                            isEnabled: session.isInTmux,
-                            onTap: { onFocus() }
-                        )
+                    } else if let lastMsg = session.lastMessage {
+                        Text(lastMsg)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                            .lineLimit(1)
                     }
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else if isWaitingForApproval {
-                InlineApprovalButtons(
-                    onChat: onChat,
-                    onApprove: onApprove,
-                    onReject: onReject,
-                    allowAlways: allowAlways,
-                    onAlways: allowAlways ? onApproveAlways : nil
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else {
-                HStack(spacing: 8) {
-                    // Chat icon - always show
-                    IconButton(icon: "bubble.left") {
-                        onChat()
-                    }
+                .padding(.leading, 24)
 
-                    // Focus icon (only for tmux instances with yabai)
-                    if session.isInTmux && isYabaiAvailable {
-                        IconButton(icon: "eye") {
-                            onFocus()
+                Spacer(minLength: 0)
+
+                // Action icons or approval buttons
+                if isWaitingForApproval && isInteractiveTool {
+                    HStack(spacing: 8) {
+                        IconButton(icon: "bubble.left") {
+                            onChat()
+                        }
+                        if isYabaiAvailable {
+                            TerminalButton(
+                                isEnabled: session.isInTmux,
+                                onTap: { onFocus() }
+                            )
                         }
                     }
-
-                    // Archive button - only for idle or completed sessions
-                    if session.phase == .idle || session.phase == .waitingForInput {
-                        IconButton(icon: "archivebox") {
-                            onArchive()
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else if isWaitingForApproval {
+                    InlineApprovalButtons(
+                        onChat: onChat,
+                        onApprove: onApprove,
+                        onReject: onReject,
+                        allowAlways: allowAlways,
+                        onAlways: allowAlways ? onApproveAlways : nil
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else {
+                    HStack(spacing: 8) {
+                        IconButton(icon: "bubble.left") {
+                            onChat()
+                        }
+                        if session.isInTmux && isYabaiAvailable {
+                            IconButton(icon: "eye") {
+                                onFocus()
+                            }
+                        }
+                        if session.phase == .idle || session.phase == .waitingForInput {
+                            IconButton(icon: "archivebox") {
+                                onArchive()
+                            }
                         }
                     }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
         .padding(.leading, 8)
         .padding(.trailing, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onChat()
@@ -337,6 +355,13 @@ struct InstanceRow: View {
         }
     }
 
+    private func formatTimeAgo(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 { return "\(Int(interval))s" }
+        if interval < 3600 { return "\(Int(interval / 60))m" }
+        if interval < 86400 { return "\(Int(interval / 3600))h" }
+        return "\(Int(interval / 86400))d"
+    }
 }
 
 // MARK: - Inline Approval Buttons
@@ -366,7 +391,7 @@ struct InlineApprovalButtons: View {
             Button {
                 onReject()
             } label: {
-                Text(L10n.deny)
+                Text("Deny")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
                     .padding(.horizontal, 10)
@@ -382,7 +407,7 @@ struct InlineApprovalButtons: View {
                     Button {
                         onAlways?()
                     } label: {
-                        Text(L10n.always)
+                        Text("Always")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.white.opacity(0.75))
                             .lineLimit(1)
@@ -400,7 +425,7 @@ struct InlineApprovalButtons: View {
             Button {
                 onApprove()
             } label: {
-                Text(L10n.allow)
+                Text("Allow")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.black)
                     .padding(.horizontal, 10)
@@ -476,7 +501,7 @@ struct CompactTerminalButton: View {
             HStack(spacing: 2) {
                 Image(systemName: "terminal")
                     .font(.system(size: 8, weight: .medium))
-                Text(L10n.goToTerminal)
+                Text("Go to Terminal")
                     .font(.system(size: 10, weight: .medium))
             }
             .foregroundColor(isEnabled ? .white.opacity(0.9) : .white.opacity(0.3))
@@ -504,7 +529,7 @@ struct TerminalButton: View {
             HStack(spacing: 3) {
                 Image(systemName: "terminal")
                     .font(.system(size: 9, weight: .medium))
-                Text(L10n.terminal)
+                Text("Terminal")
                     .font(.system(size: 11, weight: .medium))
             }
             .foregroundColor(isEnabled ? .black : .white.opacity(0.4))
