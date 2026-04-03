@@ -20,13 +20,14 @@ struct NotchMenuView: View {
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
+    @State private var expandOnCompletion: Bool = AppSettings.expandOnCompletion
 
     var body: some View {
         VStack(spacing: 4) {
             // Back button
             MenuRow(
                 icon: "chevron.left",
-                label: "Back"
+                label: L10n.back
             ) {
                 viewModel.toggleMenu()
             }
@@ -39,9 +40,18 @@ struct NotchMenuView: View {
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
 
+            MenuToggleRow(
+                icon: "rectangle.expand.vertical",
+                label: L10n.expandOnCompletion,
+                isOn: expandOnCompletion
+            ) {
+                expandOnCompletion.toggle()
+                AppSettings.expandOnCompletion = expandOnCompletion
+            }
+
             MenuRow(
                 icon: "network",
-                label: "Remote"
+                label: L10n.remote
             ) {
                 viewModel.contentType = .remote
             }
@@ -53,7 +63,7 @@ struct NotchMenuView: View {
             // System settings
             MenuToggleRow(
                 icon: "power",
-                label: "Launch at Login",
+                label: L10n.launchAtLogin,
                 isOn: launchAtLogin
             ) {
                 do {
@@ -71,7 +81,7 @@ struct NotchMenuView: View {
 
             MenuToggleRow(
                 icon: "arrow.triangle.2.circlepath",
-                label: "Hooks",
+                label: L10n.hooks,
                 isOn: hooksInstalled
             ) {
                 if hooksInstalled {
@@ -94,7 +104,7 @@ struct NotchMenuView: View {
 
             MenuRow(
                 icon: "star",
-                label: "Star on GitHub"
+                label: L10n.starOnGitHub
             ) {
                 if let url = URL(string: "https://github.com/farouqaldori/claude-island") {
                     NSWorkspace.shared.open(url)
@@ -107,7 +117,7 @@ struct NotchMenuView: View {
 
             MenuRow(
                 icon: "xmark.circle",
-                label: "Quit",
+                label: L10n.quit,
                 isDestructive: true
             ) {
                 NSApplication.shared.terminate(nil)
@@ -129,6 +139,7 @@ struct NotchMenuView: View {
     private func refreshStates() {
         hooksInstalled = HookInstaller.isInstalled()
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        expandOnCompletion = AppSettings.expandOnCompletion
         screenSelector.refreshScreens()
     }
 }
@@ -206,7 +217,7 @@ struct UpdateRow: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(TerminalColors.green)
-                Text("Up to date")
+                Text(L10n.upToDate)
                     .font(.system(size: 11))
                     .foregroundColor(TerminalColors.green)
             }
@@ -259,7 +270,7 @@ struct UpdateRow: View {
             }
 
         case .error:
-            Text("Retry")
+            Text(L10n.retry)
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.5))
         }
@@ -314,23 +325,23 @@ struct UpdateRow: View {
     private var label: String {
         switch updateManager.state {
         case .idle:
-            return "Check for Updates"
+            return L10n.checkForUpdates
         case .checking:
-            return "Checking..."
+            return L10n.checking
         case .upToDate:
-            return "Check for Updates"
+            return L10n.checkForUpdates
         case .found:
-            return "Download Update"
+            return L10n.downloadUpdate
         case .downloading:
-            return "Downloading..."
+            return L10n.downloading
         case .extracting:
-            return "Extracting..."
+            return L10n.extracting
         case .readyToInstall:
-            return "Install & Relaunch"
+            return L10n.installAndRelaunch
         case .installing:
-            return "Installing..."
+            return L10n.installing
         case .error:
-            return "Update failed"
+            return L10n.updateFailed
         }
     }
 
@@ -393,7 +404,7 @@ struct AccessibilityRow: View {
                 .foregroundColor(textColor)
                 .frame(width: 16)
 
-            Text("Accessibility")
+            Text(L10n.accessibility)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(textColor)
 
@@ -404,12 +415,12 @@ struct AccessibilityRow: View {
                     .fill(TerminalColors.green)
                     .frame(width: 6, height: 6)
 
-                Text("On")
+                Text(L10n.on)
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.4))
             } else {
                 Button(action: openAccessibilitySettings) {
-                    Text("Enable")
+                    Text(L10n.enable)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.black)
                         .padding(.horizontal, 10)
@@ -514,7 +525,7 @@ struct MenuToggleRow: View {
                     .fill(isOn ? TerminalColors.green : Color.white.opacity(0.3))
                     .frame(width: 6, height: 6)
 
-                Text(isOn ? "On" : "Off")
+                Text(isOn ? L10n.on : L10n.off)
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.4))
             }
