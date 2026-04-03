@@ -8,7 +8,9 @@
 
 import Combine
 import Foundation
+#if !APP_STORE
 import Mixpanel
+#endif
 import os.log
 
 /// Central state manager for all Claude sessions
@@ -142,9 +144,11 @@ actor SessionStore {
         var session = sessions[sessionId] ?? createSession(from: event, sessionId: sessionId)
 
         // Track new session in Mixpanel
+        #if !APP_STORE
         if isNewSession {
             Mixpanel.mainInstance().track(event: "Session Started")
         }
+        #endif
 
         session.pid = event.pid
         // OpenCode events provide `_ppid` instead of `pid`.
