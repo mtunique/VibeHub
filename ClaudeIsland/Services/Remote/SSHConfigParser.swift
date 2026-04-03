@@ -7,8 +7,6 @@ struct SSHConfigEntry: Identifiable, Equatable, Sendable {
     let user: String?
     let port: Int?
     let identityFile: String?
-    /// Whether GSSAPI authentication is enabled (GSSAPIAuthentication=yes)
-    let useGSSAPI: Bool
 }
 
 enum SSHConfigParser {
@@ -110,7 +108,6 @@ enum SSHConfigParser {
             var user: String?
             var port: Int?
             var identityFile: String?
-            var useGSSAPI: Bool = false
         }
 
         func flush(_ block: Block) {
@@ -123,8 +120,7 @@ enum SSHConfigParser {
                     hostName: block.hostName,
                     user: block.user,
                     port: block.port,
-                    identityFile: expandTilde(block.identityFile),
-                    useGSSAPI: block.useGSSAPI
+                    identityFile: expandTilde(block.identityFile)
                 )
                 results.append(entry)
             }
@@ -133,10 +129,9 @@ enum SSHConfigParser {
         var current = Block()
         let lines = raw.split(whereSeparator: \.isNewline).map(String.init)
         for line in lines {
-            // Remove inline comments (but not # within quoted strings)
-            let decommented = removeInlineComments(line)
-            let trimmed = decommented.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("#") { continue }
 
             // Very small tokenizer: "Key value..." (ssh config is space-separated)
             let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
@@ -163,12 +158,6 @@ enum SSHConfigParser {
                 current.port = Int(value)
             case "identityfile":
                 current.identityFile = value
-            case "gssapiauthentication":
-                current.useGSSAPI = value.lowercased() == "yes"
-            case "gssapidelegatecredentials":
-                if value.lowercased() == "yes" {
-                    current.useGSSAPI = true
-                }
             default:
                 break
             }
@@ -184,27 +173,6 @@ enum SSHConfigParser {
             return true
         }
         .sorted { $0.alias.lowercased() < $1.alias.lowercased() }
-    }
-
-    private static func removeInlineComments(_ line: String) -> String {
-        var result = ""
-        var inQuote = false
-        var quoteChar: Character = "\""
-        for ch in line {
-            if !inQuote && (ch == "\"" || ch == "'") {
-                inQuote = true
-                quoteChar = ch
-                result.append(ch)
-            } else if inQuote && ch == quoteChar {
-                inQuote = false
-                result.append(ch)
-            } else if !inQuote && ch == "#" {
-                return result
-            } else {
-                result.append(ch)
-            }
-        }
-        return result
     }
 
     private static func expandTilde(_ path: String?) -> String? {

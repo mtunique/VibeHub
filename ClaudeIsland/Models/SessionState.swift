@@ -39,7 +39,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
     nonisolated var openCodeControlSocketPath: String? {
         guard opencodeRawSessionId != nil else { return nil }
         guard let pid else { return nil }
-        return "/tmp/claude-island-opencode-\(pid).sock"
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude-island", isDirectory: true)
+            .appendingPathComponent("ci-opencode-\(pid).sock")
+            .path
     }
 
     // MARK: - State Machine

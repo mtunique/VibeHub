@@ -50,10 +50,6 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
 
-    /// Actual closed-state content width reported by NotchView (notch width + expansion).
-    /// Used for accurate hit-testing so clicks on badges, labels, etc. register correctly.
-    @Published var closedContentWidth: CGFloat = 0
-
     // MARK: - Dependencies
 
     private let screenSelector = ScreenSelector.shared
@@ -161,7 +157,7 @@ class NotchViewModel: ObservableObject {
     private var currentChatSession: SessionState?
 
     private func handleMouseMove(_ location: CGPoint) {
-        let inNotch = geometry.isPointInNotch(location, contentWidth: closedContentWidth)
+        let inNotch = geometry.isPointInNotch(location)
         let inOpened = status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
 
         let newHovering = inNotch || inOpened
@@ -202,7 +198,7 @@ class NotchViewModel: ObservableObject {
                 }
             }
         case .closed, .popping:
-            if geometry.isPointInNotch(location, contentWidth: closedContentWidth) {
+            if geometry.isPointInNotch(location) {
                 notchOpen(reason: .click)
             }
         }

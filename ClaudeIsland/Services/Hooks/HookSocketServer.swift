@@ -9,6 +9,33 @@
 import Foundation
 import os.log
 
+enum HookSocketPaths {
+
+#if APP_STORE
+    private static let appGroupId = "group.mtunique.claudeisland"
+#endif
+
+    static var socketPath: String {
+#if APP_STORE
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) {
+            // NOTE: Unix domain socket paths have a length limit (sun_path). Keep this short.
+            return url.appendingPathComponent("ci.sock").path
+        }
+        // Fall back to a predictable home path (may not be writable in sandbox).
+        return defaultSocketPath
+#else
+        return defaultSocketPath
+#endif
+    }
+
+    private static var defaultSocketPath: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude-island", isDirectory: true)
+            .appendingPathComponent("ci.sock")
+            .path
+    }
+}
+
 /// Logger for hook socket server
 private let logger = Logger(subsystem: "com.claudeisland", category: "Hooks")
 
@@ -157,9 +184,9 @@ typealias PermissionFailureHandler = @Sendable (_ sessionId: String, _ toolUseId
 /// Unix domain socket server that receives events from Claude Code hooks
 /// Uses GCD DispatchSource for non-blocking I/O
 class HookSocketServer {
-    static let socketPath = "/tmp/claude-island.sock"
+    static let socketPath = HookSocketPaths.socketPath
 
-    static let shared = HookSocketServer(socketPath: HookSocketServer.socketPath)
+    static let shared = HookSocketServer(socketPath: HookSocketPaths.socketPath)
 
     private let socketPath: String
     private let namespacePrefix: String?
@@ -200,8 +227,12 @@ class HookSocketServer {
         eventHandler = onEvent
         permissionFailureHandler = onPermissionFailure
 
-        unlink(socketPath)
+        // Bind + listen
+        let socketURL = URL(fileURLWithPath: socketPath)
+        let socketDir = socketURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: socketDir, withIntermediateDirectories: true)
 
+        unlink(socketPath)
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
             logger.error("Failed to create socket: \(errno)")
@@ -210,6 +241,8 @@ class HookSocketServer {
 
         let flags = fcntl(serverSocket, F_GETFL)
         _ = fcntl(serverSocket, F_SETFL, flags | O_NONBLOCK)
+
+        let bindResult: Int32
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -221,7 +254,7 @@ class HookSocketServer {
             }
         }
 
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
+        bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
@@ -234,7 +267,10 @@ class HookSocketServer {
             return
         }
 
+        // Make the unix socket world-connectable.
+#if !APP_STORE
         chmod(socketPath, 0o777)
+#endif
 
         guard listen(serverSocket, 10) == 0 else {
             logger.error("Failed to listen: \(errno)")
@@ -262,6 +298,7 @@ class HookSocketServer {
     func stop() {
         acceptSource?.cancel()
         acceptSource = nil
+
         unlink(socketPath)
 
         permissionsLock.lock()
