@@ -83,7 +83,12 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
                 if p.isRunning {
                     self.status = .connected
                 } else if case .connecting = self.status {
-                    self.status = .failed("ssh exited")
+                    // If ControlMaster=auto exited with 0, we are actually connected via multiplexing
+                    if p.terminationStatus == 0 {
+                        self.status = .connected
+                    } else {
+                        self.status = .failed("ssh exited (\(p.terminationStatus))")
+                    }
                 }
             }
         } catch {
@@ -115,7 +120,7 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             "-N",
             "-T",
             "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=no",
+            "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=3",
             "-o", "StreamLocalBindUnlink=yes",
@@ -124,10 +129,8 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             "-o", "StreamLocalBindMask=0000",
             // ControlMaster=auto: reuse an existing socket if present, otherwise create one.
             // This avoids killing a stale SSH process that holds the socket.
-            // ControlPersist=300: keeps the master socket alive for 5 min after the last session.
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
-            "-o", "ControlPersist=300",
         ]
 
         // GSSAPI authentication for jump hosts, Kerberos environments, etc.
