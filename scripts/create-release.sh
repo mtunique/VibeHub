@@ -6,12 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
 EXPORT_PATH="$BUILD_DIR/export"
-ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 
 # GitHub repository (owner/repo format)
-GITHUB_REPO="mtunique/claude-island"
+GITHUB_REPO="mtunique/vibehub"
 
 # GitHub Pages output directory (served as site root)
 # Configure in GitHub Settings -> Pages: Deploy from branch = main, folder = /docs
@@ -24,8 +24,8 @@ if [ ! -d "$APP_PATH" ] && [ -d "$ARCHIVE_PATH/Products/Applications/Claude Isla
     APP_PATH="$ARCHIVE_PATH/Products/Applications/Claude Island.app"
     echo "NOTE: Using archived app (export not found): $APP_PATH"
 fi
-APP_NAME="ClaudeIsland"
-KEYCHAIN_PROFILE="ClaudeIsland"
+APP_NAME="VibeHub"
+KEYCHAIN_PROFILE="VibeHub"
 
 echo "=== Creating Release ==="
 echo ""
@@ -151,7 +151,7 @@ SPARKLE_SIGN=""
 GENERATE_APPCAST=""
 
 POSSIBLE_PATHS=(
-    "$HOME/Library/Developer/Xcode/DerivedData/ClaudeIsland-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
+    "$HOME/Library/Developer/Xcode/DerivedData/VibeHub-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
 )
 
 for path_pattern in "${POSSIBLE_PATHS[@]}"; do

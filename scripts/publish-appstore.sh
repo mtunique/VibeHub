@@ -6,8 +6,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-SCHEME="ClaudeIsland"
-PROJECT_FILE="$PROJECT_DIR/ClaudeIsland.xcodeproj/project.pbxproj"
+SCHEME="VibeHubAppStore"
+PROJECT_FILE="$PROJECT_DIR/VibeHub.xcodeproj/project.pbxproj"
 
 echo "=== Claude Island App Store Release Script ==="
 
@@ -32,7 +32,7 @@ echo "AppStore configuration found"
 
 # Build parameters
 TIMESTAMP=$(date +%Y%m%d%H%M)
-ARCHIVE_PATH="$PROJECT_DIR/build/ClaudeIsland-$TIMESTAMP.xcarchive"
+ARCHIVE_PATH="$PROJECT_DIR/build/VibeHub-$TIMESTAMP.xcarchive"
 EXPORT_PATH="$PROJECT_DIR/build/AppStoreExport-$TIMESTAMP"
 
 # Clean and create build directory

@@ -1,15 +1,15 @@
 <div align="center">
-  <img src="ClaudeIsland/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">Claude Island</h3>
+  <img src="VibeHub/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
+  <h3 align="center">VibeHub</h3>
   <p align="center">
     A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code CLI sessions.
     <br />
     <br />
-    <a href="https://github.com/farouqaldori/claude-island/releases/latest" target="_blank" rel="noopener noreferrer">
-      <img src="https://img.shields.io/github/v/release/farouqaldori/claude-island?style=rounded&color=white&labelColor=000000&label=release" alt="Release Version" />
+    <a href="https://github.com/farouqaldori/vibehub/releases/latest" target="_blank" rel="noopener noreferrer">
+      <img src="https://img.shields.io/github/v/release/farouqaldori/vibehub?style=rounded&color=white&labelColor=000000&label=release" alt="Release Version" />
     </a>
     <a href="#" target="_blank" rel="noopener noreferrer">
-      <img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/farouqaldori/claude-island/total?style=rounded&color=white&labelColor=000000">
+      <img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/farouqaldori/vibehub/total?style=rounded&color=white&labelColor=000000">
     </a>
     <a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener noreferrer">
       <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=rounded&color=white&labelColor=000000" alt="License" />
@@ -41,23 +41,23 @@
 
 ### Download
 
-Download the latest release from the [Releases](https://github.com/farouqaldori/claude-island/releases/latest) page.
+Download the latest release from the [Releases](https://github.com/farouqaldori/vibehub/releases/latest) page.
 
 ### Build from Source
 
 ```bash
-xcodebuild -scheme ClaudeIsland -configuration Release build
+xcodebuild -scheme VibeHub -configuration Release build
 ```
 
-The app will be built to `build/Release/Claude Island.app`.
+The app will be built to `build/Release/VibeHub.app`.
 
 ## How It Works
 
-Claude Island monitors your Claude Code sessions by:
+VibeHub monitors your Claude Code sessions by:
 
 1. **Hook Installation** — On first launch, installs a Python hook to `~/.claude/hooks/` and registers it in Claude Code's `settings.json`
 
-2. **Socket Communication** — The hook sends session events to the app via a Unix socket (`~/.claude-island/ci.sock`)
+2. **Socket Communication** — The hook sends session events to the app via a Unix socket (`~/.vibehub/ci.sock`)
 
 3. **Real-time Updates** — Events like `SessionStart`, `PreToolUse`, `PermissionRequest`, and `Stop` are processed and displayed in the notch UI
 
@@ -77,9 +77,9 @@ Claude Island monitors your Claude Code sessions by:
 
 ## OpenCode Support
 
-Claude Island also monitors OpenCode sessions.
+VibeHub also monitors OpenCode sessions.
 
-On first launch, the app installs an OpenCode plugin at `~/.config/opencode/plugins/claude-island.js` and adds it to `~/.config/opencode/opencode.json`.
+On first launch, the app installs an OpenCode plugin at `~/.config/opencode/plugins/vibehub.js` and adds it to `~/.config/opencode/opencode.json`.
 
 The plugin forwards OpenCode events to the same Unix socket, enabling live session status and permission approvals from the notch.
 
@@ -105,7 +105,7 @@ Access settings by clicking the notch to expand it, then click the gear icon.
 
 ## Analytics
 
-Claude Island uses Mixpanel to collect anonymous usage data:
+VibeHub uses Mixpanel to collect anonymous usage data:
 
 - **App Launched** — App version, build number, macOS version
 - **Session Started** — When a new Claude Code session is detected
@@ -115,7 +115,7 @@ No personal data or conversation content is collected. Analytics can be disabled
 ## Architecture
 
 ```
-ClaudeIsland/
+VibeHub/
 ├── App/              # App entry point, window management
 ├── Core/             # Notch geometry, settings, screen selection
 ├── Events/           # Event monitoring

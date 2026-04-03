@@ -13,7 +13,7 @@
 ### Task 1: Reduce non-notched default pill width
 
 **Files:**
-- Modify: `ClaudeIsland/Core/Ext+NSScreen.swift:34`
+- Modify: `VibeHub/Core/Ext+NSScreen.swift:34`
 
 - [ ] **Step 1: Change fallback width from 224 to 120**
 
@@ -30,7 +30,7 @@ return CGSize(width: 120, height: effectiveNotchHeight)
 - [ ] **Step 2: Commit**
 
 ```bash
-git add ClaudeIsland/Core/Ext+NSScreen.swift
+git add VibeHub/Core/Ext+NSScreen.swift
 git commit -m "feat: reduce non-notched fallback pill width from 224 to 120"
 ```
 
@@ -39,7 +39,7 @@ git commit -m "feat: reduce non-notched fallback pill width from 224 to 120"
 ### Task 2: Add active session label and count badge to compact pill
 
 **Files:**
-- Modify: `ClaudeIsland/UI/Views/NotchView.swift`
+- Modify: `VibeHub/UI/Views/NotchView.swift`
 
 This task adds two computed properties and adjusts `expansionWidth` and `headerRow`.
 
@@ -175,7 +175,7 @@ if showClosedActivity {
 - [ ] **Step 4: Build and verify**
 
 ```bash
-xcodebuild -scheme ClaudeIsland -configuration Debug build 2>&1 | tail -20
+xcodebuild -scheme VibeHub -configuration Debug build 2>&1 | tail -20
 ```
 
 Expected: `** BUILD SUCCEEDED **`
@@ -183,6 +183,6 @@ Expected: `** BUILD SUCCEEDED **`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ClaudeIsland/UI/Views/NotchView.swift
+git add VibeHub/UI/Views/NotchView.swift
 git commit -m "feat: show active session label and count badge in compact pill"
 ```
