@@ -6,9 +6,21 @@ enum RemoteInstaller {
         var steps: [RemoteInstallStep] = []
 
         steps.append(contentsOf: await installClaudeHooks(host: host, progress: progress))
-        steps.append(contentsOf: await installOpenCodePlugin(host: host, progress: progress))
+        let opencodeSteps = await installOpenCodePlugin(host: host, progress: progress)
+        steps.append(contentsOf: opencodeSteps)
+        // opencode was actually installed if more than just the config-check step ran
+        let opencodeInstalled = opencodeSteps.count > 1
 
         if let progress { await progress("verify files") }
+
+        // Verify the SSH reverse tunnel socket exists on the remote side.
+        // If AllowStreamLocalForwarding is disabled on the remote sshd, this socket
+        // won't be created and events will never flow regardless of plugin status.
+        steps.append(await step(
+            name: "verify tunnel socket",
+            command: "test -S \(host.remoteSocketPath)",
+            result: await runSSHResult(host: host, command: "test -S \(host.remoteSocketPath)", timeoutSeconds: 8)
+        ))
 
         steps.append(await step(
             name: "verify claude hook",
@@ -16,11 +28,13 @@ enum RemoteInstaller {
             result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/vibehub-state.py && echo ok || echo missing", timeoutSeconds: 12)
         ))
 
-        steps.append(await step(
-            name: "verify opencode plugin",
-            command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing", timeoutSeconds: 12)
-        ))
+        if opencodeInstalled {
+            steps.append(await step(
+                name: "verify opencode plugin",
+                command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing",
+                result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing", timeoutSeconds: 12)
+            ))
+        }
 
         return RemoteInstallReport(startedAt: startedAt, finishedAt: Date(), steps: steps)
     }
@@ -211,13 +225,15 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
             "-o", "ServerAliveCountMax=2",
             // Avoid interactive host key prompts; accept new hosts and still protect against MITM changes.
             "-o", "StrictHostKeyChecking=accept-new",
-            // Force GSSAPI auth only: prevents intermittent "Miscellaneous failure" that occurs
-            // when SSH tries gssapi-with-mic alongside other methods.
-            "-o", "PreferredAuthentications=gssapi-with-mic",
             // ControlPath: reuse the ControlMaster socket created by SSHForwarder.
             // Must match the path in SSHForwarder.buildArgs exactly.
             "-o", "ControlPath=\(controlPath)",
         ]
+        // GSSAPI authentication for jump hosts, Kerberos environments, etc.
+        if host.useGSSAPI {
+            args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
+        }
+
         if let port = host.port { args += ["-p", String(port)] }
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
         return args
@@ -237,7 +253,7 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
 
         // Run via login shell so ssh inherits the same environment as Terminal
         // (eg SSH_AUTH_SOCK / corp auth envs), which often fixes jump-proxy auth.
-        let cmd = shellEnvPrefix() + shellJoin([sshPath] + args)
+        let cmd = shellJoin([sshPath] + args)
         return await runShellResult(cmd, timeoutSeconds: timeoutSeconds)
     }
 
@@ -256,7 +272,8 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
     private static func runShellResult(_ command: String, timeoutSeconds: Int) async -> ProcessResult {
         let zsh = "/bin/zsh"
         let args = ["-lc", command]
-        let res = await ProcessExecutor.shared.runWithResult(zsh, arguments: args, timeoutSeconds: timeoutSeconds)
+        let env = getSSHEnvironment()
+        let res = await ProcessExecutor.shared.runWithResult(zsh, arguments: args, timeoutSeconds: timeoutSeconds, environment: env)
         switch res {
         case .success(let r):
             return r
@@ -273,16 +290,15 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func shellEnvPrefix() -> String {
-        // Make GUI-launched ssh behave more like Terminal by grabbing launchd env.
-        // (Many corp auth setups populate SSH_AUTH_SOCK/KRB5CCNAME in launchd.)
-        let prefix = """
-SSH_AUTH_SOCK_VAL=$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true);
-if [ -n \"$SSH_AUTH_SOCK_VAL\" ]; then export SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK_VAL\"; fi;
-KRB5CCNAME_VAL=$(launchctl getenv KRB5CCNAME 2>/dev/null || true);
-if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
-"""
-        return prefix + " "
+    static func getSSHEnvironment() -> [String: String] {
+        var env = Foundation.ProcessInfo.processInfo.environment
+        if let sock = ProcessExecutor.shared.runSyncOrNil("/bin/launchctl", arguments: ["getenv", "SSH_AUTH_SOCK"])?.trimmingCharacters(in: .whitespacesAndNewlines), !sock.isEmpty {
+            env["SSH_AUTH_SOCK"] = sock
+        }
+        if let krb = ProcessExecutor.shared.runSyncOrNil("/bin/launchctl", arguments: ["getenv", "KRB5CCNAME"])?.trimmingCharacters(in: .whitespacesAndNewlines), !krb.isEmpty {
+            env["KRB5CCNAME"] = krb
+        }
+        return env
     }
 
     private static func step(name: String, command: String, result: ProcessResult) async -> RemoteInstallStep {

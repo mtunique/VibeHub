@@ -213,6 +213,29 @@ struct ChatView: View {
                     .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.85))
                     .lineLimit(1)
 
+                // Tags
+                HStack(spacing: 4) {
+                    // Software tag
+                    Text(isOpenCodeSession ? "opencode" : "claude")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background((isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34)).opacity(0.15))
+                        .clipShape(Capsule())
+
+                    // Remote host tag
+                    if let hostName = remoteHostName {
+                        Text(hostName)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(TerminalColors.cyan)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(TerminalColors.cyan.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
+
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -372,6 +395,13 @@ struct ChatView: View {
 
     private var isOpenCodeSession: Bool {
         session.opencodeRawSessionId != nil
+    }
+
+    /// Display name of the remote host, if this is a remote session
+    private var remoteHostName: String? {
+        guard let hostId = session.remoteHostId else { return nil }
+        return RemoteManager.shared.hosts.first(where: { $0.id == hostId })?.name
+            ?? hostId.prefix(8).description
     }
 
     /// Can send messages if we can reach the session.

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Darwin
 import os.log
 
 @MainActor
@@ -97,6 +98,22 @@ final class RemoteManager: ObservableObject {
         connect(id: id)
     }
 
+    private func killOrphanedSSH(for host: RemoteHost) async {
+        let pids = Self.getAllPids()
+        for pid in pids {
+            guard let args = Self.getCommandArgs(pid: pid) else { continue }
+            let cmd = args.joined(separator: " ")
+            
+            guard cmd.contains("ssh") else { continue }
+            // Kill any old tunnels for this specific remote target, regardless of their local socket UUID,
+            // so we don't leak zombies when the host configuration is re-created.
+            guard cmd.contains("vibehub.sock") && cmd.contains(host.sshTarget) else { continue }
+            
+            _ = kill(pid, SIGTERM)
+            await RemoteLog.shared.log(.info, "pre-connect cleanup: killed orphan ssh pid=\(pid)", hostId: host.id)
+        }
+    }
+
     func connect(id: String) {
         guard let host = hosts.first(where: { $0.id == id }) else { return }
 
@@ -105,57 +122,13 @@ final class RemoteManager: ObservableObject {
         reconnectTasks[id]?.cancel()
         reconnectTasks[id] = nil
 
-        Task {
-            await RemoteLog.shared.log(.info, "connect requested (\(host.sshTarget))", hostId: id)
-        }
-
         setStatus(id: id, status: .connecting)
 
-        // Start local socket listener for this remote.
-        if servers[id] == nil {
-            let server = HookSocketServer(
-                socketPath: host.localSocketPath,
-                namespacePrefix: host.namespacePrefix,
-                remoteHostId: host.id
-            )
-
-            server.start(
-                onEvent: { event in
-                    Task { await RemoteLog.shared.log(.debug, "event: \(event.event) status=\(event.status)", hostId: id) }
-
-                    // Healthcheck notifications are internal plumbing; don't surface to SessionStore.
-                    if event.event == "Notification",
-                       event.notificationType == "remote_healthcheck",
-                       let msg = event.message,
-                       msg.hasPrefix("healthcheck:"),
-                       let token = msg.split(separator: ":").dropFirst().first {
-                        let tokenString = String(token)
-                        Task { @MainActor in
-                            RemoteManager.shared.markHealthcheckReceived(hostId: id, token: tokenString)
-                        }
-                        return
-                    }
-
-                    Task {
-                        await SessionStore.shared.process(.hookReceived(event))
-                    }
-
-                    if event.event == "Stop" {
-                        server.cancelPendingPermissions(sessionId: event.sessionId)
-                    }
-                    if event.event == "PostToolUse", let toolUseId = event.toolUseId {
-                        server.cancelPendingPermission(toolUseId: toolUseId)
-                    }
-                },
-                onPermissionFailure: { sessionId, toolUseId in
-                    Task {
-                        await SessionStore.shared.process(
-                            .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
-                        )
-                    }
-                }
-            )
-            servers[id] = server
+        // Stop any existing server before cleanup — we'll create a fresh one after cleanup
+        // to avoid the race where cleanup deletes the socket the server just created.
+        if let existing = servers[id] {
+            existing.stop()
+            servers.removeValue(forKey: id)
         }
 
         let forwarder = forwarders[id] ?? SSHForwarder()
@@ -177,8 +150,6 @@ final class RemoteManager: ObservableObject {
                     // A successful connect resets backoff.
                     self.reconnectAttempts[id] = 0
                     // Start install now that the tunnel is confirmed alive.
-                    // Previously install started concurrently with connect(), racing the
-                    // ControlMaster TCP handshake and causing intermittent GSSAPI failures.
                     self.startInstallTask(host: host)
                 case .failed:
                     self.cancelHealthcheck(hostId: id)
@@ -191,8 +162,85 @@ final class RemoteManager: ObservableObject {
                 }
             }
 
-        // Start forwarding immediately.
-        forwarder.connect(host: host)
+        Task {
+            // Pre-connect cleanup (stale local socket and orphan ssh processes for this host)
+            let path = host.localSocketPath
+            if FileManager.default.fileExists(atPath: path) {
+                try? FileManager.default.removeItem(atPath: path)
+                await RemoteLog.shared.log(.info, "pre-connect cleanup: removed local socket \(path)", hostId: id)
+            }
+            await killOrphanedSSH(for: host)
+            
+            // Clean up stale ControlMaster socket
+            let vibehubDir = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".vibehub", isDirectory: true)
+                .path
+            if let entries = try? FileManager.default.contentsOfDirectory(atPath: vibehubDir) {
+                for entry in entries where entry.hasPrefix("ssh-") && entry.contains(host.sshTarget) {
+                    let cmPath = vibehubDir + "/" + entry
+                    try? FileManager.default.removeItem(atPath: cmPath)
+                    await RemoteLog.shared.log(.info, "pre-connect cleanup: removed ControlMaster socket \(cmPath)", hostId: id)
+                }
+            }
+            
+            // Clean up stale remote socket
+            _ = await RemoteInstaller.runSSHResult(host: host, command: "rm -f \(host.remoteSocketPath)", timeoutSeconds: 5)
+
+            await RemoteLog.shared.log(.info, "connect requested (\(host.sshTarget))", hostId: id)
+
+            await MainActor.run {
+                // Create the local socket listener AFTER cleanup so the cleanup doesn't
+                // accidentally delete the socket that the server just bound to.
+                if self.servers[id] == nil {
+                    let server = HookSocketServer(
+                        socketPath: host.localSocketPath,
+                        namespacePrefix: host.namespacePrefix,
+                        remoteHostId: host.id
+                    )
+
+                    server.start(
+                        onEvent: { event in
+                            Task { await RemoteLog.shared.log(.debug, "event: \(event.event) status=\(event.status)", hostId: id) }
+
+                            // Healthcheck notifications are internal plumbing; don't surface to SessionStore.
+                            if event.event == "Notification",
+                               event.notificationType == "remote_healthcheck",
+                               let msg = event.message,
+                               msg.hasPrefix("healthcheck:"),
+                               let token = msg.split(separator: ":").dropFirst().first {
+                                let tokenString = String(token)
+                                Task { @MainActor in
+                                    RemoteManager.shared.markHealthcheckReceived(hostId: id, token: tokenString)
+                                }
+                                return
+                            }
+
+                            Task {
+                                await SessionStore.shared.process(.hookReceived(event))
+                            }
+
+                            if event.event == "Stop" {
+                                server.cancelPendingPermissions(sessionId: event.sessionId)
+                            }
+                            if event.event == "PostToolUse", let toolUseId = event.toolUseId {
+                                server.cancelPendingPermission(toolUseId: toolUseId)
+                            }
+                        },
+                        onPermissionFailure: { sessionId, toolUseId in
+                            Task {
+                                await SessionStore.shared.process(
+                                    .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
+                                )
+                            }
+                        }
+                    )
+                    self.servers[id] = server
+                }
+
+                // Start forwarding AFTER cleanup completes and server is listening
+                forwarder.connect(host: host)
+            }
+        }
     }
 
     /// Starts the install task for a host — called when tunnel transitions to .connected.
@@ -270,6 +318,15 @@ final class RemoteManager: ObservableObject {
         }
         servers.removeValue(forKey: id)
 
+        // Cleanup local socket immediately upon disconnect
+        if let host = hosts.first(where: { $0.id == id }) {
+            let path = host.localSocketPath
+            if FileManager.default.fileExists(atPath: path) {
+                try? FileManager.default.removeItem(atPath: path)
+                Task { await RemoteLog.shared.log(.info, "disconnect cleanup: removed local socket \(path)", hostId: id) }
+            }
+        }
+
         var running = installRunning
         running[id] = false
         installRunning = running
@@ -343,49 +400,23 @@ final class RemoteManager: ObservableObject {
     private func cleanupOrphanedSSHForwards() async {
         // Best effort: if the app crashed, old `ssh -N -R ...` processes may keep running
         // and block new forwards. Only kill processes that reference our per-host local socket.
-        let res = await ProcessExecutor.shared.runWithResult(
-            "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,command="],
-            timeoutSeconds: 6
-        )
-
-        guard case .success(let r) = res else {
-            await RemoteLog.shared.log(.warn, "startup cleanup: ps failed")
-            return
-        }
-
-        let socketToHost: [String: String] = Dictionary(
-            uniqueKeysWithValues: hosts.map { ($0.localSocketPath, $0.id) }
-        )
+        let pids = Self.getAllPids()
 
         var killed = 0
-        for rawLine in r.output.split(separator: "\n") {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.isEmpty { continue }
-            let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            if parts.count < 2 { continue }
-            guard let pid = Int(parts[0]) else { continue }
-            let cmd = String(parts[1])
+        for pid in pids {
+            guard let args = Self.getCommandArgs(pid: pid) else { continue }
+            let cmd = args.joined(separator: " ")
 
             guard cmd.contains("ssh") else { continue }
             guard cmd.contains("/tmp/vibehub.sock") else { continue }
 
             // Match any of our per-host local sockets.
-            guard let (sock, hostId) = socketToHost.first(where: { cmd.contains($0.key) }) else { continue }
+            let isCurrentHost = hosts.contains { cmd.contains($0.localSocketPath) }
+            if isCurrentHost { continue }
 
-            let killRes = await ProcessExecutor.shared.runWithResult(
-                "/bin/kill",
-                arguments: ["-TERM", String(pid)],
-                timeoutSeconds: 2
-            )
-
-            switch killRes {
-            case .success:
-                killed += 1
-                await RemoteLog.shared.log(.info, "startup cleanup: killed orphan ssh pid=\(pid) (sock=\(sock))", hostId: hostId)
-            case .failure(let e):
-                await RemoteLog.shared.log(.warn, "startup cleanup: failed to kill pid=\(pid): \(e.localizedDescription)", hostId: hostId)
-            }
+            _ = kill(pid, SIGTERM)
+            killed += 1
+            await RemoteLog.shared.log(.info, "startup cleanup: killed orphan ssh pid=\(pid)")
         }
 
         if killed > 0 {
@@ -486,5 +517,52 @@ print(\"sent\", token)
         Task {
             await RemoteLog.shared.log(.info, "status -> \(String(describing: status))", hostId: id)
         }
+    }
+
+    // MARK: - Native process discovery
+
+    private static func getAllPids() -> [pid_t] {
+        let PROC_ALL_PIDS: UInt32 = 1
+        let initialSize = proc_listpids(PROC_ALL_PIDS, 0, nil, 0)
+        if initialSize <= 0 { return [] }
+        
+        var pids = [pid_t](repeating: 0, count: Int(initialSize) / MemoryLayout<pid_t>.size)
+        let actualSize = proc_listpids(PROC_ALL_PIDS, 0, &pids, initialSize)
+        if actualSize <= 0 { return [] }
+        
+        return Array(pids.prefix(Int(actualSize) / MemoryLayout<pid_t>.size))
+    }
+
+    private static func getCommandArgs(pid: pid_t) -> [String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size: Int = 0
+        if sysctl(&mib, 3, nil, &size, nil, 0) < 0 { return nil }
+        
+        var buffer = [UInt8](repeating: 0, count: size)
+        if sysctl(&mib, 3, &buffer, &size, nil, 0) < 0 { return nil }
+        
+        // buffer starts with argc (Int32), then exec_path (null terminated), then null padding, then args
+        var argc: Int32 = 0
+        memcpy(&argc, buffer, MemoryLayout<Int32>.size)
+        
+        var args = [String]()
+        var ptr = MemoryLayout<Int32>.size
+        
+        // Skip executable path
+        while ptr < size && buffer[ptr] != 0 { ptr += 1 }
+        // Skip null padding
+        while ptr < size && buffer[ptr] == 0 { ptr += 1 }
+        
+        for _ in 0..<argc {
+            if ptr >= size { break }
+            let start = ptr
+            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
+            if ptr > start {
+                let str = String(bytes: buffer[start..<ptr], encoding: .utf8) ?? ""
+                args.append(str)
+            }
+            ptr += 1 // Skip null terminator
+        }
+        return args.isEmpty ? nil : args
     }
 }
