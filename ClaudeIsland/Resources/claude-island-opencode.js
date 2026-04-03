@@ -297,6 +297,29 @@ export default async ({ client, serverUrl }) => {
   const sessionCwd = new Map();
   const sessions = new Map();
 
+  // OpenCode may use different ID properties across event types
+  // (e.g. session.created uses info.id while session.status uses sessionID).
+  // If they diverge, Claude Island would see two sessions for one logical session.
+  // resolveSessionId maps an unknown ID back to the canonical one when possible.
+  function resolveSessionId(rawId) {
+    if (sessions.has(rawId)) return rawId;
+    // Only auto-resolve when there is exactly one known session to avoid
+    // mis-mapping in the (unlikely) multi-session-per-process scenario.
+    if (sessions.size === 1) {
+      return sessions.keys().next().value;
+    }
+    // Multiple sessions: pick the most recently active one as a best guess.
+    let best = null;
+    let bestTime = 0;
+    for (const [id, s] of sessions) {
+      if (s.lastActivityAt > bestTime) {
+        bestTime = s.lastActivityAt;
+        best = id;
+      }
+    }
+    return best || rawId;
+  }
+
   function getSession(rawSessionId) {
     if (!sessions.has(rawSessionId)) {
       sessions.set(rawSessionId, {
@@ -373,7 +396,7 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "session.status" && (p.sessionID || p.sessionId)) {
-      const rawSessionId = p.sessionID || p.sessionId;
+      const rawSessionId = resolveSessionId(p.sessionID || p.sessionId);
       getSession(rawSessionId).lastActivityAt = Date.now();
       if (p.status?.type === "idle") {
         const sid = `opencode-${rawSessionId}`;
@@ -395,7 +418,8 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "message.updated" && p.info?.id && p.info?.sessionID) {
-      msgRoles.set(p.info.id, { role: p.info.role, sessionID: p.info.sessionID });
+      const resolvedSID = resolveSessionId(p.info.sessionID);
+      msgRoles.set(p.info.id, { role: p.info.role, sessionID: resolvedSID });
       if (msgRoles.size > 200) {
         msgRoles.delete(msgRoles.keys().next().value);
       }
@@ -438,14 +462,15 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "message.part.updated" && p.part?.type === "tool" && p.part?.sessionID) {
-      const sid = `opencode-${p.part.sessionID}`;
-      const cwd = sessionCwd.get(p.part.sessionID) || "";
+      const resolvedToolSID = resolveSessionId(p.part.sessionID);
+      const sid = `opencode-${resolvedToolSID}`;
+      const cwd = sessionCwd.get(resolvedToolSID) || "";
       const toolName = titleCase(p.part.tool || "Tool");
       const st = p.part.state?.status;
       const toolUseId = toolUseIdFromPart(p.part);
 
       if (st === "running" || st === "pending") {
-        getSession(p.part.sessionID).lastActivityAt = Date.now();
+        getSession(resolvedToolSID).lastActivityAt = Date.now();
         return base(sid, {
           event: "PreToolUse",
           status: "running_tool",
@@ -457,7 +482,7 @@ export default async ({ client, serverUrl }) => {
       }
 
       if (st === "completed" || st === "error") {
-        getSession(p.part.sessionID).lastActivityAt = Date.now();
+        getSession(resolvedToolSID).lastActivityAt = Date.now();
         return base(sid, {
           event: "PostToolUse",
           status: "processing",
@@ -471,7 +496,8 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "permission.asked" && p.id && p.sessionID) {
-      getSession(p.sessionID).lastActivityAt = Date.now();
+      const resolvedPermSID = resolveSessionId(p.sessionID);
+      getSession(resolvedPermSID).lastActivityAt = Date.now();
       const requestId = p.id;
       const toolName = titleCase(p.permission || "Tool");
       const patterns = p.patterns || [];
@@ -480,8 +506,8 @@ export default async ({ client, serverUrl }) => {
       if ((p.permission === "edit" || p.permission === "write") && patterns.length > 0) toolInput.file_path = patterns[0];
 
       // We'll emit a PreToolUse placeholder (fire-and-forget), then hold the socket for PermissionRequest.
-      const sid = `opencode-${p.sessionID}`;
-      const cwd = sessionCwd.get(p.sessionID) || "";
+      const sid = `opencode-${resolvedPermSID}`;
+      const cwd = sessionCwd.get(resolvedPermSID) || "";
 
       return {
         _kind: "permission",
@@ -506,9 +532,10 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "permission.replied" && p.sessionID && p.id) {
-      getSession(p.sessionID).lastActivityAt = Date.now();
-      const sid = `opencode-${p.sessionID}`;
-      const cwd = sessionCwd.get(p.sessionID) || "";
+      const resolvedReplySID = resolveSessionId(p.sessionID);
+      getSession(resolvedReplySID).lastActivityAt = Date.now();
+      const sid = `opencode-${resolvedReplySID}`;
+      const cwd = sessionCwd.get(resolvedReplySID) || "";
       return base(sid, {
         event: "PostToolUse",
         status: "processing",
@@ -518,9 +545,10 @@ export default async ({ client, serverUrl }) => {
     }
 
     if (t === "question.asked" && p.id && p.sessionID) {
-      getSession(p.sessionID).lastActivityAt = Date.now();
-      const sid = `opencode-${p.sessionID}`;
-      const cwd = sessionCwd.get(p.sessionID) || "";
+      const resolvedQSID = resolveSessionId(p.sessionID);
+      getSession(resolvedQSID).lastActivityAt = Date.now();
+      const sid = `opencode-${resolvedQSID}`;
+      const cwd = sessionCwd.get(resolvedQSID) || "";
       const questions = (p.questions || []).map((q) => ({
         question: q.question || "",
         header: q.header || "",
@@ -546,9 +574,10 @@ export default async ({ client, serverUrl }) => {
     }
 
     if ((t === "question.replied" || t === "question.rejected") && p.sessionID && p.id) {
-      getSession(p.sessionID).lastActivityAt = Date.now();
-      const sid = `opencode-${p.sessionID}`;
-      const cwd = sessionCwd.get(p.sessionID) || "";
+      const resolvedQRSID = resolveSessionId(p.sessionID);
+      getSession(resolvedQRSID).lastActivityAt = Date.now();
+      const sid = `opencode-${resolvedQRSID}`;
+      const cwd = sessionCwd.get(resolvedQRSID) || "";
       return base(sid, {
         event: "PostToolUse",
         status: "processing",

@@ -63,6 +63,7 @@ enum AppSettings {
     /// Whether to expand the notch when Claude finishes processing
     static var expandOnCompletion: Bool {
         get {
+            // Default to true if key has never been set
             if defaults.object(forKey: Keys.expandOnCompletion) == nil {
                 return true
             }

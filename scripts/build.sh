@@ -51,6 +51,19 @@ cat > "$EXPORT_OPTIONS" << 'EOF'
 </plist>
 EOF
 
+# Optional overrides
+# - CLAUDE_ISLAND_TEAM_ID: Apple Developer Team ID
+# - CLAUDE_ISLAND_SIGNING_CERTIFICATE: e.g. "Developer ID Application" or "Apple Distribution"
+if [ -n "${CLAUDE_ISLAND_TEAM_ID:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :teamID string ${CLAUDE_ISLAND_TEAM_ID}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
+    /usr/libexec/PlistBuddy -c "Set :teamID ${CLAUDE_ISLAND_TEAM_ID}" "$EXPORT_OPTIONS"
+fi
+
+if [ -n "${CLAUDE_ISLAND_SIGNING_CERTIFICATE:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${CLAUDE_ISLAND_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
+    /usr/libexec/PlistBuddy -c "Set :signingCertificate ${CLAUDE_ISLAND_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS"
+fi
+
 # Export the archive
 echo ""
 echo "Exporting..."

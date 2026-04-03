@@ -39,6 +39,12 @@ Pods/
 # Release artifacts
 releases/
 
+# Local planning docs
+docs/superpowers/plans/
+
+# Logs
+log/
+
 # Xcode backup
 *.xcodeproj.backup/
 CLAUDE.md
