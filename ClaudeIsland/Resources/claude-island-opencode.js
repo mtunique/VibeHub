@@ -3,9 +3,43 @@
 // - Exposes a local control socket so Claude Island can send prompts without requiring an HTTP server.
 
 import { connect, createServer } from "net";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
+import os from "os";
+import path from "path";
 
-const SOCKET = "/tmp/claude-island.sock";
+const DEFAULT_SOCKET = path.join(os.homedir(), ".claude-island", "ci.sock");
+
+function resolveSocketPath() {
+  if (process.env.CLAUDE_ISLAND_SOCKET_PATH) return process.env.CLAUDE_ISLAND_SOCKET_PATH;
+
+  // Sidecar next to the plugin file (preferred for strict OpenCode configs).
+  try {
+    const selfUrl = new URL(import.meta.url);
+    const selfPath = decodeURIComponent(selfUrl.pathname);
+    const sidecar = path.join(path.dirname(selfPath), "claude-island.socket");
+    if (existsSync(sidecar)) {
+      const p = (readFileSync(sidecar, "utf8") || "").trim();
+      if (p) return p;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Optional override written by the installer.
+  try {
+    const overridePath = path.join(os.homedir(), ".claude-island", "socket-path");
+    if (existsSync(overridePath)) {
+      const p = (readFileSync(overridePath, "utf8") || "").trim();
+      if (p) return p;
+    }
+  } catch {
+    // ignore
+  }
+
+  return DEFAULT_SOCKET;
+}
+
+const SOCKET = resolveSocketPath();
 
 // Terminal environment sampling
 const ENV_KEYS = [
@@ -111,7 +145,13 @@ export default async ({ client, serverUrl }) => {
   const pid = process.pid;
   const clientConfig = client?._client?.getConfig?.() || null;
 
-  const CONTROL_SOCKET = `/tmp/claude-island-opencode-${pid}.sock`;
+  const controlDir = path.join(os.homedir(), ".claude-island");
+  try {
+    mkdirSync(controlDir, { recursive: true });
+  } catch {
+    // ignore
+  }
+  const CONTROL_SOCKET = path.join(controlDir, `ci-opencode-${pid}.sock`);
 
   function startControlServer() {
     try {

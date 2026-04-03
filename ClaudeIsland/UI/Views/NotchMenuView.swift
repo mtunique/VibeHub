@@ -6,16 +6,19 @@
 //
 
 import ApplicationServices
+import AppKit
 import Combine
 import SwiftUI
 import ServiceManagement
+
+#if !APP_STORE
 import Sparkle
+#endif
 
 // MARK: - NotchMenuView
 
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
-    @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
@@ -49,12 +52,15 @@ struct NotchMenuView: View {
                 AppSettings.expandOnCompletion = expandOnCompletion
             }
 
+
+#if !APP_STORE
             MenuRow(
                 icon: "network",
                 label: L10n.remote
             ) {
                 viewModel.contentType = .remote
             }
+#endif
 
             Divider()
                 .background(Color.white.opacity(0.08))
@@ -84,6 +90,11 @@ struct NotchMenuView: View {
                 label: L10n.hooks,
                 isOn: hooksInstalled
             ) {
+#if APP_STORE
+                Task { @MainActor in
+                    await installOrUninstallHooksAppStore()
+                }
+#else
                 if hooksInstalled {
                     HookInstaller.uninstall()
                     hooksInstalled = false
@@ -91,6 +102,7 @@ struct NotchMenuView: View {
                     HookInstaller.installIfNeeded()
                     hooksInstalled = true
                 }
+#endif
             }
 
             AccessibilityRow(isEnabled: AXIsProcessTrusted())
@@ -100,13 +112,21 @@ struct NotchMenuView: View {
                 .padding(.vertical, 4)
 
             // About
-            UpdateRow(updateManager: updateManager)
+
+#if !APP_STORE
+            UpdateRow(updateManager: UpdateManager.shared)
+#else
+            MenuRow(
+                icon: "info.circle",
+                label: L10n.version
+            ) {}
+#endif
 
             MenuRow(
                 icon: "star",
                 label: L10n.starOnGitHub
             ) {
-                if let url = URL(string: "https://github.com/farouqaldori/claude-island") {
+                if let url = URL(string: "https://github.com/mtunique/claude-island") {
                     NSWorkspace.shared.open(url)
                 }
             }
@@ -142,9 +162,136 @@ struct NotchMenuView: View {
         expandOnCompletion = AppSettings.expandOnCompletion
         screenSelector.refreshScreens()
     }
+
+#if APP_STORE
+    @MainActor
+    private func installOrUninstallHooksAppStore() async {
+        if hooksInstalled {
+            let ok = HookInstaller.uninstallAppStore()
+            refreshStates()
+            showMessage(title: "Hooks", message: ok ? "Uninstalled." : "Uninstall completed with errors.")
+            return
+        }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser
+
+        guard let homeDir = pickDirectory(
+            title: "Grant Access",
+            message: "Select your Home folder (\(home.path)) to grant access for installing hooks.",
+            suggested: home,
+            requiredPath: home.standardizedFileURL.path
+        ) else {
+            return
+        }
+
+        // Persist access to Home; allows access to ~/.claude and ~/.config/opencode as descendants.
+        _ = HookInstaller.rememberClaudeDir(homeDir)
+
+        let claudeOk = homeDir.startAccessingSecurityScopedResource()
+        defer { if claudeOk { homeDir.stopAccessingSecurityScopedResource() } }
+        guard claudeOk else {
+            showMessage(title: "Hooks", message: "Permission denied for Home folder.")
+            return
+        }
+
+        let claudeDir = homeDir.appendingPathComponent(".claude", isDirectory: true)
+        let ok1 = HookInstaller.installAppStore(claudeDir: claudeDir)
+
+        var ok2 = true
+        let wantsOpenCode = withNotchWindowDeemphasized {
+            NSAlert.runChoice(
+                title: "OpenCode",
+                message: "Also install the OpenCode plugin (uses ~/.config/opencode if present)?",
+                primary: "Install",
+                secondary: "Skip"
+            )
+        }
+
+        if wantsOpenCode {
+            let opencodeDir = homeDir
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: true)
+            ok2 = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
+        }
+
+        refreshStates()
+        if ok1 && ok2 {
+            showMessage(title: "Hooks", message: "Installed.")
+        } else if ok1 {
+            showMessage(title: "Hooks", message: "Installed Claude hooks, but OpenCode plugin failed.")
+        } else {
+            showMessage(title: "Hooks", message: "Install failed.")
+        }
+    }
+
+    @MainActor
+    private func pickDirectory(title: String, message: String, suggested: URL, requiredPath: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = message
+        panel.prompt = "Allow"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = suggested.deletingLastPathComponent()
+        panel.nameFieldStringValue = suggested.lastPathComponent
+
+        // Ensure the modal panel is in front of the notch overlay.
+        let resp = withNotchWindowDeemphasized { panel.runModal() }
+        guard resp == .OK, let url = panel.url else { return nil }
+
+        let chosen = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let required = URL(fileURLWithPath: requiredPath).standardizedFileURL.resolvingSymlinksInPath().path
+        guard chosen == required else {
+            showMessage(title: "Hooks", message: "Please select \(required).")
+            return nil
+        }
+        return url
+    }
+
+    @MainActor
+    private func showMessage(title: String, message: String) {
+        _ = withNotchWindowDeemphasized {
+            let a = NSAlert()
+            a.messageText = title
+            a.informativeText = message
+            a.addButton(withTitle: "OK")
+            a.runModal()
+        }
+    }
+
+    @MainActor
+    private func withNotchWindowDeemphasized<T>(_ block: () -> T) -> T {
+        let notchWindow = NSApp.windows.first(where: { $0 is NotchPanel })
+        let prevLevel = notchWindow?.level
+        // Put the overlay behind modal dialogs.
+        notchWindow?.level = .normal
+        NSApp.activate(ignoringOtherApps: true)
+        defer {
+            if let prevLevel { notchWindow?.level = prevLevel }
+        }
+        return block()
+    }
+#endif
 }
 
+#if APP_STORE
+private extension NSAlert {
+    @MainActor
+    static func runChoice(title: String, message: String, primary: String, secondary: String) -> Bool {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = message
+        a.addButton(withTitle: primary)
+        a.addButton(withTitle: secondary)
+        return a.runModal() == .alertFirstButtonReturn
+    }
+}
+#endif
+
 // MARK: - Update Row
+
+#if !APP_STORE
 
 struct UpdateRow: View {
     @ObservedObject var updateManager: UpdateManager
@@ -382,6 +529,8 @@ struct UpdateRow: View {
         }
     }
 }
+
+#endif
 
 // MARK: - Accessibility Permission Row
 

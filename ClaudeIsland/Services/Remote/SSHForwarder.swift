@@ -32,8 +32,14 @@ final class SSHForwarder: ObservableObject {
 
         let sshPath = "/usr/bin/ssh"
         let args = buildArgs(host: host)
+        let envPrefix = """
+SSH_AUTH_SOCK_VAL=$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true);
+if [ -n \"$SSH_AUTH_SOCK_VAL\" ]; then export SSH_AUTH_SOCK=\"$SSH_AUTH_SOCK_VAL\"; fi;
+KRB5CCNAME_VAL=$(launchctl getenv KRB5CCNAME 2>/dev/null || true);
+if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
+"""
 
-        let cmd = ([sshPath] + args)
+        let cmd = envPrefix + " " + ([sshPath] + args)
             .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
             .joined(separator: " ")
 
@@ -41,7 +47,6 @@ final class SSHForwarder: ObservableObject {
         // Run via login shell so ssh sees same auth env as Terminal.
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lc", cmd]
-        p.environment = RemoteInstaller.getSSHEnvironment()
 
         let err = Pipe()
         p.standardError = err
@@ -78,12 +83,7 @@ final class SSHForwarder: ObservableObject {
                 if p.isRunning {
                     self.status = .connected
                 } else if case .connecting = self.status {
-                    // If ControlMaster=auto exited with 0, we are actually connected via multiplexing
-                    if p.terminationStatus == 0 {
-                        self.status = .connected
-                    } else {
-                        self.status = .failed("ssh exited (\(p.terminationStatus))")
-                    }
+                    self.status = .failed("ssh exited")
                 }
             }
         } catch {
@@ -111,30 +111,34 @@ final class SSHForwarder: ObservableObject {
     private func buildArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
 
+        // Avoid /tmp for local ControlMaster sockets.
+        let controlDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude-island", isDirectory: true)
+        try? FileManager.default.createDirectory(at: controlDir, withIntermediateDirectories: true)
+        let controlPath = controlDir.appendingPathComponent("ssh-%C").path
+
         args += [
             "-N",
             "-T",
             "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=yes",
+            "-o", "ExitOnForwardFailure=no",
             "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=3",
             "-o", "StreamLocalBindUnlink=yes",
             // Make the remote unix socket connectable by the actual CLI process user.
             // Default is 0177 (srw-------) which often breaks hooks.
             "-o", "StreamLocalBindMask=0000",
+            // Jump proxy and devserver1 only support GSSAPI auth. Using PreferredAuthentications
+            // forces gssapi-with-mic first, avoiding the intermittent "Miscellaneous failure" that
+            // occurs when SSH tries gssapi-with-mic alongside other methods.
+            "-o", "PreferredAuthentications=gssapi-with-mic",
             // ControlMaster=auto: reuse an existing socket if present, otherwise create one.
             // This avoids killing a stale SSH process that holds the socket.
+            // ControlPersist=300: keeps the master socket alive for 5 min after the last session.
             "-o", "ControlMaster=auto",
-            "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
+            "-o", "ControlPath=\(controlPath)",
+            "-o", "ControlPersist=300",
         ]
-
-        // GSSAPI authentication for jump hosts, Kerberos environments, etc.
-        if host.useGSSAPI {
-            // Using PreferredAuthentications forces gssapi-with-mic first,
-            // avoiding the intermittent "Miscellaneous failure" that occurs
-            // when SSH tries gssapi-with-mic alongside other methods.
-            args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
-        }
 
         if let port = host.port {
             args += ["-p", String(port)]

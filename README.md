@@ -57,7 +57,7 @@ Claude Island monitors your Claude Code sessions by:
 
 1. **Hook Installation** — On first launch, installs a Python hook to `~/.claude/hooks/` and registers it in Claude Code's `settings.json`
 
-2. **Socket Communication** — The hook sends session events to the app via a Unix socket (`/tmp/claude-island.sock`)
+2. **Socket Communication** — The hook sends session events to the app via a Unix socket (`~/.claude-island/ci.sock`)
 
 3. **Real-time Updates** — Events like `SessionStart`, `PreToolUse`, `PermissionRequest`, and `Stop` are processed and displayed in the notch UI
 
