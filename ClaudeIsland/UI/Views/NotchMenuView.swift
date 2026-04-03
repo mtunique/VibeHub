@@ -9,13 +9,15 @@ import ApplicationServices
 import Combine
 import SwiftUI
 import ServiceManagement
+
+#if !APP_STORE
 import Sparkle
+#endif
 
 // MARK: - NotchMenuView
 
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
-    @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
@@ -49,12 +51,15 @@ struct NotchMenuView: View {
                 AppSettings.expandOnCompletion = expandOnCompletion
             }
 
+
+#if !APP_STORE
             MenuRow(
                 icon: "network",
                 label: L10n.remote
             ) {
                 viewModel.contentType = .remote
             }
+#endif
 
             Divider()
                 .background(Color.white.opacity(0.08))
@@ -84,6 +89,12 @@ struct NotchMenuView: View {
                 label: L10n.hooks,
                 isOn: hooksInstalled
             ) {
+#if APP_STORE
+                // App Store builds cannot silently write into user home directories.
+                // Keep the toggle as a UI affordance; actual installation must be user-initiated
+                // with explicit folder access.
+                hooksInstalled.toggle()
+#else
                 if hooksInstalled {
                     HookInstaller.uninstall()
                     hooksInstalled = false
@@ -91,6 +102,7 @@ struct NotchMenuView: View {
                     HookInstaller.installIfNeeded()
                     hooksInstalled = true
                 }
+#endif
             }
 
             AccessibilityRow(isEnabled: AXIsProcessTrusted())
@@ -100,13 +112,21 @@ struct NotchMenuView: View {
                 .padding(.vertical, 4)
 
             // About
-            UpdateRow(updateManager: updateManager)
+
+#if !APP_STORE
+            UpdateRow(updateManager: UpdateManager.shared)
+#else
+            MenuRow(
+                icon: "info.circle",
+                label: L10n.version
+            ) {}
+#endif
 
             MenuRow(
                 icon: "star",
                 label: L10n.starOnGitHub
             ) {
-                if let url = URL(string: "https://github.com/farouqaldori/claude-island") {
+                if let url = URL(string: "https://github.com/mtunique/claude-island") {
                     NSWorkspace.shared.open(url)
                 }
             }
@@ -145,6 +165,8 @@ struct NotchMenuView: View {
 }
 
 // MARK: - Update Row
+
+#if !APP_STORE
 
 struct UpdateRow: View {
     @ObservedObject var updateManager: UpdateManager
@@ -382,6 +404,8 @@ struct UpdateRow: View {
         }
     }
 }
+
+#endif
 
 // MARK: - Accessibility Permission Row
 

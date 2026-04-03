@@ -10,6 +10,9 @@ import socket
 import sys
 
 SOCKET_PATH = "/tmp/claude-island.sock"
+TCP_HOST = os.environ.get("CLAUDE_ISLAND_HOST", "127.0.0.1")
+TCP_PORT = int(os.environ.get("CLAUDE_ISLAND_PORT", "39283"))
+TCP_ONLY = os.environ.get("CLAUDE_ISLAND_TCP_ONLY", "0") == "1"
 TIMEOUT_SECONDS = 300  # 5 minutes for permission decisions
 
 
@@ -51,10 +54,21 @@ def get_tty():
 
 def send_event(state):
     """Send event to app, return response if any"""
+    sock = None
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(TIMEOUT_SECONDS)
-        sock.connect(SOCKET_PATH)
+        if not TCP_ONLY:
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(TIMEOUT_SECONDS)
+                sock.connect(SOCKET_PATH)
+            except (socket.error, OSError):
+                sock = None
+
+        if sock is None:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(TIMEOUT_SECONDS)
+            sock.connect((TCP_HOST, TCP_PORT))
+
         sock.sendall(json.dumps(state).encode())
 
         # For permission requests, wait for response
@@ -69,6 +83,12 @@ def send_event(state):
         return None
     except (socket.error, OSError, json.JSONDecodeError):
         return None
+    finally:
+        try:
+            if sock is not None:
+                sock.close()
+        except Exception:
+            pass
 
 
 def main():
