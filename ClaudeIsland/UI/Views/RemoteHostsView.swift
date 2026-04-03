@@ -31,7 +31,7 @@ struct RemoteHostsView: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                Text("Remote Hosts")
+                Text(L10n.remoteHosts)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white.opacity(0.9))
                 Spacer()
@@ -54,10 +54,10 @@ struct RemoteHostsView: View {
                 VStack(spacing: 8) {
                     if remoteManager.hosts.isEmpty {
                         VStack(spacing: 6) {
-                            Text("No remote hosts yet")
+                            Text(L10n.noRemoteHostsYet)
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.7))
-                            Text("Add one below or import from ~/.ssh/config")
+                            Text(L10n.addOrImportSSH)
                                 .font(.system(size: 11))
                                 .foregroundColor(.white.opacity(0.45))
                         }
@@ -90,15 +90,15 @@ struct RemoteHostsView: View {
                                     .foregroundColor(statusColor(for: status))
 
                                 if let report {
-                                    Text(report.ok ? "Install OK" : "Install needs attention")
+                                    Text(report.ok ? L10n.installOK : L10n.installNeedsAttention)
                                         .font(.system(size: 10, weight: .semibold))
                                         .foregroundColor(report.ok ? TerminalColors.green : Color(red: 1.0, green: 0.7, blue: 0.35))
                                 } else if installing {
-                                    Text("Installing...\(installAgeText(startedAt))")
+                                    Text("\(L10n.installing)\(installAgeText(startedAt))")
                                         .font(.system(size: 10, weight: .semibold))
                                         .foregroundColor(TerminalColors.blue)
                                 } else if case .connected = status {
-                                    Text("Install not started")
+                                    Text(L10n.installNotStarted)
                                         .font(.system(size: 10, weight: .semibold))
                                         .foregroundColor(.white.opacity(0.35))
                                 }
@@ -154,7 +154,7 @@ struct RemoteHostsView: View {
                         }
 
                         if installing {
-                            Text("Installing remote hooks/plugins...")
+                            Text(L10n.installingRemoteHooks)
                                 .font(.system(size: 11))
                                 .foregroundColor(.white.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,7 +164,7 @@ struct RemoteHostsView: View {
 
                         if let report, !report.ok {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Install log")
+                                Text(L10n.installLog)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.white.opacity(0.6))
                                 ForEach(report.steps.prefix(6)) { step in
@@ -217,7 +217,7 @@ struct RemoteHostsView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "terminal")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Import from SSH config")
+                            Text(L10n.importFromSSHConfig)
                                 .font(.system(size: 12, weight: .semibold))
                         }
                         .foregroundColor(.white.opacity(0.85))
@@ -232,8 +232,8 @@ struct RemoteHostsView: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("Name", text: $name)
-                    TextField("user@host", text: $userAtHost)
+                    TextField(L10n.name, text: $name)
+                    TextField(L10n.userAtHost, text: $userAtHost)
                 }
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
@@ -243,9 +243,9 @@ struct RemoteHostsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 HStack(spacing: 8) {
-                    TextField("Port", text: $port)
+                    TextField(L10n.port, text: $port)
                         .frame(width: 70)
-                    TextField("Identity file (optional)", text: $identityFile)
+                    TextField(L10n.identityFileOptional, text: $identityFile)
                 }
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
@@ -269,7 +269,7 @@ struct RemoteHostsView: View {
                     port = ""
                     identityFile = ""
                 } label: {
-                    Text("Add")
+                    Text(L10n.add)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.black)
                         .padding(.horizontal, 16)
@@ -299,7 +299,7 @@ struct RemoteHostsView: View {
 
             VStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    Text("~/.ssh/config")
+                    Text(L10n.sshConfig)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white.opacity(0.9))
                     Spacer()
@@ -316,7 +316,7 @@ struct RemoteHostsView: View {
                     .buttonStyle(.plain)
                 }
 
-                TextField("Search", text: $sshSearch)
+                TextField(L10n.search, text: $sshSearch)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .padding(.horizontal, 12)
@@ -327,7 +327,7 @@ struct RemoteHostsView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 6) {
                         if filteredSSHEntries.isEmpty {
-                            Text(sshEntries.isEmpty ? "No entries found" : "No matches")
+                            Text(sshEntries.isEmpty ? L10n.noEntriesFound : L10n.noMatches)
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white.opacity(0.55))
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -398,8 +398,8 @@ struct RemoteHostsView: View {
 
     private func detailLine(for e: SSHConfigEntry) -> String {
         let host = e.hostName ?? e.alias
-        let user = e.user ?? "(no user)"
-        let port = e.port.map(String.init) ?? "(default)"
+        let user = e.user ?? L10n.noUser
+        let port = e.port.map(String.init) ?? L10n.defaultPort
         return "\(user)@\(host):\(port)"
     }
 
@@ -420,32 +420,32 @@ struct RemoteHostsView: View {
         if let port = host.port {
             return "\(host.sshTarget):\(port)"
         }
-        return "\(host.sshTarget) (ssh config)"
+        return "\(host.sshTarget) \(L10n.sshConfigSuffix)"
     }
 
     private func buttonLabel(for status: SSHForwarder.Status) -> String {
         switch status {
         case .disconnected:
-            return "Connect"
+            return L10n.connect
         case .connecting:
-            return "Connecting..."
+            return L10n.connecting
         case .connected:
-            return "Disconnect"
+            return L10n.disconnect
         case .failed:
-            return "Retry"
+            return L10n.retry
         }
     }
 
     private func statusLine(for status: SSHForwarder.Status) -> String {
         switch status {
         case .disconnected:
-            return "Disconnected"
+            return L10n.disconnected
         case .connecting:
-            return "Connecting"
+            return L10n.connectingStatus
         case .connected:
-            return "Connected"
+            return L10n.connected
         case .failed:
-            return "Failed"
+            return L10n.failed
         }
     }
 
