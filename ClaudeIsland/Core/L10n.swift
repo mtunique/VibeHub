@@ -35,7 +35,7 @@ enum L10n {
     static var expandOnCompletion: String { isChinese ? "完成时展开" : "Expand on Completion" }
     static var remote: String { isChinese ? "远程" : "Remote" }
     static var launchAtLogin: String { isChinese ? "开机启动" : "Launch at Login" }
-    static var hooks: String { isChinese ? "钩子" : "Hooks" }
+    static var hooks: String { isChinese ? "Hook 脚本" : "Hooks" }
     static var starOnGitHub: String { isChinese ? "在 GitHub 上点星" : "Star on GitHub" }
     static var accessibility: String { isChinese ? "辅助功能" : "Accessibility" }
     static var notificationSound: String { isChinese ? "通知音" : "Notification Sound" }

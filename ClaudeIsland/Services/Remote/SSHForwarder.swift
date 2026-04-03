@@ -130,7 +130,7 @@ if [ -n \"$KRB5CCNAME_VAL\" ]; then export KRB5CCNAME=\"$KRB5CCNAME_VAL\"; fi;
             "-o", "ControlPersist=300",
         ]
 
-        // GSSAPI authentication for Jump proxy, devserver1, etc.
+        // GSSAPI authentication for jump hosts, Kerberos environments, etc.
         if host.useGSSAPI {
             // Using PreferredAuthentications forces gssapi-with-mic first,
             // avoiding the intermittent "Miscellaneous failure" that occurs
