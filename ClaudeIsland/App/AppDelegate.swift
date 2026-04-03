@@ -152,6 +152,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return newId
     }
 
+    #if !APP_STORE
     private func fetchAndRegisterClaudeVersion() {
         let claudeProjectsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
@@ -195,13 +196,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let version = json["version"] as? String else { continue }
 
-#if !APP_STORE
             Mixpanel.mainInstance().registerSuperProperties(["claude_code_version": version])
             Mixpanel.mainInstance().people.set(properties: ["claude_code_version": version])
-#endif
             return
         }
     }
+    #endif
 
     private func ensureSingleInstance() -> Bool {
         let bundleID = Bundle.main.bundleIdentifier ?? "com.farouqaldori.ClaudeIsland"
