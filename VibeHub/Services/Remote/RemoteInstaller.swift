@@ -46,6 +46,14 @@ enum RemoteInstaller {
 
         var steps: [RemoteInstallStep] = []
 
+        // Write socket-path override so both the Python hook and OpenCode plugin
+        // know to connect to the SSH tunnel socket instead of the default local path.
+        steps.append(await step(
+            name: "write socket-path override",
+            command: "ssh \(host.sshTarget) 'mkdir -p ~/.vibehub && echo /tmp/vibehub.sock > ~/.vibehub/socket-path'",
+            result: await runSSHResult(host: host, command: "mkdir -p ~/.vibehub && printf '%s\\n' '\(host.remoteSocketPath)' > ~/.vibehub/socket-path", timeoutSeconds: 12)
+        ))
+
         steps.append(await step(
             name: "mkdir ~/.claude/hooks",
             command: "ssh \(host.sshTarget) 'mkdir -p ~/.claude/hooks'",
@@ -90,7 +98,7 @@ def detect_python():
     return 'python3'
 
 python = detect_python()
-cmd = f"{python} ~/.claude/hooks/vibehub-state.py"
+cmd = f'CLAUDE_ISLAND_SOCKET_PATH="/tmp/vibehub.sock" {python} ~/.claude/hooks/vibehub-state.py'
 hook_entry = [{"type": "command", "command": cmd}]
 hook_entry_with_timeout = [{"type": "command", "command": cmd, "timeout": 86400}]
 
@@ -156,10 +164,22 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
         var steps: [RemoteInstallStep] = []
 
-        // Only install if OpenCode config exists.
-        let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json && echo ok || echo missing", timeoutSeconds: 12)
-        steps.append(await step(name: "check opencode config", command: "test -f ~/.config/opencode/opencode.json", result: checkResult))
-        guard (checkResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok") else {
+        // Only install if OpenCode is available on the remote.
+        // Use exit code (not stdout parsing) to avoid false negatives from MOTD/banner noise.
+        // Also check for the opencode binary as a fallback when no config file exists yet.
+        let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json || test -d ~/.config/opencode || which opencode >/dev/null 2>&1", timeoutSeconds: 12)
+        let opencodeFound = checkResult.exitCode == 0
+        // Build step manually so the name clearly reflects whether opencode is installed.
+        // ok=true in both cases: not having opencode on the remote is not a failure.
+        steps.append(RemoteInstallStep(
+            name: opencodeFound ? "check opencode config" : "opencode not installed on remote",
+            command: "test -f ~/.config/opencode/opencode.json",
+            ok: true,
+            exitCode: 0,
+            stdout: opencodeFound ? "found" : "not found (skipped)",
+            stderr: ""
+        ))
+        guard opencodeFound else {
             return steps
         }
 
@@ -183,7 +203,14 @@ cfg = home / '.config' / 'opencode' / 'opencode.json'
 plugins = home / '.config' / 'opencode' / 'plugins'
 plugin_file = plugins / 'vibehub.js'
 
-data = json.loads(cfg.read_text())
+cfg.parent.mkdir(parents=True, exist_ok=True)
+data = {}
+if cfg.exists():
+    try:
+        data = json.loads(cfg.read_text())
+    except Exception:
+        data = {}
+
 uri = plugin_file.absolute().as_uri()
 
 existing = data.get('plugin')

@@ -8,6 +8,7 @@ struct RemoteHostsView: View {
     @State private var userAtHost: String = ""
     @State private var port: String = "" // empty => rely on ssh config
     @State private var identityFile: String = ""
+    @State private var useGSSAPI: Bool = false
 
     @State private var sshEntries: [SSHConfigEntry] = []
     @State private var showSSHImport: Bool = false
@@ -254,6 +255,22 @@ struct RemoteHostsView: View {
                 .background(Color.white.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
+                // GSSAPI toggle
+                HStack(spacing: 10) {
+                    Toggle(isOn: $useGSSAPI) {
+                        Text("Use GSSAPI authentication")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.7)
+                    Spacer()
+                    Text("For jump hosts")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 12)
+
                 Button {
                     guard let parsed = parseUserHost(userAtHost) else { return }
                     let host = RemoteHost(
@@ -261,13 +278,15 @@ struct RemoteHostsView: View {
                         user: parsed.user,
                         host: parsed.host,
                         port: portValue,
-                        identityFile: identityFile.isEmpty ? nil : identityFile
+                        identityFile: identityFile.isEmpty ? nil : identityFile,
+                        useGSSAPI: useGSSAPI
                     )
                     remoteManager.addHost(host)
                     name = ""
                     userAtHost = ""
                     port = ""
                     identityFile = ""
+                    useGSSAPI = false
                 } label: {
                     Text(L10n.add)
                         .font(.system(size: 12, weight: .semibold))
@@ -349,6 +368,7 @@ struct RemoteHostsView: View {
                                 name = e.alias
                                 port = String(e.port ?? 22)
                                 identityFile = e.identityFile ?? ""
+                                useGSSAPI = e.useGSSAPI
                                 showSSHImport = false
                             } label: {
                                 HStack(spacing: 10) {
