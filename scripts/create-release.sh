@@ -10,11 +10,11 @@ RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 
 # GitHub repository (owner/repo format)
-GITHUB_REPO="farouqaldori/claude-island"
+GITHUB_REPO="mtunique/claude-island"
 
-# Website repo for auto-updating appcast
-WEBSITE_DIR="${CLAUDE_ISLAND_WEBSITE:-$PROJECT_DIR/../ClaudeIsland-website}"
-WEBSITE_PUBLIC="$WEBSITE_DIR/public"
+# GitHub Pages output directory (served as site root)
+# Configure in GitHub Settings -> Pages: Deploy from branch = main, folder = /docs
+PAGES_DIR="$PROJECT_DIR/docs"
 
 APP_PATH="$EXPORT_PATH/Claude Island.app"
 APP_NAME="ClaudeIsland"
@@ -51,7 +51,7 @@ if ! xcrun notarytool history --keychain-profile "$KEYCHAIN_PROFILE" &>/dev/null
     echo ""
     echo "  xcrun notarytool store-credentials \"$KEYCHAIN_PROFILE\" \\"
     echo "      --apple-id \"your@email.com\" \\"
-    echo "      --team-id \"2DKS5U9LV4\" \\"
+    echo "      --team-id \"<YOUR_TEAM_ID>\" \\"
     echo "      --password \"xxxx-xxxx-xxxx-xxxx\""
     echo ""
     echo "Create an app-specific password at: https://appleid.apple.com"
@@ -235,58 +235,25 @@ fi
 echo ""
 
 # ============================================
-# Step 6: Update website appcast and deploy
+# Step 6: Update GitHub Pages appcast
 # ============================================
-echo "=== Step 6: Updating Website ==="
+echo "=== Step 6: Updating GitHub Pages ==="
 
-if [ -d "$WEBSITE_PUBLIC" ] && [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
-    # Copy appcast to website
-    cp "$RELEASE_DIR/appcast/appcast.xml" "$WEBSITE_PUBLIC/appcast.xml"
+if [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
+    mkdir -p "$PAGES_DIR"
+    cp "$RELEASE_DIR/appcast/appcast.xml" "$PAGES_DIR/appcast.xml"
 
     # Update the download URL in appcast to point to GitHub releases
     if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$WEBSITE_PUBLIC/appcast.xml"
-        echo "Updated appcast.xml with GitHub download URL"
+        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$PAGES_DIR/appcast.xml"
+        echo "Updated docs/appcast.xml with GitHub download URL"
     fi
 
-    # Update src/config.ts with latest version and download URL
-    CONFIG_FILE="$WEBSITE_DIR/src/config.ts"
-    if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        cat > "$CONFIG_FILE" << EOF
-// Auto-updated by create-release.sh
-export const LATEST_VERSION = "$VERSION";
-export const DOWNLOAD_URL = "$GITHUB_DOWNLOAD_URL";
-EOF
-        echo "Updated src/config.ts with version $VERSION"
-    fi
-
-    # Commit and push website changes
-    cd "$WEBSITE_DIR"
-    if [ -d ".git" ]; then
-        git add public/appcast.xml src/config.ts
-        if ! git diff --cached --quiet; then
-            git commit -m "Update appcast for v$VERSION"
-            echo "Committed appcast update"
-
-            read -p "Push website changes to deploy? (Y/n) " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                git push
-                echo "Website deployed!"
-            else
-                echo "Changes committed but not pushed. Run 'git push' in $WEBSITE_DIR to deploy."
-            fi
-        else
-            echo "No changes to commit"
-        fi
-    else
-        echo "Copied appcast.xml to $WEBSITE_PUBLIC/"
-        echo "Note: Website directory is not a git repo"
-    fi
-    cd "$PROJECT_DIR"
+    echo "Updated GitHub Pages appcast at: $PAGES_DIR/appcast.xml"
+    echo "NOTE: Commit and push docs/appcast.xml on main to publish via GitHub Pages."
 else
-    echo "Website directory not found or appcast not generated"
-    echo "Skipping website update."
+    echo "Appcast not generated."
+    echo "Skipping GitHub Pages update."
 fi
 
 echo ""
@@ -301,6 +268,6 @@ fi
 if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
     echo "  - GitHub: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
 fi
-if [ -f "$WEBSITE_PUBLIC/appcast.xml" ]; then
-    echo "  - Website: $WEBSITE_PUBLIC/appcast.xml"
+if [ -f "$PAGES_DIR/appcast.xml" ]; then
+    echo "  - Website: $PAGES_DIR/appcast.xml"
 fi
