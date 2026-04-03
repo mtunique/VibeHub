@@ -6,21 +6,35 @@ enum RemoteInstaller {
         var steps: [RemoteInstallStep] = []
 
         steps.append(contentsOf: await installClaudeHooks(host: host, progress: progress))
-        steps.append(contentsOf: await installOpenCodePlugin(host: host, progress: progress))
+        let opencodeSteps = await installOpenCodePlugin(host: host, progress: progress)
+        steps.append(contentsOf: opencodeSteps)
+        // opencode was actually installed if more than just the config-check step ran
+        let opencodeInstalled = opencodeSteps.count > 1
 
         if let progress { await progress("verify files") }
 
+        // Verify the SSH reverse tunnel socket exists on the remote side.
+        // If AllowStreamLocalForwarding is disabled on the remote sshd, this socket
+        // won't be created and events will never flow regardless of plugin status.
         steps.append(await step(
-            name: "verify claude hook",
-            command: "test -f ~/.claude/hooks/claude-island-state.py && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/claude-island-state.py && echo ok || echo missing", timeoutSeconds: 12)
+            name: "verify tunnel socket",
+            command: "test -S /tmp/claude-island.sock",
+            result: await runSSHResult(host: host, command: "test -S /tmp/claude-island.sock", timeoutSeconds: 8)
         ))
 
         steps.append(await step(
-            name: "verify opencode plugin",
-            command: "test -f ~/.config/opencode/plugins/claude-island.js && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/claude-island.js && echo ok || echo missing", timeoutSeconds: 12)
+            name: "verify claude hook",
+            command: "test -f ~/.claude/hooks/claude-island-state.py",
+            result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/claude-island-state.py", timeoutSeconds: 12)
         ))
+
+        if opencodeInstalled {
+            steps.append(await step(
+                name: "verify opencode plugin",
+                command: "test -f ~/.config/opencode/plugins/claude-island.js",
+                result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/claude-island.js", timeoutSeconds: 12)
+            ))
+        }
 
         return RemoteInstallReport(startedAt: startedAt, finishedAt: Date(), steps: steps)
     }
@@ -144,8 +158,18 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
         // Only install if OpenCode config exists.
         let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json && echo ok || echo missing", timeoutSeconds: 12)
-        steps.append(await step(name: "check opencode config", command: "test -f ~/.config/opencode/opencode.json", result: checkResult))
-        guard (checkResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok") else {
+        let opencodeFound = checkResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok"
+        // Build step manually so the name clearly reflects whether opencode is installed.
+        // ok=true in both cases: not having opencode on the remote is not a failure.
+        steps.append(RemoteInstallStep(
+            name: opencodeFound ? "check opencode config" : "opencode not installed on remote",
+            command: "test -f ~/.config/opencode/opencode.json",
+            ok: true,
+            exitCode: 0,
+            stdout: opencodeFound ? "found" : "not found (skipped)",
+            stderr: ""
+        ))
+        guard opencodeFound else {
             return steps
         }
 
