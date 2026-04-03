@@ -262,7 +262,7 @@ struct ChatView: View {
             ProgressView()
                 .progressViewStyle(CircularProgressViewStyle(tint: .white.opacity(0.4)))
                 .scaleEffect(0.8)
-            Text("Loading messages...")
+            Text(L10n.loadingMessages)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.4))
         }
@@ -276,7 +276,7 @@ struct ChatView: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 24))
                 .foregroundColor(.white.opacity(0.2))
-            Text("No messages yet")
+            Text(L10n.noMessagesYet)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.4))
         }
@@ -392,8 +392,8 @@ struct ChatView: View {
         HStack(spacing: 10) {
             TextField(
                 canSendMessages
-                    ? (isOpenCodeSession ? "Message OpenCode..." : "Message Claude...")
-                    : "No TTY available for this session",
+                    ? (isOpenCodeSession ? L10n.messageOpenCode : L10n.messageClaude)
+                    : L10n.noTTYAvailable,
                 text: $inputText
             )
                 .textFieldStyle(.plain)
@@ -540,7 +540,7 @@ struct ChatView: View {
                 if !res.ok {
                     await MainActor.run {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            inputHintText = "Remote send failed\(res.hint.map { " (\($0))" } ?? "")"
+                            inputHintText = L10n.remoteSendFailed + (res.hint.map { " (\($0))" } ?? "")
                         }
                     }
                 }
@@ -549,7 +549,7 @@ struct ChatView: View {
                 if !res.ok {
                     await MainActor.run {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            inputHintText = "Remote send failed\(res.hint.map { " (\($0))" } ?? "")"
+                            inputHintText = L10n.remoteSendFailed + (res.hint.map { " (\($0))" } ?? "")
                         }
                     }
                 }
@@ -573,9 +573,9 @@ struct ChatView: View {
 
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                         if let hint = result.hint {
-                            inputHintText = "Copied (\(hint))"
+                            inputHintText = L10n.copied(hint: hint)
                         } else {
-                            inputHintText = "Copied. Paste in terminal"
+                            inputHintText = L10n.copiedPasteInTerminal
                         }
                     }
                 }
@@ -602,7 +602,7 @@ struct ChatView: View {
                         pb.clearContents()
                         pb.setString(text, forType: .string)
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            inputHintText = "Copied. Paste in terminal"
+                            inputHintText = L10n.copiedPasteInTerminal
                         }
                     }
                     focusTerminal()
@@ -866,7 +866,7 @@ struct AssistantMessageView: View {
 // MARK: - Processing Indicator
 
 struct ProcessingIndicatorView: View {
-    private let baseTexts = ["Processing", "Working"]
+    private let baseTexts = [L10n.processing, L10n.working]
     private let color = Color(red: 0.85, green: 0.47, blue: 0.34) // Claude orange
     private let baseText: String
 
@@ -979,8 +979,8 @@ struct ToolCallView: View {
                     .fixedSize()
 
                 if tool.name == "Task" && !tool.subagentTools.isEmpty {
-                    let taskDesc = tool.input["description"] ?? "Running agent..."
-                    Text("\(taskDesc) (\(tool.subagentTools.count) tools)")
+                    let taskDesc = tool.input["description"] ?? L10n.processing + "..."
+                    Text(L10n.runningAgent(description: taskDesc, toolCount: tool.subagentTools.count))
                         .font(.system(size: 11))
                         .foregroundColor(textColor.opacity(0.7))
                         .lineLimit(1)
@@ -1091,7 +1091,7 @@ struct SubagentToolsList: View {
         VStack(alignment: .leading, spacing: 2) {
             // Show count of older hidden tools at top
             if hiddenCount > 0 {
-                Text("+\(hiddenCount) more tool uses")
+                Text(L10n.moreToolUses(hiddenCount))
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.4))
             }
@@ -1121,7 +1121,7 @@ struct SubagentToolRow: View {
     /// Get status text using the same logic as regular tools
     private var statusText: String {
         if tool.status == .interrupted {
-            return "Interrupted"
+            return L10n.interrupted
         } else if tool.status == .running {
             return ToolStatusDisplay.running(for: tool.name, input: tool.input).text
         } else {
@@ -1175,7 +1175,7 @@ struct SubagentToolsSummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Subagent used \(tools.count) tools:")
+            Text(L10n.subagentUsedTools(tools.count))
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.white.opacity(0.5))
 
@@ -1254,7 +1254,7 @@ struct ThinkingView: View {
 struct InterruptedMessageView: View {
     var body: some View {
         HStack {
-            Text("Interrupted")
+            Text(L10n.interrupted)
                 .font(.system(size: 13))
                 .foregroundColor(.red)
             Spacer()
@@ -1279,7 +1279,7 @@ struct ChatInteractivePromptBar: View {
                 Text(MCPToolFormatter.formatToolName("AskUserQuestion"))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(TerminalColors.amber)
-                Text("Claude Code needs your input")
+                Text(L10n.claudeCodeNeedsInput)
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.5))
                     .lineLimit(1)
@@ -1298,7 +1298,7 @@ struct ChatInteractivePromptBar: View {
                 HStack(spacing: 4) {
                     Image(systemName: "terminal")
                         .font(.system(size: 11, weight: .medium))
-                    Text("Terminal")
+                    Text(L10n.terminal)
                         .font(.system(size: 13, weight: .medium))
                 }
                 .foregroundColor(isInTmux ? .black : .white.opacity(0.4))
@@ -1365,7 +1365,7 @@ struct ChatApprovalBar: View {
             Button {
                 onDeny()
             } label: {
-                Text("Deny")
+                Text(L10n.deny)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
                     .padding(.horizontal, 16)
@@ -1381,7 +1381,7 @@ struct ChatApprovalBar: View {
                 Button {
                     onAlways()
                 } label: {
-                    Text("Always")
+                    Text(L10n.always)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white.opacity(0.8))
                         .lineLimit(1)
@@ -1400,7 +1400,7 @@ struct ChatApprovalBar: View {
             Button {
                 onApprove()
             } label: {
-                Text("Allow")
+                Text(L10n.allow)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black)
                     .padding(.horizontal, 16)
@@ -1454,7 +1454,7 @@ struct NewMessagesIndicator: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
 
-                Text(count == 1 ? "1 new message" : "\(count) new messages")
+                Text(L10n.newMessages(count))
                     .font(.system(size: 12, weight: .medium))
             }
             .foregroundColor(.white)
