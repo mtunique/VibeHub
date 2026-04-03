@@ -160,6 +160,13 @@ struct InstanceRow: View {
         session.opencodeRawSessionId != nil
     }
 
+    /// Display name of the remote host, if this is a remote session
+    private var remoteHostName: String? {
+        guard let hostId = session.remoteHostId else { return nil }
+        return RemoteManager.shared.hosts.first(where: { $0.id == hostId })?.name
+            ?? hostId.prefix(8).description
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // First row: indicator, title, and tags
@@ -175,7 +182,7 @@ struct InstanceRow: View {
 
                 Spacer(minLength: 0)
 
-                // Tags: software label + time
+                // Tags: software label + remote host + time
                 HStack(spacing: 6) {
                     // Software tag (Claude/OpenCode)
                     let isOpencode = session.opencodeRawSessionId != nil
@@ -186,6 +193,17 @@ struct InstanceRow: View {
                         .padding(.vertical, 2)
                         .background((isOpencode ? TerminalColors.green : claudeOrange).opacity(0.15))
                         .clipShape(Capsule())
+
+                    // Remote host tag
+                    if let hostName = remoteHostName {
+                        Text(hostName)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(TerminalColors.cyan)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(TerminalColors.cyan.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
 
                     // Time tag
                     Text(formatTimeAgo(session.lastActivity))

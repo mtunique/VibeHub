@@ -124,51 +124,11 @@ final class RemoteManager: ObservableObject {
 
         setStatus(id: id, status: .connecting)
 
-        // Start local socket listener for this remote.
-        if servers[id] == nil {
-            let server = HookSocketServer(
-                socketPath: host.localSocketPath,
-                namespacePrefix: host.namespacePrefix,
-                remoteHostId: host.id
-            )
-
-            server.start(
-                onEvent: { event in
-                    Task { await RemoteLog.shared.log(.debug, "event: \(event.event) status=\(event.status)", hostId: id) }
-
-                    // Healthcheck notifications are internal plumbing; don't surface to SessionStore.
-                    if event.event == "Notification",
-                       event.notificationType == "remote_healthcheck",
-                       let msg = event.message,
-                       msg.hasPrefix("healthcheck:"),
-                       let token = msg.split(separator: ":").dropFirst().first {
-                        let tokenString = String(token)
-                        Task { @MainActor in
-                            RemoteManager.shared.markHealthcheckReceived(hostId: id, token: tokenString)
-                        }
-                        return
-                    }
-
-                    Task {
-                        await SessionStore.shared.process(.hookReceived(event))
-                    }
-
-                    if event.event == "Stop" {
-                        server.cancelPendingPermissions(sessionId: event.sessionId)
-                    }
-                    if event.event == "PostToolUse", let toolUseId = event.toolUseId {
-                        server.cancelPendingPermission(toolUseId: toolUseId)
-                    }
-                },
-                onPermissionFailure: { sessionId, toolUseId in
-                    Task {
-                        await SessionStore.shared.process(
-                            .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
-                        )
-                    }
-                }
-            )
-            servers[id] = server
+        // Stop any existing server before cleanup — we'll create a fresh one after cleanup
+        // to avoid the race where cleanup deletes the socket the server just created.
+        if let existing = servers[id] {
+            existing.stop()
+            servers.removeValue(forKey: id)
         }
 
         let forwarder = forwarders[id] ?? SSHForwarder()
@@ -224,7 +184,55 @@ final class RemoteManager: ObservableObject {
             await RemoteLog.shared.log(.info, "connect requested (\(host.sshTarget))", hostId: id)
 
             await MainActor.run {
-                // Start forwarding AFTER cleanup completes
+                // Create the local socket listener AFTER cleanup so the cleanup doesn't
+                // accidentally delete the socket that the server just bound to.
+                if self.servers[id] == nil {
+                    let server = HookSocketServer(
+                        socketPath: host.localSocketPath,
+                        namespacePrefix: host.namespacePrefix,
+                        remoteHostId: host.id
+                    )
+
+                    server.start(
+                        onEvent: { event in
+                            Task { await RemoteLog.shared.log(.debug, "event: \(event.event) status=\(event.status)", hostId: id) }
+
+                            // Healthcheck notifications are internal plumbing; don't surface to SessionStore.
+                            if event.event == "Notification",
+                               event.notificationType == "remote_healthcheck",
+                               let msg = event.message,
+                               msg.hasPrefix("healthcheck:"),
+                               let token = msg.split(separator: ":").dropFirst().first {
+                                let tokenString = String(token)
+                                Task { @MainActor in
+                                    RemoteManager.shared.markHealthcheckReceived(hostId: id, token: tokenString)
+                                }
+                                return
+                            }
+
+                            Task {
+                                await SessionStore.shared.process(.hookReceived(event))
+                            }
+
+                            if event.event == "Stop" {
+                                server.cancelPendingPermissions(sessionId: event.sessionId)
+                            }
+                            if event.event == "PostToolUse", let toolUseId = event.toolUseId {
+                                server.cancelPendingPermission(toolUseId: toolUseId)
+                            }
+                        },
+                        onPermissionFailure: { sessionId, toolUseId in
+                            Task {
+                                await SessionStore.shared.process(
+                                    .permissionSocketFailed(sessionId: sessionId, toolUseId: toolUseId)
+                                )
+                            }
+                        }
+                    )
+                    self.servers[id] = server
+                }
+
+                // Start forwarding AFTER cleanup completes and server is listening
                 forwarder.connect(host: host)
             }
         }
