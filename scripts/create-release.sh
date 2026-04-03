@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
 EXPORT_PATH="$BUILD_DIR/export"
+ARCHIVE_PATH="$BUILD_DIR/ClaudeIsland.xcarchive"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 
@@ -17,6 +18,12 @@ GITHUB_REPO="mtunique/claude-island"
 PAGES_DIR="$PROJECT_DIR/docs"
 
 APP_PATH="$EXPORT_PATH/Claude Island.app"
+
+# Fallback: if export failed (eg missing Developer ID), use archived app.
+if [ ! -d "$APP_PATH" ] && [ -d "$ARCHIVE_PATH/Products/Applications/Claude Island.app" ]; then
+    APP_PATH="$ARCHIVE_PATH/Products/Applications/Claude Island.app"
+    echo "NOTE: Using archived app (export not found): $APP_PATH"
+fi
 APP_NAME="ClaudeIsland"
 KEYCHAIN_PROFILE="ClaudeIsland"
 
