@@ -3,12 +3,12 @@
     <channel>
         <title>Claude Island</title>
         <item>
-            <title>1.2.1</title>
-            <pubDate>Fri, 03 Apr 2026 17:19:54 +0800</pubDate>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
+            <title>1.3.0</title>
+            <pubDate>Sat, 04 Apr 2026 00:55:21 +0800</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/mtunique/claude-island/releases/download/v1.2.1/ClaudeIsland-1.2.1.dmg" length="5333243" type="application/octet-stream" sparkle:edSignature="Bhbrka8cXhN2YdOXm1pATvkS0xzgNTiZ1gVUUUvl4qizYNgPDDodpvmK5TmIQuvBfGH6Hv+hGkJV4E6Em9MvBw=="/>
+            <enclosure url="https://mtunique.github.io/claude-island/ClaudeIsland-1.3.0.dmg" length="5351999" type="application/octet-stream" sparkle:edSignature="HagKjwTea0KvfYAH+1l0gdZ0noWJXGdJu1ZpuGCLAL8LliRaIe8i/UZeKgL7LwHRHBam11Ge3QBUb4IMEYfPCg=="/>
         </item>
     </channel>
 </rss>
