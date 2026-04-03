@@ -120,7 +120,6 @@ final class SSHForwarder: ObservableObject {
             "-N",
             "-T",
             "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=3",
             "-o", "StreamLocalBindUnlink=yes",
@@ -172,19 +171,29 @@ final class SSHForwarder: ObservableObject {
                 // Stale callback from an old SSH process — ignore it.
                 guard self.generation == gen else { return }
 
-                // During connect, treat stderr as failure (eg Permission denied).
+                // During connect, treat stderr as failure (eg Permission denied),
+                // but ignore local forwarding noise from the user's ~/.ssh/config
+                // (eg "bind: Address already in use", "cannot listen to port").
                 if case .connecting = self.status {
-                    self.status = .failed(msg)
+                    let lower = msg.lowercased()
+                    let isLocalForwardNoise =
+                        lower.contains("address already in use") ||
+                        lower.contains("cannot listen to port") ||
+                        lower.contains("channel_setup_fwd_listener_tcpip") ||
+                        lower.contains("could not request local forwarding")
+                    if !isLocalForwardNoise {
+                        self.status = .failed(msg)
+                    }
                     return
                 }
 
-                // When already connected, ignore benign ssh noise (eg known_hosts warnings),
-                // but fail hard on forwarding errors.
+                // When already connected, ignore benign ssh noise (eg known_hosts warnings)
+                // and local forwarding failures (from the user's ~/.ssh/config LocalForward
+                // directives). Only fail on REMOTE forwarding errors which affect our -R tunnel.
                 if case .connected = self.status {
                     let lower = msg.lowercased()
                     if lower.contains("remote port forwarding failed") ||
-                        lower.contains("cannot listen") ||
-                        lower.contains("address already in use") {
+                        lower.contains("remote forwarding") && lower.contains("failed") {
                         self.status = .failed(msg)
                     }
                 }
