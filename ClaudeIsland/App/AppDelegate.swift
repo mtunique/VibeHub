@@ -1,11 +1,8 @@
 import AppKit
 import IOKit
-import SwiftUI
-
-#if !APP_STORE
 import Mixpanel
 import Sparkle
-#endif
+import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowManager: WindowManager?
@@ -13,21 +10,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateCheckTimer: Timer?
 
     static var shared: AppDelegate?
-
-#if !APP_STORE
     let updater: SPUUpdater
     private let userDriver: NotchUserDriver
-#endif
 
     var windowController: NotchWindowController? {
         windowManager?.windowController
     }
 
     override init() {
-        super.init()
-        AppDelegate.shared = self
-
-#if !APP_STORE
         userDriver = NotchUserDriver()
         updater = SPUUpdater(
             hostBundle: Bundle.main,
@@ -35,13 +25,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             userDriver: userDriver,
             delegate: nil
         )
+        super.init()
+        AppDelegate.shared = self
 
         do {
             try updater.start()
         } catch {
             print("Failed to start Sparkle updater: \(error)")
         }
-#endif
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -50,8 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-
-#if !APP_STORE
         Mixpanel.initialize(token: "49814c1436104ed108f3fc4735228496")
 
         let distinctId = getOrCreateDistinctId()
@@ -77,29 +66,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         Mixpanel.mainInstance().track(event: "App Launched")
         Mixpanel.mainInstance().flush()
-#endif
 
-        // App Store builds must avoid writing into user home directories without explicit user action.
-#if !APP_STORE
         HookInstaller.installIfNeeded()
         OpenCodePluginInstaller.installIfNeeded()
-#endif
         NSApplication.shared.setActivationPolicy(.accessory)
 
         windowManager = WindowManager()
         _ = windowManager?.setupNotchWindow()
 
-        // Remote SSH features are not App Store compatible.
-#if !APP_STORE
+        // Auto-connect remote hosts.
         RemoteManager.shared.startup()
-#endif
 
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()
         }
 
-
-#if !APP_STORE
         if updater.canCheckForUpdates {
             updater.checkForUpdates()
         }
@@ -108,7 +89,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let updater = self?.updater, updater.canCheckForUpdates else { return }
             updater.checkForUpdates()
         }
-#endif
     }
 
     private func handleScreenChange() {
@@ -116,9 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-#if !APP_STORE
         Mixpanel.mainInstance().flush()
-#endif
         updateCheckTimer?.invalidate()
         screenObserver = nil
     }
@@ -194,10 +172,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let version = json["version"] as? String else { continue }
 
-#if !APP_STORE
             Mixpanel.mainInstance().registerSuperProperties(["claude_code_version": version])
             Mixpanel.mainInstance().people.set(properties: ["claude_code_version": version])
-#endif
             return
         }
     }
