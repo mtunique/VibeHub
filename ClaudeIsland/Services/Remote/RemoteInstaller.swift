@@ -205,13 +205,14 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
             "-o", "ServerAliveCountMax=2",
             // Avoid interactive host key prompts; accept new hosts and still protect against MITM changes.
             "-o", "StrictHostKeyChecking=accept-new",
-            // Force GSSAPI auth only: prevents intermittent "Miscellaneous failure" that occurs
-            // when SSH tries gssapi-with-mic alongside other methods.
-            "-o", "PreferredAuthentications=gssapi-with-mic",
             // ControlPath: reuse the ControlMaster socket created by SSHForwarder.
             // Must match the path in SSHForwarder.buildArgs exactly.
             "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
         ]
+        // GSSAPI authentication for Jump proxy, devserver1, etc.
+        if host.useGSSAPI {
+            args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
+        }
         if let port = host.port { args += ["-p", String(port)] }
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
         return args

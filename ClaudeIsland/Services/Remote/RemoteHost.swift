@@ -8,6 +8,9 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
     /// Optional: if nil, rely on ~/.ssh/config defaults for the host alias.
     var port: Int?
     var identityFile: String?
+    /// Whether to use GSSAPI authentication (for Jump proxy, devserver1, etc).
+    /// When false, uses standard SSH key authentication.
+    var useGSSAPI: Bool
     var autoConnect: Bool
 
     init(
@@ -17,6 +20,7 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
         host: String,
         port: Int? = nil,
         identityFile: String? = nil,
+        useGSSAPI: Bool = false,
         autoConnect: Bool = false
     ) {
         self.id = id
@@ -25,6 +29,7 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
         self.host = host
         self.port = port
         self.identityFile = identityFile
+        self.useGSSAPI = useGSSAPI
         self.autoConnect = autoConnect
     }
 
