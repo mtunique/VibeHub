@@ -225,6 +225,7 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             sessionMonitor.startMonitoring()
+            viewModel.closedContentWidth = closedContentWidth
             // On non-notched devices, keep visible so users have a target to interact with
             if !viewModel.hasPhysicalNotch {
                 isVisible = true
@@ -239,6 +240,9 @@ struct NotchView: View {
         .onChange(of: sessionMonitor.instances) { _, instances in
             handleProcessingChange()
             handleWaitingForInputChange(instances)
+        }
+        .onChange(of: closedContentWidth) { _, newWidth in
+            viewModel.closedContentWidth = newWidth
         }
     }
 
