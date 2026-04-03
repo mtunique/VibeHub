@@ -120,9 +120,26 @@ actor SessionStore {
     // MARK: - Hook Event Processing
 
     private func processHookEvent(_ event: HookEvent) async {
-        let sessionId = event.sessionId
+        // Resolve session ID: for OpenCode sessions, deduplicate by PID.
+        // If an event arrives with an unknown session ID but we already have
+        // an OpenCode session from the same process (same _ppid), redirect
+        // the event to the existing session to prevent phantom duplicates.
+        let sessionId: String = {
+            let rawId = event.sessionId
+            guard rawId.hasPrefix("opencode-"), sessions[rawId] == nil else {
+                return rawId
+            }
+            let effectivePid = event.pid ?? event.sourcePid
+            guard let pid = effectivePid else { return rawId }
+            if let existingId = findExistingOpenCodeSession(forPid: pid, excluding: rawId) {
+                Self.logger.info("OpenCode dedup: redirecting \(rawId.prefix(24), privacy: .public) → \(existingId.prefix(24), privacy: .public) (pid \(pid))")
+                return existingId
+            }
+            return rawId
+        }()
+
         let isNewSession = sessions[sessionId] == nil
-        var session = sessions[sessionId] ?? createSession(from: event)
+        var session = sessions[sessionId] ?? createSession(from: event, sessionId: sessionId)
 
         // Track new session in Mixpanel
         if isNewSession {
@@ -306,9 +323,9 @@ actor SessionStore {
         return cleaned
     }
 
-    private func createSession(from event: HookEvent) -> SessionState {
+    private func createSession(from event: HookEvent, sessionId: String? = nil) -> SessionState {
         SessionState(
-            sessionId: event.sessionId,
+            sessionId: sessionId ?? event.sessionId,
             cwd: event.cwd,
             projectName: URL(fileURLWithPath: event.cwd).lastPathComponent,
             pid: event.pid,
@@ -1108,6 +1125,17 @@ actor SessionStore {
     }
 
     // MARK: - Queries
+
+    /// Find an existing OpenCode session with the given PID (for deduplication).
+    /// Returns the session ID if found, nil otherwise.
+    private func findExistingOpenCodeSession(forPid pid: Int, excluding sessionId: String) -> String? {
+        for (id, session) in sessions where id != sessionId {
+            if session.opencodeRawSessionId != nil && session.pid == pid {
+                return id
+            }
+        }
+        return nil
+    }
 
     /// Get a specific session
     func session(for sessionId: String) -> SessionState? {
