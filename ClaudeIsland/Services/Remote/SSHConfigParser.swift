@@ -7,6 +7,8 @@ struct SSHConfigEntry: Identifiable, Equatable, Sendable {
     let user: String?
     let port: Int?
     let identityFile: String?
+    /// Whether GSSAPI authentication is enabled (GSSAPIAuthentication=yes)
+    let useGSSAPI: Bool
 }
 
 enum SSHConfigParser {
@@ -108,6 +110,7 @@ enum SSHConfigParser {
             var user: String?
             var port: Int?
             var identityFile: String?
+            var useGSSAPI: Bool = false
         }
 
         func flush(_ block: Block) {
@@ -120,7 +123,8 @@ enum SSHConfigParser {
                     hostName: block.hostName,
                     user: block.user,
                     port: block.port,
-                    identityFile: expandTilde(block.identityFile)
+                    identityFile: expandTilde(block.identityFile),
+                    useGSSAPI: block.useGSSAPI
                 )
                 results.append(entry)
             }
@@ -158,6 +162,12 @@ enum SSHConfigParser {
                 current.port = Int(value)
             case "identityfile":
                 current.identityFile = value
+            case "gssapiauthentication":
+                current.useGSSAPI = value.lowercased() == "yes"
+            case "gssapidelegatecredentials":
+                if value.lowercased() == "yes" {
+                    current.useGSSAPI = true
+                }
             default:
                 break
             }
