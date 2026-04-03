@@ -551,7 +551,8 @@ struct NotchView: View {
 
             // When work completes, proactively open the notch so the user can see the outcome.
             // Use the notification reason so we don't steal focus.
-            if (viewModel.status == .closed || viewModel.status == .popping),
+            if AppSettings.expandOnCompletion,
+               (viewModel.status == .closed || viewModel.status == .popping),
                let focusSession = newlyWaitingSessions.sorted(by: { $0.lastActivity > $1.lastActivity }).first {
                 // Debounce: wait a moment so message history/title has time to sync.
                 // Cancel if the session goes back to processing.

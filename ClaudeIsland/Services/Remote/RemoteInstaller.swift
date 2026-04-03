@@ -213,6 +213,7 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
         if host.useGSSAPI {
             args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
         }
+
         if let port = host.port { args += ["-p", String(port)] }
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
         return args
