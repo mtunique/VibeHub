@@ -5,43 +5,6 @@
 //  Custom Sparkle user driver for in-notch update UI
 //
 
-#if APP_STORE
-
-import Combine
-import Foundation
-
-/// Update state published to UI.
-///
-/// App Store builds use Apple's built-in update mechanism.
-enum UpdateState: Equatable {
-    case idle
-    case upToDate
-
-    var isActive: Bool { false }
-}
-
-/// Minimal update manager for App Store builds.
-@MainActor
-final class UpdateManager: NSObject, ObservableObject {
-    static let shared = UpdateManager()
-
-    @Published var state: UpdateState = .idle
-    @Published var hasUnseenUpdate: Bool = false
-
-    func checkForUpdates() {
-        // No-op. Updates are handled by the Mac App Store.
-        state = .upToDate
-    }
-
-    func markUpdateSeen() {
-        hasUnseenUpdate = false
-    }
-}
-
-final class NotchUserDriver: NSObject {}
-
-#else
-
 import Combine
 import Foundation
 import Sparkle
@@ -326,5 +289,3 @@ class NotchUserDriver: NSObject, SPUUserDriver {
         reply(.dismiss)
     }
 }
-
-#endif
