@@ -39,6 +39,7 @@ enum AppSettings {
     private enum Keys {
         static let notificationSound = "notificationSound"
         static let remoteHosts = "remoteHosts"
+        static let expandOnCompletion = "expandOnCompletion"
     }
 
     // MARK: - Notification Sound
@@ -54,6 +55,22 @@ enum AppSettings {
         }
         set {
             defaults.set(newValue.rawValue, forKey: Keys.notificationSound)
+        }
+    }
+
+    // MARK: - Expand on Completion
+
+    /// Whether to expand the notch when Claude finishes processing
+    static var expandOnCompletion: Bool {
+        get {
+            // Default to true if key has never been set
+            if defaults.object(forKey: Keys.expandOnCompletion) == nil {
+                return true
+            }
+            return defaults.bool(forKey: Keys.expandOnCompletion)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.expandOnCompletion)
         }
     }
 

@@ -20,6 +20,7 @@ struct NotchMenuView: View {
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
+    @State private var expandOnCompletion: Bool = AppSettings.expandOnCompletion
 
     var body: some View {
         VStack(spacing: 4) {
@@ -38,6 +39,15 @@ struct NotchMenuView: View {
             // Appearance settings
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
+
+            MenuToggleRow(
+                icon: "rectangle.expand.vertical",
+                label: "Expand on Completion",
+                isOn: expandOnCompletion
+            ) {
+                expandOnCompletion.toggle()
+                AppSettings.expandOnCompletion = expandOnCompletion
+            }
 
             MenuRow(
                 icon: "network",
@@ -129,6 +139,7 @@ struct NotchMenuView: View {
     private func refreshStates() {
         hooksInstalled = HookInstaller.isInstalled()
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        expandOnCompletion = AppSettings.expandOnCompletion
         screenSelector.refreshScreens()
     }
 }
