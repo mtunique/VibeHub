@@ -1,24 +1,16 @@
-# 隐私政策
+# Privacy Policy
 
-VibeHub 尊重并保护您的个人隐私。
+VibeHub does not collect any data.
 
-## 数据收集
+We do not collect:
+- Personal information
+- Usage statistics
+- Conversation content
+- Session information
+- Any other data
 
-VibeHub 使用 Mixpanel 收集匿名的使用统计数据，包括：
-
-- **应用启动**：应用版本、构建号、macOS 版本
-- **会话启动**：检测到新的 Claude Code 会话时
-
-**我们不收集**：任何个人信息、对话内容、项目名称或文件内容。
-
-## 数据存储
-
-所有收集的数据仅用于改善产品体验，不会与任何第三方共享。
-
-## 联系我们
-
-如有任何隐私问题，请通过 GitHub Issues 联系我们。
+VibeHub operates entirely locally on your device. No data is ever transmitted to external servers.
 
 ---
 
-*最后更新：2026 年 4 月*
+*Last updated: April 2026*
