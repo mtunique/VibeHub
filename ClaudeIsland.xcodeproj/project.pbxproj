@@ -335,7 +335,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mtunique.claudeisland;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtunique.claudeisland.macos;
 				PRODUCT_NAME = "Claude Island";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
