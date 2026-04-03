@@ -265,7 +265,7 @@ struct RemoteHostsView: View {
                     .toggleStyle(.switch)
                     .scaleEffect(0.7)
                     Spacer()
-                    Text("For Jump proxy, devserver1")
+                    Text("For jump hosts")
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.4))
                 }

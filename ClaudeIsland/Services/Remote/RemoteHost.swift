@@ -8,7 +8,7 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
     /// Optional: if nil, rely on ~/.ssh/config defaults for the host alias.
     var port: Int?
     var identityFile: String?
-    /// Whether to use GSSAPI authentication (for Jump proxy, devserver1, etc).
+    /// Whether to use GSSAPI authentication (for jump hosts, Kerberos environments, etc).
     /// When false, uses standard SSH key authentication.
     var useGSSAPI: Bool
     var autoConnect: Bool

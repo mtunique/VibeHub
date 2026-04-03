@@ -209,7 +209,7 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
             // Must match the path in SSHForwarder.buildArgs exactly.
             "-o", "ControlPath=/tmp/claude-island-ssh-%r@%h-%p",
         ]
-        // GSSAPI authentication for Jump proxy, devserver1, etc.
+        // GSSAPI authentication for jump hosts, Kerberos environments, etc.
         if host.useGSSAPI {
             args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
         }
