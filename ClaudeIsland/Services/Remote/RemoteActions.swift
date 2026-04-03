@@ -151,11 +151,11 @@ except Exception as e:
         await RemoteLog.shared.log(.info, "sendOpenCodePrompt: pid=\(pid) sid=\(sid.prefix(8))...", hostId: hostId)
 
         let payload = """
-import json, socket, sys, base64
+ import json, socket, sys, base64, os
 
-sock_path = f"/tmp/claude-island-opencode-{sys.argv[1]}.sock"
-session_id = sys.argv[2]
-text = base64.b64decode(sys.argv[3]).decode('utf-8')
+ sock_path = os.path.expanduser(f"~/.claude-island/ci-opencode-{sys.argv[1]}.sock")
+ session_id = sys.argv[2]
+ text = base64.b64decode(sys.argv[3]).decode('utf-8')
 
 req = json.dumps({"type":"prompt","session_id":session_id,"text":text}).encode('utf-8')
 

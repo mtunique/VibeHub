@@ -14,8 +14,8 @@ class PassThroughHostingView<Content: View>: NSHostingView<Content> {
     var hitTestRect: () -> CGRect = { .zero }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let rect = hitTestRect()
-        guard rect.contains(point) else {
+        // Only accept hits within the panel rect
+        guard hitTestRect().contains(point) else {
             return nil  // Pass through to windows behind
         }
         return super.hitTest(point)
@@ -38,28 +38,40 @@ class NotchViewController: NSViewController {
     override func loadView() {
         hostingView = PassThroughHostingView(rootView: NotchView(viewModel: viewModel))
 
-        // Calculate hit-test rect in window coordinates (origin at bottom-left)
+        // Calculate the hit-test rect based on panel state
         hostingView.hitTestRect = { [weak self] in
             guard let self = self else { return .zero }
             let vm = self.viewModel
             let geometry = vm.geometry
+
+            // Window coordinates: origin at bottom-left, Y increases upward
+            // The window is positioned at top of screen, so panel is at top of window
             let windowHeight = geometry.windowHeight
 
             switch vm.status {
             case .opened:
                 let panelSize = vm.openedSize
-                let panelWidth = panelSize.width + 52
+                // Panel is centered horizontally, anchored to top
+                let panelWidth = panelSize.width + 52  // Account for corner radius padding
                 let panelHeight = panelSize.height
-                // Panel is centered horizontally in window
-                // Panel bottom is at windowHeight - panelHeight
+                let screenWidth = geometry.screenRect.width
                 return CGRect(
-                    x: (geometry.screenRect.width - panelWidth) / 2,
+                    x: (screenWidth - panelWidth) / 2,
                     y: windowHeight - panelHeight,
                     width: panelWidth,
                     height: panelHeight
                 )
             case .closed, .popping:
-                return geometry.closedHitTestRect(contentWidth: vm.closedContentWidth)
+                // When closed, use the notch rect
+                let notchRect = geometry.deviceNotchRect
+                let screenWidth = geometry.screenRect.width
+                // Add some padding for easier interaction
+                return CGRect(
+                    x: (screenWidth - notchRect.width) / 2 - 10,
+                    y: windowHeight - notchRect.height - 5,
+                    width: notchRect.width + 20,
+                    height: notchRect.height + 10
+                )
             }
         }
 

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import Darwin
 
 /// Information about a process in the tree
 struct ProcessInfo: Sendable {
@@ -31,77 +30,28 @@ struct ProcessTreeBuilder: Sendable {
 
     /// Build a process tree mapping PID -> ProcessInfo
     nonisolated func buildTree() -> [Int: ProcessInfo] {
+        guard let output = ProcessExecutor.shared.runSyncOrNil("/bin/ps", arguments: ["-eo", "pid,ppid,tty,comm"]) else {
+            return [:]
+        }
+
         var tree: [Int: ProcessInfo] = [:]
 
-        let PROC_ALL_PIDS: UInt32 = 1
-        let initialSize = proc_listpids(PROC_ALL_PIDS, 0, nil, 0)
-        if initialSize <= 0 { return [:] }
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.trimmingCharacters(in: .whitespaces)
+                .components(separatedBy: .whitespaces)
+                .filter { !$0.isEmpty }
 
-        var pids = [pid_t](repeating: 0, count: Int(initialSize) / MemoryLayout<pid_t>.size)
-        let actualSize = proc_listpids(PROC_ALL_PIDS, 0, &pids, initialSize)
-        if actualSize <= 0 { return [:] }
+            guard parts.count >= 4,
+                  let pid = Int(parts[0]),
+                  let ppid = Int(parts[1]) else { continue }
 
-        let validPids = pids.prefix(Int(actualSize) / MemoryLayout<pid_t>.size)
-        let PROC_PIDTBSDINFO: Int32 = 3
+            let tty = parts[2] == "??" ? nil : parts[2]
+            let command = parts[3...].joined(separator: " ")
 
-        for pid in validPids {
-            guard pid > 0 else { continue }
-
-            var bsdinfo = proc_bsdinfo()
-            let result = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsdinfo, Int32(MemoryLayout<proc_bsdinfo>.size))
-            guard result == MemoryLayout<proc_bsdinfo>.size else { continue }
-
-            let ppid = Int(bsdinfo.pbi_ppid)
-
-            let command: String
-            if let args = getCommandArgs(pid: pid) {
-                command = args.joined(separator: " ")
-            } else {
-                let commTuple = bsdinfo.pbi_comm
-                command = withUnsafeBytes(of: commTuple) { rawPtr in
-                    if let ptr = rawPtr.baseAddress?.assumingMemoryBound(to: CChar.self) {
-                        return String(cString: ptr)
-                    }
-                    return ""
-                }
-            }
-
-            tree[Int(pid)] = ProcessInfo(pid: Int(pid), ppid: ppid, command: command, tty: nil)
+            tree[pid] = ProcessInfo(pid: pid, ppid: ppid, command: command, tty: tty)
         }
 
         return tree
-    }
-
-    private nonisolated func getCommandArgs(pid: pid_t) -> [String]? {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size: Int = 0
-        if sysctl(&mib, 3, nil, &size, nil, 0) < 0 { return nil }
-
-        var buffer = [UInt8](repeating: 0, count: size)
-        if sysctl(&mib, 3, &buffer, &size, nil, 0) < 0 { return nil }
-
-        var argc: Int32 = 0
-        memcpy(&argc, buffer, MemoryLayout<Int32>.size)
-
-        var args = [String]()
-        var ptr = MemoryLayout<Int32>.size
-
-        // Skip executable path
-        while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-        // Skip null padding
-        while ptr < size && buffer[ptr] == 0 { ptr += 1 }
-
-        for _ in 0..<argc {
-            if ptr >= size { break }
-            let start = ptr
-            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-            if ptr > start {
-                let str = String(bytes: buffer[start..<ptr], encoding: .utf8) ?? ""
-                args.append(str)
-            }
-            ptr += 1 // Skip null terminator
-        }
-        return args.isEmpty ? nil : args
     }
 
     /// Check if a process has tmux in its parent chain
