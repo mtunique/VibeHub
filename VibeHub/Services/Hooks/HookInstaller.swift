@@ -291,9 +291,13 @@ struct HookInstaller {
     }
 
     /// Returns the real user home directory URL resolved from the stored bookmark, or nil if unavailable.
-    /// The caller receives a URL that can be used for path construction; security scope is managed separately.
     static func resolvedHomeDirectory() -> URL? {
         resolveBookmark(key: Defaults.claudeDirBookmarkKey)
+    }
+
+    /// Returns the real home directory path, falling back to NSHomeDirectory() in sandbox.
+    static func resolvedHomePath() -> String {
+        resolvedHomeDirectory()?.path ?? NSHomeDirectory()
     }
 
     /// Execute a block with security-scoped access to the user's real home directory.

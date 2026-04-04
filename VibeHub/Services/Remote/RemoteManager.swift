@@ -163,8 +163,12 @@ final class RemoteManager: ObservableObject {
             }
 
         Task {
-            // Pre-connect cleanup (stale local socket and orphan ssh processes for this host)
+            // Ensure socket parent directory exists
             let path = host.localSocketPath
+            let socketDir = (path as NSString).deletingLastPathComponent
+            try? FileManager.default.createDirectory(atPath: socketDir, withIntermediateDirectories: true)
+
+            // Pre-connect cleanup (stale local socket and orphan ssh processes for this host)
             if FileManager.default.fileExists(atPath: path) {
                 try? FileManager.default.removeItem(atPath: path)
                 await RemoteLog.shared.log(.info, "pre-connect cleanup: removed local socket \(path)", hostId: id)

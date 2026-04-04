@@ -45,7 +45,7 @@ class JSONLInterruptWatcher {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
-        let resolvedHome = HookInstaller.withResolvedHome { $0.path } ?? NSHomeDirectory()
+        let resolvedHome = HookInstaller.resolvedHomePath()
         #else
         let resolvedHome = NSHomeDirectory()
         #endif
