@@ -473,7 +473,11 @@ struct HookInstaller {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         var stale = false
         do {
-            return try URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale)
+            let url = try URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale)
+            if stale {
+                _ = storeBookmark(for: url, key: key)
+            }
+            return url
         } catch {
             return nil
         }

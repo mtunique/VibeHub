@@ -63,7 +63,7 @@ class JSONLInterruptWatcher {
         stopInternal()
 
         #if APP_STORE
-        HookInstaller.withResolvedHome { home in
+        if let home = HookInstaller.resolvedHomeDirectory() {
             _ = home.startAccessingSecurityScopedResource()
             securityScopedURL = home
         }
