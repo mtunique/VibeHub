@@ -275,18 +275,35 @@ export default async ({ client, serverUrl }) => {
     server.on("error", () => {});
     server.listen(CONTROL_SOCKET, () => {});
 
-    process.on("exit", () => {
+    // Send SessionEnd for all active sessions on exit (synchronous - "exit" handler can't do async)
+    function sendEndEventsSync() {
       try {
-        server.close();
-      } catch {
-        // ignore
-      }
-      try {
-        if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET);
-      } catch {
-        // ignore
-      }
-    });
+        const net = require("net");
+        for (const [rawId] of sessions) {
+          const sid = `opencode-${rawId}`;
+          const cwd = sessionCwd.get(rawId) || "";
+          const payload = JSON.stringify(base(sid, { event: "SessionEnd", status: "ended", cwd }));
+          try {
+            const sock = net.createConnection(resolveConnectOpts());
+            sock.write(payload);
+            sock.end();
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    }
+
+    let exitHandled = false;
+    function handleExit() {
+      if (exitHandled) return;
+      exitHandled = true;
+      sendEndEventsSync();
+      try { server.close(); } catch { /* ignore */ }
+      try { if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET); } catch { /* ignore */ }
+    }
+
+    process.on("exit", handleExit);
+    process.on("SIGINT", () => { handleExit(); process.exit(0); });
+    process.on("SIGTERM", () => { handleExit(); process.exit(0); });
   }
 
   startControlServer();

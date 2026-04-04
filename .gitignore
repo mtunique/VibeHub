@@ -48,9 +48,12 @@ log/
 # Xcode backup
 *.xcodeproj.backup/
 CLAUDE.md
+!CLAUDE.md
 
 # GitHub Pages (separate repo: vibehub-site)
-docs/
+docs/*
+!docs/engineering/
+!docs/engineering/*.md
 vibehub-site/
 
 # Screenshot assets
