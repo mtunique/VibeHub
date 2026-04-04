@@ -71,4 +71,24 @@ struct TerminalAppRegistry: Sendable {
     static func isTerminalBundle(_ bundleId: String) -> Bool {
         bundleIdentifiers.contains(bundleId)
     }
+
+    // MARK: - Tab Switch Capability
+
+    /// Whether a terminal supports programmatic tab switching
+    enum TabSwitchCapability: Sendable {
+        /// Supports AppleScript tab/session enumeration with TTY matching
+        case applescript
+        /// No external tab switching API available
+        case none
+    }
+
+    /// Returns the tab switching capability for a given bundle identifier
+    static func tabSwitchCapability(for bundleId: String) -> TabSwitchCapability {
+        switch bundleId {
+        case "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty":
+            return .applescript
+        default:
+            return .none
+        }
+    }
 }
