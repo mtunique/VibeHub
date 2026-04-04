@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>VibeHub</string>
+    <string>Vibe Hub</string>
     <key>CFBundleDisplayName</key>
-    <string>VibeHub</string>
+    <string>Vibe Hub</string>
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleVersion</key>

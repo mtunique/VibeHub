@@ -25,6 +25,7 @@ enum L10n {
     static var add: String { isChinese ? "添加" : "Add" }
     static var search: String { isChinese ? "搜索" : "Search" }
     static var retry: String { isChinese ? "重试" : "Retry" }
+    static var next: String { isChinese ? "下一步" : "Next" }
     static var deny: String { isChinese ? "拒绝" : "Deny" }
     static var always: String { isChinese ? "始终允许" : "Always" }
     static var allow: String { isChinese ? "允许" : "Allow" }
@@ -33,6 +34,23 @@ enum L10n {
     // MARK: - Menu (NotchMenuView)
 
     static var expandOnCompletion: String { isChinese ? "完成时展开" : "Expand on Completion" }
+    static var displayModeLabel: String { isChinese ? "显示模式" : "Display Mode" }
+    static var displayModeAuto: String { isChinese ? "自动" : "Auto" }
+    static var displayModeNotch: String { isChinese ? "灵动岛" : "Dynamic Island" }
+    static var displayModeMenuBar: String { isChinese ? "菜单栏" : "Menu Bar" }
+    static var menuBarShowDetail: String { isChinese ? "菜单栏显示详情" : "Show Detail in Menu Bar" }
+
+    // Onboarding
+    static var onboardingTitle: String { isChinese ? "选择显示模式" : "Choose Display Mode" }
+    static var onboardingSubtitle: String { isChinese ? "你可以随时在设置中更改" : "You can change this later in Settings" }
+    static var onboardingAutoTitle: String { isChinese ? "自动" : "Auto" }
+    static var onboardingAutoDesc: String { isChinese ? "根据物理屏幕自动选择最佳模式" : "Automatically picks the best mode for your screen" }
+    static var onboardingNotchTitle: String { isChinese ? "灵动岛模式" : "Dynamic Island" }
+    static var onboardingNotchDesc: String { isChinese ? "在屏幕顶部刘海区域显示，沉浸感更强" : "Shows in the notch area at the top of the screen" }
+    static var onboardingMenuBarTitle: String { isChinese ? "菜单栏模式" : "Menu Bar" }
+    static var onboardingMenuBarDesc: String { isChinese ? "在菜单栏显示图标，点击弹出面板" : "Shows an icon in the menu bar with a popover panel" }
+    static var onboardingShowDetail: String { isChinese ? "在菜单栏显示会话详情" : "Show session details in menu bar" }
+    static var onboardingGetStarted: String { isChinese ? "开始使用" : "Get Started" }
     static var remote: String { isChinese ? "远程" : "Remote" }
     static var launchAtLogin: String { isChinese ? "开机启动" : "Launch at Login" }
     static var hooks: String { isChinese ? "Hook 脚本" : "Hooks" }
@@ -161,11 +179,11 @@ enum L10n {
 
     // MARK: - Welcome / Onboarding
 
-    static var welcomeTitle: String { isChinese ? "欢迎使用 VibeHub" : "Welcome to VibeHub" }
+    static var welcomeTitle: String { isChinese ? "欢迎使用 Vibe Hub" : "Welcome to Vibe Hub" }
     static var welcomeSubtitle: String {
         isChinese
-            ? "VibeHub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在屏幕顶部实时显示。"
-            : "VibeHub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status at the top of your screen."
+            ? "Vibe Hub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在屏幕顶部实时显示。"
+            : "Vibe Hub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status at the top of your screen."
     }
     static var welcomeInstallStep: String {
         isChinese

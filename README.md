@@ -1,6 +1,6 @@
 <div align="center">
   <img src="VibeHub/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
-  <h3 align="center">VibeHub</h3>
+  <h3 align="center">Vibe Hub</h3>
   <p align="center">
     A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code CLI sessions.
     <br />
@@ -53,7 +53,7 @@ The app will be built to `build/Release/VibeHub.app`.
 
 ## How It Works
 
-VibeHub monitors your Claude Code sessions by:
+Vibe Hub monitors your Claude Code sessions by:
 
 1. **Hook Installation** — On first launch, installs a Python hook to `~/.claude/hooks/` and registers it in Claude Code's `settings.json`
 
@@ -77,7 +77,7 @@ VibeHub monitors your Claude Code sessions by:
 
 ## OpenCode Support
 
-VibeHub also monitors OpenCode sessions.
+Vibe Hub also monitors OpenCode sessions.
 
 On first launch, the app installs an OpenCode plugin at `~/.config/opencode/plugins/vibehub.js` and adds it to `~/.config/opencode/opencode.json`.
 
@@ -105,7 +105,7 @@ Access settings by clicking the notch to expand it, then click the gear icon.
 
 ## Analytics
 
-VibeHub uses Mixpanel to collect anonymous usage data:
+Vibe Hub uses Mixpanel to collect anonymous usage data:
 
 - **App Launched** — App version, build number, macOS version
 - **Session Started** — When a new Claude Code session is detected
@@ -151,7 +151,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Acknowledgments
 
-VibeHub is an evolution of [Claude Island](https://github.com/anthropics/claude-island).
+Vibe Hub is an evolution of [Claude Island](https://github.com/anthropics/claude-island).
 
 - [libssh](https://www.libssh.org/) — SSH library (LGPL-2.1)
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — TLS and cryptography (Apache-2.0)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-VibeHub Hook
-- Sends session state to VibeHub.app via Unix socket
+Vibe Hub Hook
+- Sends session state to Vibe Hub.app via Unix socket
 - For PermissionRequest: waits for user decision from the app
 """
 import json
@@ -262,29 +262,55 @@ def get_tty():
     return None
 
 
+def _do_send(sock, state):
+    """Send state over an already-connected socket; return response or None."""
+    sock.sendall(json.dumps(state).encode())
+    if state.get("status") == "waiting_for_approval":
+        response = sock.recv(4096)
+        if response:
+            return json.loads(response.decode())
+    return None
+
+
 def send_event(state):
-    """Send event to app, return response if any"""
+    """Send event to app, return response if any.
+
+    Tries native-SSH TCP mode first (when /tmp/vibehub.port exists),
+    then falls back to the Unix socket.
+    """
+    sock = None
     try:
+        # Native SSH mode: Vibe Hub writes the reverse-TCP port here.
+        tcp_port_file = "/tmp/vibehub.port"
+        if os.path.exists(tcp_port_file):
+            try:
+                port = int(open(tcp_port_file).read().strip())
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(TIMEOUT_SECONDS)
+                sock.connect(("127.0.0.1", port))
+                return _do_send(sock, state)
+            except (socket.error, OSError, ValueError, json.JSONDecodeError):
+                pass
+            finally:
+                try:
+                    if sock:
+                        sock.close()
+                except Exception:
+                    pass
+            sock = None
+
+        # Unix socket fallback (local or legacy SSH tunnel mode).
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT_SECONDS)
         sock.connect(SOCKET_PATH)
-        sock.sendall(json.dumps(state).encode())
+        return _do_send(sock, state)
 
-        # For permission requests, wait for response
-        if state.get("status") == "waiting_for_approval":
-            response = sock.recv(4096)
-            sock.close()
-            if response:
-                return json.loads(response.decode())
-        else:
-            sock.close()
-
-        return None
     except (socket.error, OSError, json.JSONDecodeError):
         return None
     finally:
         try:
-            sock.close()
+            if sock:
+                sock.close()
         except Exception:
             pass
 
@@ -378,7 +404,7 @@ def main():
                         "hookEventName": "PermissionRequest",
                         "decision": {
                             "behavior": "deny",
-                            "message": reason or "Denied by user via VibeHub",
+                            "message": reason or "Denied by user via Vibe Hub",
                         },
                     }
                 }
