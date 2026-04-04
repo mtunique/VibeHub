@@ -1,8 +1,8 @@
-# VibeHub
+# Vibe Hub
 
-VibeHub 是一款 macOS 菜单栏应用，为 Claude Code CLI 会话带来 Dynamic Island 风格的悬浮通知体验。
+Vibe Hub 是一款 macOS 菜单栏应用，为 Claude Code CLI 会话带来 Dynamic Island 风格的悬浮通知体验。
 
-![VibeHub](VibeHub/Assets.xcassets/AppIcon.appiconset/icon_128x128.png)
+![Vibe Hub](VibeHub/Assets.xcassets/AppIcon.appiconset/icon_128x128.png)
 
 ## 功能特性
 
@@ -30,7 +30,7 @@ VibeHub 是一款 macOS 菜单栏应用，为 Claude Code CLI 会话带来 Dynam
 
 ## 隐私政策
 
-VibeHub 仅收集匿名的使用统计数据，不会收集任何个人数据或对话内容。查看完整[隐私政策](./privacy.md)。
+Vibe Hub 仅收集匿名的使用统计数据，不会收集任何个人数据或对话内容。查看完整[隐私政策](./privacy.md)。
 
 ## 开源协议
 
