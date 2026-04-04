@@ -34,6 +34,12 @@ enum L10n {
     // MARK: - Menu (NotchMenuView)
 
     static var expandOnCompletion: String { isChinese ? "完成时展开" : "Expand on Completion" }
+    static var notifyCompletion: String { isChinese ? "完成通知" : "Completion" }
+    static var notifyApproval: String { isChinese ? "审批弹出" : "Approval" }
+    static var notifyNever: String { isChinese ? "关闭" : "Off" }
+    static var notifyBackgroundOnly: String { isChinese ? "后台" : "BG" }
+    static var notifyAlways: String { isChinese ? "始终" : "Always" }
+    static var notificationsHeader: String { isChinese ? "通知" : "Notifications" }
     static var displayModeLabel: String { isChinese ? "显示模式" : "Display Mode" }
     static var displayModeAuto: String { isChinese ? "自动" : "Auto" }
     static var displayModeNotch: String { isChinese ? "灵动岛" : "Dynamic Island" }

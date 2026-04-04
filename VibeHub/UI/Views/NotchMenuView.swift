@@ -24,7 +24,8 @@ struct NotchMenuView: View {
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
-    @State private var expandOnCompletion: Bool = AppSettings.expandOnCompletion
+    @State private var notifyCompletion: NotifyMode = AppSettings.notifyCompletion
+    @State private var notifyApproval: NotifyMode = AppSettings.notifyApproval
     @State private var displayMode: DisplayMode = AppSettings.displayMode
     @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
 
@@ -48,13 +49,27 @@ struct NotchMenuView: View {
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
 
-            MenuToggleRow(
-                icon: "rectangle.expand.vertical",
-                label: L10n.expandOnCompletion,
-                isOn: expandOnCompletion
-            ) {
-                expandOnCompletion.toggle()
-                AppSettings.expandOnCompletion = expandOnCompletion
+            Divider()
+                .background(Color.white.opacity(0.08))
+                .padding(.vertical, 4)
+
+            // Notification behavior settings
+            NotifySectionHeader(label: L10n.notificationsHeader)
+
+            NotifyModePicker(
+                icon: "checkmark.circle",
+                label: L10n.notifyCompletion,
+                mode: $notifyCompletion
+            ) { newMode in
+                AppSettings.notifyCompletion = newMode
+            }
+
+            NotifyModePicker(
+                icon: "lock.shield",
+                label: L10n.notifyApproval,
+                mode: $notifyApproval
+            ) { newMode in
+                AppSettings.notifyApproval = newMode
             }
 
             DisplayModePicker(currentMode: $displayMode)
@@ -176,7 +191,8 @@ struct NotchMenuView: View {
     private func refreshStates() {
         hooksInstalled = HookInstaller.isInstalled()
         launchAtLogin = SMAppService.mainApp.status == .enabled
-        expandOnCompletion = AppSettings.expandOnCompletion
+        notifyCompletion = AppSettings.notifyCompletion
+        notifyApproval = AppSettings.notifyApproval
         screenSelector.refreshScreens()
     }
 
@@ -764,5 +780,84 @@ struct MenuToggleRow: View {
 
     private var textColor: Color {
         .white.opacity(isHovered ? 1.0 : 0.7)
+    }
+}
+
+// MARK: - Notification Section Header
+
+struct NotifySectionHeader: View {
+    let label: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white.opacity(0.35))
+                .textCase(.uppercase)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 0)
+    }
+}
+
+// MARK: - Per-Behavior Notify Mode Picker
+
+struct NotifyModePicker: View {
+    let icon: String
+    let label: String
+    @Binding var mode: NotifyMode
+    let onChange: (NotifyMode) -> Void
+
+    private let modes: [(NotifyMode, String)] = [
+        (.never, L10n.notifyNever),
+        (.backgroundOnly, L10n.notifyBackgroundOnly),
+        (.always, L10n.notifyAlways),
+    ]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.7))
+                .frame(width: 16)
+
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                ForEach(modes, id: \.0) { m, title in
+                    Button {
+                        mode = m
+                        onChange(m)
+                    } label: {
+                        Text(title)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(mode == m ? colorForMode(m) : .white.opacity(0.35))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(mode == m ? colorForMode(m).opacity(0.15) : Color.white.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func colorForMode(_ m: NotifyMode) -> Color {
+        switch m {
+        case .never: return Color.white.opacity(0.5)
+        case .backgroundOnly: return TerminalColors.amber
+        case .always: return TerminalColors.green
+        }
     }
 }

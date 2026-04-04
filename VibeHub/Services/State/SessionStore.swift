@@ -177,8 +177,15 @@ actor SessionStore {
         session.lastActivity = Date()
 
         if event.status == "ended" {
-            sessions.removeValue(forKey: sessionId)
+            session.phase = .ended
+            sessions[sessionId] = session
             cancelPendingSync(sessionId: sessionId)
+            publishState()
+            // Remove the session after a delay so UI can show the ended state
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(60))
+                await self?.processSessionEnd(sessionId: sessionId)
+            }
             return
         }
 
@@ -1003,8 +1010,9 @@ actor SessionStore {
     // MARK: - Session End Processing
 
     private func processSessionEnd(sessionId: String) async {
-        sessions.removeValue(forKey: sessionId)
+        guard sessions.removeValue(forKey: sessionId) != nil else { return }
         cancelPendingSync(sessionId: sessionId)
+        publishState()
     }
 
     // MARK: - History Loading
@@ -1119,6 +1127,73 @@ actor SessionStore {
     private func cancelPendingSync(sessionId: String) {
         pendingSyncs[sessionId]?.cancel()
         pendingSyncs.removeValue(forKey: sessionId)
+    }
+
+    // MARK: - Process Liveness Monitor
+
+    private var processMonitorStarted = false
+
+    /// Start periodic checking for dead session processes.
+    /// Local sessions whose PID no longer exists are marked as ended.
+    func startProcessMonitor() {
+        guard !processMonitorStarted else { return }
+        processMonitorStarted = true
+
+        Task { [weak self] in
+            while let self = self {
+                try? await Task.sleep(for: .seconds(10))
+                await self.pruneDeadSessions()
+            }
+        }
+    }
+
+    private func pruneDeadSessions() {
+        // Snapshot remote host connection status on MainActor
+        let disconnectedHosts: Set<String> = DispatchQueue.main.sync {
+            let mgr = RemoteManager.shared
+            var dead = Set<String>()
+            for host in mgr.hosts {
+                if let status = mgr.connectionStatus[host.id],
+                   case .disconnected = status {
+                    dead.insert(host.id)
+                }
+            }
+            return dead
+        }
+
+        var changed = false
+        for (sessionId, session) in sessions {
+            guard session.phase != .ended else { continue }
+
+            var isDead = false
+
+            if session.isRemote {
+                // Remote session: check if SSH connection is down
+                if let hostId = session.remoteHostId, disconnectedHosts.contains(hostId) {
+                    isDead = true
+                }
+            } else if let pid = session.pid {
+                // Local session: check if process is still alive
+                // kill(pid, 0) returns 0 if process exists, -1 if not
+                isDead = kill(pid_t(pid), 0) != 0
+            }
+
+            if isDead {
+                var updated = session
+                updated.phase = .ended
+                sessions[sessionId] = updated
+                changed = true
+
+                let sid = sessionId
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(60))
+                    await self?.processSessionEnd(sessionId: sid)
+                }
+            }
+        }
+        if changed {
+            publishState()
+        }
     }
 
     // MARK: - State Publishing
