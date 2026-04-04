@@ -158,4 +158,21 @@ enum L10n {
     static var auto_: String { isChinese ? "自动" : "Auto" }
     static var builtIn: String { isChinese ? "内建" : "Built-in" }
     static var main: String { isChinese ? "主屏幕" : "Main" }
+
+    // MARK: - Welcome / Onboarding
+
+    static var welcomeTitle: String { isChinese ? "欢迎使用 VibeHub" : "Welcome to VibeHub" }
+    static var welcomeSubtitle: String {
+        isChinese
+            ? "VibeHub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在 Dynamic Island 中实时显示。"
+            : "VibeHub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status in the Dynamic Island."
+    }
+    static var welcomeInstallStep: String {
+        isChinese
+            ? "点击下方按钮，选择你的 Home 文件夹以授权安装 Hook 脚本。"
+            : "Tap the button below and select your Home folder to grant access for installing hook scripts."
+    }
+    static var welcomeInstallButton: String { isChinese ? "安装 Hook 脚本" : "Install Hooks" }
+    static var welcomeSkipButton: String { isChinese ? "稍后再说" : "Later" }
+    static var welcomeInstallingButton: String { isChinese ? "安装中…" : "Installing..." }
 }

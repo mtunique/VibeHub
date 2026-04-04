@@ -30,6 +30,9 @@ enum NotchContentType: Equatable {
     case menu
     case remote
     case chat(SessionState)
+    #if APP_STORE
+    case welcome
+    #endif
 
     var id: String {
         switch self {
@@ -37,6 +40,9 @@ enum NotchContentType: Equatable {
         case .menu: return "menu"
         case .remote: return "remote"
         case .chat(let session): return "chat-\(session.sessionId)"
+        #if APP_STORE
+        case .welcome: return "welcome"
+        #endif
         }
     }
 }
@@ -95,6 +101,13 @@ class NotchViewModel: ObservableObject {
                 width: min(screenRect.width * 0.45, 540),
                 height: 420
             )
+        #if APP_STORE
+        case .welcome:
+            return CGSize(
+                width: min(screenRect.width * 0.4, 480),
+                height: 360
+            )
+        #endif
         }
     }
 
@@ -245,6 +258,11 @@ class NotchViewModel: ObservableObject {
         openReason = reason
         status = .opened
 
+        #if APP_STORE
+        // Don't override welcome screen with other content
+        if case .welcome = contentType { return }
+        #endif
+
         // Don't restore chat on notification - show instances list instead.
         // Notifications are used for passive events (eg task finished) and shouldn't steal focus.
         if reason == .notification {
@@ -306,6 +324,15 @@ class NotchViewModel: ObservableObject {
 
     /// Perform boot animation: expand briefly then collapse
     func performBootAnimation() {
+        #if APP_STORE
+        // In App Store builds, check if hooks are installed.
+        // If not, show welcome screen instead of the brief boot animation.
+        if !HookInstaller.isInstalled() {
+            contentType = .welcome
+            notchOpen(reason: .boot)
+            return
+        }
+        #endif
         notchOpen(reason: .boot)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self = self, self.openReason == .boot else { return }
