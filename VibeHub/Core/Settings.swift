@@ -38,6 +38,16 @@ enum DisplayMode: String {
     case menuBar
 }
 
+/// When a notification behavior should trigger
+enum NotifyMode: String, CaseIterable {
+    /// Never trigger
+    case never
+    /// Only trigger when the session's terminal is NOT in the foreground
+    case backgroundOnly
+    /// Always trigger regardless of terminal focus
+    case always
+}
+
 enum AppSettings {
     private static let defaults = UserDefaults.standard
 
@@ -50,6 +60,8 @@ enum AppSettings {
         static let displayMode = "displayMode"
         static let menuBarShowDetail = "menuBarShowDetail"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let notifyCompletion = "notifyCompletion"
+        static let notifyApproval = "notifyApproval"
     }
 
     // MARK: - Display Mode
@@ -100,12 +112,11 @@ enum AppSettings {
         }
     }
 
-    // MARK: - Expand on Completion
+    // MARK: - Expand on Completion (legacy, kept for migration)
 
     /// Whether to expand the notch when Claude finishes processing
     static var expandOnCompletion: Bool {
         get {
-            // Default to true if key has never been set
             if defaults.object(forKey: Keys.expandOnCompletion) == nil {
                 return true
             }
@@ -113,6 +124,41 @@ enum AppSettings {
         }
         set {
             defaults.set(newValue, forKey: Keys.expandOnCompletion)
+        }
+    }
+
+    // MARK: - Per-Behavior Notification Modes
+
+    /// When to show the completion popup (task finished, waitingForInput)
+    /// Default: never
+    static var notifyCompletion: NotifyMode {
+        get { notifyMode(forKey: Keys.notifyCompletion, default: .never) }
+        set { defaults.set(newValue.rawValue, forKey: Keys.notifyCompletion) }
+    }
+
+    /// When to show the approval/interaction popup (tool needs permission or input)
+    /// Default: backgroundOnly
+    static var notifyApproval: NotifyMode {
+        get { notifyMode(forKey: Keys.notifyApproval, default: .backgroundOnly) }
+        set { defaults.set(newValue.rawValue, forKey: Keys.notifyApproval) }
+    }
+
+    private static func notifyMode(forKey key: String, default defaultMode: NotifyMode) -> NotifyMode {
+        guard let raw = defaults.string(forKey: key),
+              let mode = NotifyMode(rawValue: raw) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    // MARK: - Notify Mode Helpers
+
+    /// Check if a behavior should trigger given current focus state
+    static func shouldNotify(_ mode: NotifyMode, isFocused: Bool) -> Bool {
+        switch mode {
+        case .never: return false
+        case .always: return true
+        case .backgroundOnly: return !isFocused
         }
     }
 

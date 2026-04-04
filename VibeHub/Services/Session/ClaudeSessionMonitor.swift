@@ -36,6 +36,9 @@ class ClaudeSessionMonitor: ObservableObject {
     func startMonitoring() {
         guard !monitoringStarted else { return }
         monitoringStarted = true
+
+        Task { await SessionStore.shared.startProcessMonitor() }
+
         HookSocketServer.shared.start(
             onEvent: { event in
                 Task {
@@ -103,8 +106,8 @@ class ClaudeSessionMonitor: ObservableObject {
     func approvePermissionAlways(sessionId: String) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
-                  session.opencodeRawSessionId != nil,
-                  let permission = session.activePermission else {
+                   session.opencodeRawSessionId != nil,
+                   let permission = session.activePermission else {
                 return
             }
 
