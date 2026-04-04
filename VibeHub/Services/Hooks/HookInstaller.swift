@@ -116,10 +116,12 @@ struct HookInstaller {
     /// Check if hooks are currently installed
     static func isInstalled() -> Bool {
 #if APP_STORE
-        guard let claudeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) else {
+        guard let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) else {
             return false
         }
-        return withSecurityScope(url: claudeDir) {
+        // The bookmark stores the Home directory, not ~/.claude directly.
+        let claudeDir = homeDir.appendingPathComponent(".claude")
+        return withSecurityScope(url: homeDir) {
             isInstalledInClaudeDir(claudeDir)
         } ?? false
 #else
@@ -291,14 +293,20 @@ struct HookInstaller {
     /// Uninstalls hooks using stored bookmarks (best effort).
     static func uninstallAppStore() -> Bool {
         var ok = true
-        if let claudeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
-            let removed = withSecurityScope(url: claudeDir) {
+        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
+            // The bookmark stores the Home directory, not ~/.claude directly.
+            let claudeDir = homeDir.appendingPathComponent(".claude")
+            let removed = withSecurityScope(url: homeDir) {
                 uninstallInClaudeDir(claudeDir)
             } ?? false
             ok = ok && removed
         }
-        if let opencodeDir = resolveBookmark(key: Defaults.opencodeDirBookmarkKey) {
-            let removed = withSecurityScope(url: opencodeDir) {
+        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
+            // OpenCode config is also a descendant of Home.
+            let opencodeDir = homeDir
+                .appendingPathComponent(".config")
+                .appendingPathComponent("opencode")
+            let removed = withSecurityScope(url: homeDir) {
                 uninstallOpenCodeInDir(opencodeDir)
             } ?? false
             ok = ok && removed

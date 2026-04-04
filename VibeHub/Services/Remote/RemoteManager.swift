@@ -172,6 +172,12 @@ final class RemoteManager: ObservableObject {
             await killOrphanedSSH(for: host)
             
             // Clean up stale ControlMaster socket
+            #if APP_STORE
+            // Sandbox: ControlMaster sockets live in /tmp/vh-ssh-*.
+            // SSH's ControlMaster=auto handles stale sockets automatically;
+            // the sandboxed app may not be able to enumerate /tmp/ directly.
+            // Best-effort: try to remove via ssh -O exit.
+            #else
             let vibehubDir = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".vibehub", isDirectory: true)
                 .path
@@ -182,6 +188,7 @@ final class RemoteManager: ObservableObject {
                     await RemoteLog.shared.log(.info, "pre-connect cleanup: removed ControlMaster socket \(cmPath)", hostId: id)
                 }
             }
+            #endif
             
             // Clean up stale remote socket
             _ = await RemoteInstaller.runSSHResult(host: host, command: "rm -f \(host.remoteSocketPath)", timeoutSeconds: 5)
@@ -382,6 +389,11 @@ final class RemoteManager: ObservableObject {
                 await RemoteLog.shared.log(.info, "startup cleanup: unlinked local socket \(path)", hostId: host.id)
             }
         }
+
+        #if APP_STORE
+        // Sandbox: ControlMaster sockets are in /tmp/vh-ssh-* and may not be
+        // enumerable from inside the sandbox. SSH ControlPersist handles expiry.
+        #else
         // Also clean up stale ControlMaster sockets from previous runs.
         // These block new ControlMaster=yes connections from starting.
         let fm = FileManager.default
@@ -395,6 +407,7 @@ final class RemoteManager: ObservableObject {
                 await RemoteLog.shared.log(.info, "startup cleanup: unlinked stale ControlMaster socket \(path)")
             }
         }
+        #endif
     }
 
     private func cleanupOrphanedSSHForwards() async {

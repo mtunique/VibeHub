@@ -90,10 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager()
         _ = windowManager?.setupNotchWindow()
 
-        // Remote SSH features are not App Store compatible.
-#if !APP_STORE
         RemoteManager.shared.startup()
-#endif
 
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()

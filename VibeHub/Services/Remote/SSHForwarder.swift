@@ -110,11 +110,17 @@ final class SSHForwarder: ObservableObject {
     private func buildArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
 
-        // Avoid /tmp for local ControlMaster sockets.
+        // ControlMaster socket directory. In sandbox, use /tmp/ to stay under
+        // the 104-byte sun_path limit (app group container paths are too long
+        // once SSH expands %C to a 64-char hash).
+        #if APP_STORE
+        let controlPath = "/tmp/vh-ssh-%C"
+        #else
         let controlDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
         try? FileManager.default.createDirectory(at: controlDir, withIntermediateDirectories: true)
         let controlPath = controlDir.appendingPathComponent("ssh-%C").path
+        #endif
 
         args += [
             "-N",
