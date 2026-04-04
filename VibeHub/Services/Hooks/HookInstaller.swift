@@ -20,8 +20,19 @@ struct HookInstaller {
     /// Install hook script and update settings.json on app launch
     static func installIfNeeded() {
 #if APP_STORE
-        // App Store builds require user-granted directory access.
-        // Use `installAppStore(...)` after obtaining security-scoped bookmarks.
+        // If we already have a stored bookmark, use it to auto-update hooks
+        // (ensures socket path stays correct across build switches).
+        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
+            _ = withSecurityScope(url: homeDir) {
+                let claudeDir = homeDir.appendingPathComponent(".claude")
+                _ = installAppStore(claudeDir: claudeDir)
+
+                let opencodeDir = homeDir.appendingPathComponent(".config").appendingPathComponent("opencode")
+                if FileManager.default.fileExists(atPath: opencodeDir.appendingPathComponent("opencode.json").path) {
+                    _ = installOpenCodeAppStore(opencodeDir: opencodeDir)
+                }
+            }
+        }
         return
 #else
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
@@ -85,7 +96,9 @@ struct HookInstaller {
 
         for (event, config) in hookEvents {
             if var existingEvent = hooks[event] as? [[String: Any]] {
-                let hasOurHook = existingEvent.contains { entry in
+                // Remove any stale vibehub hooks (e.g. from a different build
+                // with a different socket path) before inserting ours.
+                existingEvent.removeAll { entry in
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { h in
                             let cmd = h["command"] as? String ?? ""
@@ -94,10 +107,8 @@ struct HookInstaller {
                     }
                     return false
                 }
-                if !hasOurHook {
-                    existingEvent.append(contentsOf: config)
-                    hooks[event] = existingEvent
-                }
+                existingEvent.append(contentsOf: config)
+                hooks[event] = existingEvent
             } else {
                 hooks[event] = config
             }

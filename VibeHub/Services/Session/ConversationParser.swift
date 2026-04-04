@@ -43,6 +43,25 @@ actor ConversationParser {
     /// Logger for conversation parser (nonisolated static for cross-context access)
     nonisolated static let logger = Logger(subsystem: "com.vibehub", category: "Parser")
 
+    /// Regex to match internal command/system tags like <command-name>...</command-name>, <command-message>...</command-message>, etc.
+    private static let internalTagPattern: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: "</?(?:command-name|command-message|local-command|command)[^>]*>", options: [])
+    }()
+
+    /// Check if content is an internal command message that should be skipped entirely
+    private static func isInternalCommandContent(_ content: String) -> Bool {
+        content.hasPrefix("<command-name>") || content.hasPrefix("<command-message>") ||
+        content.hasPrefix("<local-command") || content.hasPrefix("Caveat:")
+    }
+
+    /// Strip internal command/system tags from display text
+    private static func stripInternalTags(_ text: String) -> String {
+        guard let pattern = internalTagPattern else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        let stripped = pattern.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+        return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Cache of parsed conversation info, keyed by session file path
     private var cache: [String: CachedInfo] = [:]
 
@@ -146,8 +165,8 @@ actor ConversationParser {
             if type == "user" && !isMeta {
                 if let message = json["message"] as? [String: Any],
                    let msgContent = message["content"] as? String {
-                    if !msgContent.hasPrefix("<command-name>") && !msgContent.hasPrefix("<local-command") && !msgContent.hasPrefix("Caveat:") {
-                        firstUserMessage = Self.truncateMessage(msgContent, maxLength: 50)
+                    if !Self.isInternalCommandContent(msgContent) {
+                        firstUserMessage = Self.truncateMessage(Self.stripInternalTags(msgContent), maxLength: 50)
                         break
                     }
                 }
@@ -168,8 +187,8 @@ actor ConversationParser {
                     let isMeta = json["isMeta"] as? Bool ?? false
                     if !isMeta, let message = json["message"] as? [String: Any] {
                         if let msgContent = message["content"] as? String {
-                            if !msgContent.hasPrefix("<command-name>") && !msgContent.hasPrefix("<local-command") && !msgContent.hasPrefix("Caveat:") {
-                                lastMessage = msgContent
+                            if !Self.isInternalCommandContent(msgContent) {
+                                lastMessage = Self.stripInternalTags(msgContent)
                                 lastMessageRole = type
                             }
                         } else if let contentArray = message["content"] as? [[String: Any]] {
@@ -199,7 +218,7 @@ actor ConversationParser {
                 let isMeta = json["isMeta"] as? Bool ?? false
                 if !isMeta, let message = json["message"] as? [String: Any] {
                     if let msgContent = message["content"] as? String {
-                        if !msgContent.hasPrefix("<command-name>") && !msgContent.hasPrefix("<local-command") && !msgContent.hasPrefix("Caveat:") {
+                        if !Self.isInternalCommandContent(msgContent) {
                             if let timestampStr = json["timestamp"] as? String {
                                 lastUserMessageDate = formatter.date(from: timestampStr)
                             }
@@ -531,13 +550,17 @@ actor ConversationParser {
         var blocks: [MessageBlock] = []
 
         if let content = messageDict["content"] as? String {
-            if content.hasPrefix("<command-name>") || content.hasPrefix("<local-command") || content.hasPrefix("Caveat:") {
+            if Self.isInternalCommandContent(content) {
                 return nil
             }
-            if content.hasPrefix("[Request interrupted by user") {
+            let cleanContent = Self.stripInternalTags(content)
+            if cleanContent.isEmpty {
+                return nil
+            }
+            if cleanContent.hasPrefix("[Request interrupted by user") {
                 blocks.append(.interrupted)
             } else {
-                blocks.append(.text(content))
+                blocks.append(.text(cleanContent))
             }
         } else if let contentArray = messageDict["content"] as? [[String: Any]] {
             for block in contentArray {
@@ -545,10 +568,15 @@ actor ConversationParser {
                     switch blockType {
                     case "text":
                         if let text = block["text"] as? String {
-                            if text.hasPrefix("[Request interrupted by user") {
+                            if Self.isInternalCommandContent(text) {
+                                continue
+                            }
+                            let cleanText = Self.stripInternalTags(text)
+                            if cleanText.isEmpty { continue }
+                            if cleanText.hasPrefix("[Request interrupted by user") {
                                 blocks.append(.interrupted)
                             } else {
-                                blocks.append(.text(text))
+                                blocks.append(.text(cleanText))
                             }
                         }
                     case "tool_use":
