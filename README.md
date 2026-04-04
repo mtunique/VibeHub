@@ -151,7 +151,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Acknowledgments
 
-VibeHub is an evolution of [Claude Island](https://github.com/anthropics/claude-code/blob/main/.claude/docs/claude-island.md).
+VibeHub is an evolution of [Claude Island](https://github.com/anthropics/claude-island).
 
 - [libssh](https://www.libssh.org/) — SSH library (LGPL-2.1)
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — TLS and cryptography (Apache-2.0)
