@@ -48,3 +48,6 @@ log/
 # Xcode backup
 *.xcodeproj.backup/
 CLAUDE.md
+
+# Nested repo for GitHub Pages
+vibehub-site/
