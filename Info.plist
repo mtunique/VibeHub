@@ -18,5 +18,7 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2025. All rights reserved.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Vibe Hub needs permission to switch terminal tabs when focusing a session.</string>
 </dict>
 </plist>
