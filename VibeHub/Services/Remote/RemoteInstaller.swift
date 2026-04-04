@@ -239,10 +239,15 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
     private static func sshBaseArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
 
+        // Must match SSHForwarder.buildArgs ControlPath exactly.
+        #if APP_STORE
+        let controlPath = "/tmp/vh-ssh-%C"
+        #else
         let controlPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
             .appendingPathComponent("ssh-%C")
             .path
+        #endif
 
         args += [
             "-o", "BatchMode=yes",

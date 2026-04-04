@@ -53,14 +53,12 @@ struct NotchMenuView: View {
             }
 
 
-#if !APP_STORE
             MenuRow(
                 icon: "network",
                 label: L10n.remote
             ) {
                 viewModel.contentType = .remote
             }
-#endif
 
             Divider()
                 .background(Color.white.opacity(0.08))
@@ -173,7 +171,14 @@ struct NotchMenuView: View {
             return
         }
 
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        // In sandbox, FileManager.homeDirectoryForCurrentUser returns the
+        // container path. Use getpwuid to get the real home directory.
+        let home: URL = {
+            if let pw = getpwuid(getuid()) {
+                return URL(fileURLWithPath: String(cString: pw.pointee.pw_dir))
+            }
+            return FileManager.default.homeDirectoryForCurrentUser
+        }()
 
         guard let homeDir = pickDirectory(
             title: "Grant Access",

@@ -49,7 +49,17 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
     }
     var namespacePrefix: String { "remote:\(id):" }
     var localSocketPath: String {
-        FileManager.default.homeDirectoryForCurrentUser
+        #if APP_STORE
+        // Sandbox: use app group container. Shorten the UUID to keep the full
+        // path under the 104-byte sun_path limit for Unix domain sockets.
+        if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.mtunique.vibehub"
+        ) {
+            let shortId = String(id.prefix(8))
+            return container.appendingPathComponent("r-\(shortId).sock").path
+        }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
             .appendingPathComponent("remote-\(id).sock")
             .path
