@@ -9,6 +9,25 @@
 import Foundation
 import os.log
 
+#if APP_STORE
+/// RAII wrapper for security-scoped bookmark access.
+/// Starts access on init, stops on release/deinit.
+private final class SandboxScope {
+    private var url: URL?
+    init() {
+        if let home = HookInstaller.resolvedHomeDirectory() {
+            _ = home.startAccessingSecurityScopedResource()
+            url = home
+        }
+    }
+    func release() {
+        url?.stopAccessingSecurityScopedResource()
+        url = nil
+    }
+    deinit { release() }
+}
+#endif
+
 struct ConversationInfo: Equatable {
     let summary: String?
     let lastMessage: String?
@@ -75,9 +94,8 @@ actor ConversationParser {
         let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
 
         #if APP_STORE
-        let scopedURL = HookInstaller.resolvedHomeDirectory()
-        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
-        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        let _scope = SandboxScope()
+        defer { _scope.release() }
         #endif
 
         let fileManager = FileManager.default
@@ -271,9 +289,8 @@ actor ConversationParser {
         let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
 
         #if APP_STORE
-        let scopedURL = HookInstaller.resolvedHomeDirectory()
-        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
-        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        let _scope = SandboxScope()
+        defer { _scope.release() }
         #endif
 
         guard FileManager.default.fileExists(atPath: sessionFile) else {
@@ -302,9 +319,8 @@ actor ConversationParser {
         let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
 
         #if APP_STORE
-        let scopedURL = HookInstaller.resolvedHomeDirectory()
-        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
-        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        let _scope = SandboxScope()
+        defer { _scope.release() }
         #endif
 
         guard FileManager.default.fileExists(atPath: sessionFile) else {
@@ -478,7 +494,7 @@ actor ConversationParser {
     private static func sessionFilePath(sessionId: String, cwd: String) -> String {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
-        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        let homePath = HookInstaller.resolvedHomePath()
         #else
         let homePath = NSHomeDirectory()
         #endif
@@ -911,16 +927,15 @@ actor ConversationParser {
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
-        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        let homePath = HookInstaller.resolvedHomePath()
         #else
         let homePath = NSHomeDirectory()
         #endif
         let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
 
         #if APP_STORE
-        let scopedURL = HookInstaller.resolvedHomeDirectory()
-        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
-        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        let _scope = SandboxScope()
+        defer { _scope.release() }
         #endif
 
         guard FileManager.default.fileExists(atPath: agentFile),
@@ -1014,16 +1029,15 @@ extension ConversationParser {
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
-        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        let homePath = HookInstaller.resolvedHomePath()
         #else
         let homePath = NSHomeDirectory()
         #endif
         let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
 
         #if APP_STORE
-        let scopedURL = HookInstaller.resolvedHomeDirectory()
-        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
-        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        let _scope = SandboxScope()
+        defer { _scope.release() }
         #endif
 
         guard FileManager.default.fileExists(atPath: agentFile),

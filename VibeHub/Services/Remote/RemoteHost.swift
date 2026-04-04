@@ -50,13 +50,9 @@ struct RemoteHost: Identifiable, Codable, Equatable, Sendable {
     var namespacePrefix: String { "remote:\(id):" }
     var localSocketPath: String {
         #if APP_STORE
-        // Sandbox: use tmp dir (no spaces). Group Containers path contains spaces
-        // which breaks SSH's -R argument for Unix socket forwarding.
         let shortId = String(id.prefix(8))
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vibehub", isDirectory: true)
-        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        return tmpDir.appendingPathComponent("r-\(shortId).sock").path
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibehub/r-\(shortId).sock").path
         #endif
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
