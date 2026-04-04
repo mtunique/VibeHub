@@ -161,14 +161,11 @@ final class SSHForwarder: ObservableObject {
             args += ["-p", String(port)]
         }
 
+        #if !APP_STORE
         if let key = host.identityFile, !key.isEmpty {
-            #if APP_STORE
-            // Config copy already has rewritten IdentityFile paths; skip -i
-            // to avoid passing the original (inaccessible) path.
-            #else
             args += ["-i", key]
-            #endif
         }
+        #endif
 
         // Remote unix socket -> local unix socket
         args += ["-R", "\(host.remoteSocketPath):\(host.localSocketPath)"]
@@ -182,8 +179,6 @@ final class SSHForwarder: ObservableObject {
     /// Uses the container tmp dir (no spaces) because SSH treats spaces in
     /// UserKnownHostsFile as path separators.
     nonisolated static func sandboxSSHDir() -> (config: String, knownHosts: String)? {
-        // Use a path without spaces — Group Containers path contains "Group Containers"
-        // which breaks SSH's UserKnownHostsFile (space = separator).
         let destDir = FileManager.default.temporaryDirectory.appendingPathComponent("vibehub-ssh", isDirectory: true)
         let destConfig = destDir.appendingPathComponent("config")
         let destKnownHosts = destDir.appendingPathComponent("known_hosts")

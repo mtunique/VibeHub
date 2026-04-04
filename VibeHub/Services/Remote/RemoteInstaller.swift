@@ -274,9 +274,7 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
         }
 
         if let port = host.port { args += ["-p", String(port)] }
-        #if APP_STORE
-        // Config copy already has rewritten IdentityFile paths; skip -i.
-        #else
+        #if !APP_STORE
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
         #endif
         return args
