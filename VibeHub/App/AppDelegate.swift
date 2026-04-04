@@ -1,4 +1,5 @@
 import AppKit
+import Clibssh
 import IOKit
 import SwiftUI
 
@@ -11,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowManager: WindowManager?
     private var screenObserver: ScreenObserver?
     private var updateCheckTimer: Timer?
+    private var onboardingWindow: OnboardingWindowController?
 
     static var shared: AppDelegate?
 
@@ -46,6 +48,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // libssh + mbedTLS must be initialized before any SSH session.
+        vibehub_ssh_global_init()
+
         if !ensureSingleInstance() {
             NSApplication.shared.terminate(nil)
             return
@@ -80,15 +85,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Mixpanel.mainInstance().flush()
 #endif
 
-        // App Store builds must avoid writing into user home directories without explicit user action.
-#if !APP_STORE
         HookInstaller.installIfNeeded()
+#if !APP_STORE
         OpenCodePluginInstaller.installIfNeeded()
 #endif
         NSApplication.shared.setActivationPolicy(.accessory)
 
-        windowManager = WindowManager()
-        _ = windowManager?.setupNotchWindow()
+        ClaudeSessionMonitor.shared.startMonitoring()
+
+        NotificationCenter.default.addObserver(forName: .displayModeChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.windowManager?.switchMode(to: AppSettings.displayMode)
+        }
+
+        if AppSettings.hasCompletedOnboarding {
+            startDisplayMode()
+        } else {
+            // Show standalone onboarding window before any display mode
+            onboardingWindow = OnboardingWindowController()
+            onboardingWindow?.show { [weak self] in
+                self?.onboardingWindow = nil
+                self?.startDisplayMode()
+            }
+        }
 
         RemoteManager.shared.startup()
 
@@ -107,6 +125,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updater.checkForUpdates()
         }
 #endif
+    }
+
+    private func startDisplayMode() {
+        windowManager = WindowManager()
+        windowManager?.setup()
     }
 
     private func handleScreenChange() {

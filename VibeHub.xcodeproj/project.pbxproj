@@ -10,6 +10,8 @@
 		FD0F42E72EE7ABA400980302 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = FD0F42E62EE7ABA400980302 /* Mixpanel */; };
 		FDA49F7D2EE11E3C00F9612E /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD33FD722EDF32D7002A6548 /* Markdown */; };
 		FDA49F7E2EE11E3C00F9612E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = FDA49F7F2EE11E3C00F9612E /* Sparkle */; };
+		FDCC00032EFF000000000003 /* Clibssh in Frameworks */ = {isa = PBXBuildFile; productRef = FDCC00022EFF000000000002 /* Clibssh */; };
+		FDCC00042EFF000000000004 /* Clibssh in Frameworks */ = {isa = PBXBuildFile; productRef = FDCC00022EFF000000000002 /* Clibssh */; };
 		FE0000012EDF32D8002A6548 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD33FD722EDF32D7002A6548 /* Markdown */; };
 /* End PBXBuildFile section */
 
@@ -34,6 +36,7 @@
 				FD0F42E72EE7ABA400980302 /* Mixpanel in Frameworks */,
 				FDA49F7D2EE11E3C00F9612E /* Markdown in Frameworks */,
 				FDA49F7E2EE11E3C00F9612E /* Sparkle in Frameworks */,
+				FDCC00032EFF000000000003 /* Clibssh in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -42,6 +45,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE0000012EDF32D8002A6548 /* Markdown in Frameworks */,
+				FDCC00042EFF000000000004 /* Clibssh in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -88,6 +92,7 @@
 				FD33FD722EDF32D7002A6548 /* Markdown */,
 				FDA49F7F2EE11E3C00F9612E /* Sparkle */,
 				FD0F42E62EE7ABA400980302 /* Mixpanel */,
+				FDCC00022EFF000000000002 /* Clibssh */,
 			);
 			productName = VibeHub;
 			productReference = FD33FD5D2EDF32D7002A6548 /* VibeHub.app */;
@@ -111,6 +116,7 @@
 			name = VibeHubAppStore;
 			packageProductDependencies = (
 				FD33FD722EDF32D7002A6548 /* Markdown */,
+				FDCC00022EFF000000000002 /* Clibssh */,
 			);
 			productName = VibeHubAppStore;
 			productReference = FE0000022EDF32D8002A6548 /* VibeHub.app */;
@@ -144,6 +150,7 @@
 				FD33FD712EDF32D7002A6548 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 				FDA49F802EE11E3C00F9612E /* XCRemoteSwiftPackageReference "Sparkle" */,
 				FD0F42E52EE7ABA400980302 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
+				FDCC00012EFF000000000001 /* XCLocalSwiftPackageReference "Clibssh" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FD33FD5E2EDF32D7002A6548 /* Products */;
@@ -632,6 +639,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		FDCC00012EFF000000000001 /* XCLocalSwiftPackageReference "Clibssh" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Clibssh;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		FD0F42E52EE7ABA400980302 /* XCRemoteSwiftPackageReference "mixpanel-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -674,6 +688,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FDA49F802EE11E3C00F9612E /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		FDCC00022EFF000000000002 /* Clibssh */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FDCC00012EFF000000000001 /* XCLocalSwiftPackageReference "Clibssh" */;
+			productName = Clibssh;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

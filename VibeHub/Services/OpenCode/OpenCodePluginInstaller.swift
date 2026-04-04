@@ -48,6 +48,12 @@ struct OpenCodePluginInstaller {
             return
         }
 
+        // Write sidecar socket path so the plugin knows where to connect.
+        // Always overwrite: the path differs between dev and App Store builds.
+        let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
+        let socketPath = HookSocketPaths.socketPath + "\n"
+        try? socketPath.data(using: .utf8)?.write(to: socketFile, options: [.atomic])
+
         updateOpenCodeConfig(configFile: configFile, pluginFile: pluginFile)
     }
 
