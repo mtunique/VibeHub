@@ -22,7 +22,7 @@ private let closedHorizontalPadding: CGFloat = cornerRadiusInsets.closed.top
 
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
-    @StateObject private var sessionMonitor = ClaudeSessionMonitor()
+    @ObservedObject private var sessionMonitor = ClaudeSessionMonitor.shared
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @State private var previousPendingIds: Set<String> = []
@@ -448,9 +448,11 @@ struct NotchView: View {
                     sessionMonitor: sessionMonitor,
                     viewModel: viewModel
                 )
+            case .onboarding:
+                OnboardingView(viewModel: viewModel)
             #if APP_STORE
             case .welcome:
-                WelcomeView(viewModel: viewModel)
+                OnboardingView(viewModel: viewModel)
             #endif
             }
         }

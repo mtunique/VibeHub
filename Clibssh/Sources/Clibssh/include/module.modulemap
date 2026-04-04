@@ -1,0 +1,11 @@
+module Clibssh [system] {
+    header "libssh/libssh.h"
+    header "libssh/callbacks.h"
+    header "libssh/ssh2.h"
+    header "vibehub_ssh.h"
+    link "ssh"
+    link "mbedcrypto"
+    link "mbedtls"
+    link "mbedx509"
+    export *
+}

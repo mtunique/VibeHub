@@ -12,10 +12,13 @@ import Foundation
 
 @MainActor
 class ClaudeSessionMonitor: ObservableObject {
+    static let shared = ClaudeSessionMonitor()
+
     @Published var instances: [SessionState] = []
     @Published var pendingInstances: [SessionState] = []
 
     private var cancellables = Set<AnyCancellable>()
+    private var monitoringStarted = false
 
     init() {
         SessionStore.shared.sessionsPublisher
@@ -31,6 +34,8 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - Monitoring Lifecycle
 
     func startMonitoring() {
+        guard !monitoringStarted else { return }
+        monitoringStarted = true
         HookSocketServer.shared.start(
             onEvent: { event in
                 Task {

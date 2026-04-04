@@ -31,6 +31,13 @@ enum NotificationSound: String, CaseIterable {
     }
 }
 
+/// How the app presents its UI: notch overlay or menu bar popover.
+enum DisplayMode: String {
+    case auto
+    case notch
+    case menuBar
+}
+
 enum AppSettings {
     private static let defaults = UserDefaults.standard
 
@@ -40,6 +47,41 @@ enum AppSettings {
         static let notificationSound = "notificationSound"
         static let remoteHosts = "remoteHosts"
         static let expandOnCompletion = "expandOnCompletion"
+        static let displayMode = "displayMode"
+        static let menuBarShowDetail = "menuBarShowDetail"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    }
+
+    // MARK: - Display Mode
+
+    static var displayMode: DisplayMode {
+        get {
+            guard let raw = defaults.string(forKey: Keys.displayMode),
+                  let mode = DisplayMode(rawValue: raw) else {
+                return .auto
+            }
+            return mode
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.displayMode)
+        }
+    }
+
+    // MARK: - Menu Bar Detail
+
+    static var menuBarShowDetail: Bool {
+        get {
+            if defaults.object(forKey: Keys.menuBarShowDetail) == nil { return false }
+            return defaults.bool(forKey: Keys.menuBarShowDetail)
+        }
+        set { defaults.set(newValue, forKey: Keys.menuBarShowDetail) }
+    }
+
+    // MARK: - Onboarding
+
+    static var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: Keys.hasCompletedOnboarding) }
+        set { defaults.set(newValue, forKey: Keys.hasCompletedOnboarding) }
     }
 
     // MARK: - Notification Sound

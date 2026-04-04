@@ -19,25 +19,30 @@ import Sparkle
 
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
+    var showBackButton: Bool = true
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
     @State private var expandOnCompletion: Bool = AppSettings.expandOnCompletion
+    @State private var displayMode: DisplayMode = AppSettings.displayMode
+    @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
 
     var body: some View {
         VStack(spacing: 4) {
-            // Back button
-            MenuRow(
-                icon: "chevron.left",
-                label: L10n.back
-            ) {
-                viewModel.toggleMenu()
-            }
+            if showBackButton {
+                // Back button
+                MenuRow(
+                    icon: "chevron.left",
+                    label: L10n.back
+                ) {
+                    viewModel.toggleMenu()
+                }
 
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
+                Divider()
+                    .background(Color.white.opacity(0.08))
+                    .padding(.vertical, 4)
+            }
 
             // Appearance settings
             ScreenPickerRow(screenSelector: screenSelector)
@@ -50,6 +55,20 @@ struct NotchMenuView: View {
             ) {
                 expandOnCompletion.toggle()
                 AppSettings.expandOnCompletion = expandOnCompletion
+            }
+
+            DisplayModePicker(currentMode: $displayMode)
+
+            if WindowManager.resolveMode(displayMode) == .menuBar {
+                MenuToggleRow(
+                    icon: "text.alignleft",
+                    label: L10n.menuBarShowDetail,
+                    isOn: menuBarShowDetail
+                ) {
+                    menuBarShowDetail.toggle()
+                    AppSettings.menuBarShowDetail = menuBarShowDetail
+                    NotificationCenter.default.post(name: .displayModeChanged, object: nil)
+                }
             }
 
 
@@ -650,6 +669,53 @@ struct MenuRow: View {
             return Color(red: 1.0, green: 0.4, blue: 0.4)
         }
         return .white.opacity(isHovered ? 1.0 : 0.7)
+    }
+}
+
+struct DisplayModePicker: View {
+    @Binding var currentMode: DisplayMode
+
+    private let modes: [(DisplayMode, String, String)] = [
+        (.auto, "sparkles", L10n.displayModeAuto),
+        (.notch, "rectangle.topthird.inset.filled", L10n.displayModeNotch),
+        (.menuBar, "menubar.rectangle", L10n.displayModeMenuBar),
+    ]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "display")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.5))
+                .frame(width: 20, alignment: .center)
+            Text(L10n.displayModeLabel)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+            Spacer()
+            HStack(spacing: 2) {
+                ForEach(modes, id: \.0) { mode, icon, label in
+                    Button {
+                        currentMode = mode
+                        AppSettings.displayMode = mode
+                        NotificationCenter.default.post(name: .displayModeChanged, object: nil)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: icon).font(.system(size: 9))
+                            Text(label).font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(currentMode == mode ? .white : .white.opacity(0.4))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(currentMode == mode ? Color.white.opacity(0.15) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 }
 

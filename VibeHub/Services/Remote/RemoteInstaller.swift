@@ -13,13 +13,13 @@ enum RemoteInstaller {
 
         if let progress { await progress("verify files") }
 
-        // Verify the SSH reverse tunnel socket exists on the remote side.
-        // If AllowStreamLocalForwarding is disabled on the remote sshd, this socket
-        // won't be created and events will never flow regardless of plugin status.
+        // Verify the tunnel is active: native SSH writes a TCP port file;
+        // legacy ssh process creates a Unix socket. Accept either.
+        let tunnelCheck = "test -f /tmp/vibehub.port || test -S \(host.remoteSocketPath)"
         steps.append(await step(
-            name: "verify tunnel socket",
-            command: "test -S \(host.remoteSocketPath)",
-            result: await runSSHResult(host: host, command: "test -S \(host.remoteSocketPath)", timeoutSeconds: 8)
+            name: "verify tunnel",
+            command: tunnelCheck,
+            result: await runSSHResult(host: host, command: tunnelCheck, timeoutSeconds: 8)
         ))
 
         steps.append(await step(
