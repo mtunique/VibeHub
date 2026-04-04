@@ -297,9 +297,23 @@ struct NotchView: View {
                         PermissionIndicatorIcon(size: 14, color: Color(red: 0.85, green: 0.47, blue: 0.34))
                             .matchedGeometryEffect(id: "status-indicator", in: activityNamespace, isSource: showClosedActivity)
                     }
+
+                    // On physical notch closed state, show project name next to crab (left wing)
+                    if viewModel.hasPhysicalNotch && viewModel.status != .opened {
+                        if let project = activeSessionProjectLabel {
+                            Text(project)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.55))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
                 }
-                .frame(width: viewModel.status == .opened ? nil : sideWidth + (hasPendingPermission ? 18 : 0))
-                .padding(.leading, viewModel.status == .opened ? 8 : 0)
+                // Physical notch closed: no fixed width, let content size naturally to stay in left wing
+                .frame(width: viewModel.status == .opened ? nil :
+                        (viewModel.hasPhysicalNotch ? nil : sideWidth + (hasPendingPermission ? 18 : 0)))
+                .padding(.leading, viewModel.status == .opened ? 8 :
+                        (viewModel.hasPhysicalNotch ? 10 : 0))
             }
 
             // Center content
@@ -312,8 +326,12 @@ struct NotchView: View {
                     .fill(.clear)
                     .frame(width: closedNotchSize.width - 20)
             } else {
-                // Closed with activity: project label or black spacer (with optional bounce)
-                if let label = activeSessionLabel {
+                // Closed with activity
+                if viewModel.hasPhysicalNotch {
+                    // Physical notch: empty center to avoid camera housing
+                    Spacer(minLength: 0)
+                } else if let label = activeSessionLabel {
+                    // Non-notch: show project name + scrolling title
                     let leftWidth = sideWidth + (hasPendingPermission ? 18 : 0)
                     let rightWidth = sideWidth
                     let badgeWidth = (viewModel.status != .opened && sessionCount > 0) ? countBadgeWidth : 0
@@ -371,7 +389,8 @@ struct NotchView: View {
                     Text("\(sessionCount)")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.45))
-                        .frame(width: countBadgeWidth, alignment: .center)
+                        .padding(.leading, -2)
+                        .padding(.trailing, viewModel.hasPhysicalNotch ? 6 : 0)
                 }
             }
         }
