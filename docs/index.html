@@ -32,6 +32,7 @@
         }
 
         .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+        .container-wide { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 
         /* Hero */
         .hero {
@@ -92,8 +93,14 @@
         }
         .screenshot-grid {
             display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .screenshot-grid.two-col {
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            max-width: 100%;
         }
         .screenshot-card {
             background: var(--bg-card);
@@ -106,6 +113,7 @@
         .screenshot-card img {
             width: 100%;
             display: block;
+            cursor: zoom-in;
         }
         .screenshot-card .caption {
             padding: 16px 20px;
@@ -118,6 +126,26 @@
         .screenshot-card .caption p {
             font-size: 14px;
             color: var(--text-dim);
+        }
+
+        /* Lightbox */
+        .lightbox-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 9999;
+            cursor: zoom-out;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+        }
+        .lightbox-overlay.active { display: flex; }
+        .lightbox-overlay img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 12px;
+            object-fit: contain;
         }
 
         /* Features */
@@ -244,7 +272,7 @@
         @media (max-width: 768px) {
             .hero h1 { font-size: 32px; }
             .hero .tagline { font-size: 17px; }
-            .screenshot-grid { grid-template-columns: 1fr; }
+            .screenshot-grid, .screenshot-grid.two-col { grid-template-columns: 1fr; }
             .feature-grid { grid-template-columns: 1fr; }
             .steps { grid-template-columns: 1fr; }
         }
@@ -271,31 +299,49 @@
 </section>
 
 <section class="screenshots">
-    <div class="container">
+    <div class="container-wide">
+        <!-- Hero screenshots: single column, large -->
         <div class="screenshot-grid">
             <div class="screenshot-card">
-                <img src="assets/images/sessions.png" alt="Session monitoring" loading="lazy">
+                <img src="assets/images/sessions.png" alt="Session monitoring" loading="lazy" onclick="openLightbox(this)">
                 <div class="caption">
                     <h3>Real-time Session Tracking</h3>
                     <p>Monitor all Claude Code and OpenCode sessions at a glance, including remote ones.</p>
                 </div>
             </div>
             <div class="screenshot-card">
-                <img src="assets/images/tools.png" alt="Tool tracking" loading="lazy">
+                <img src="assets/images/tools.png" alt="Tool tracking" loading="lazy" onclick="openLightbox(this)">
                 <div class="caption">
                     <h3>Tool Call Visibility</h3>
                     <p>See every tool call your AI agent makes in real time — edits, writes, commands, and more.</p>
                 </div>
             </div>
+        </div>
+        <!-- Secondary screenshots: two columns -->
+        <div class="screenshot-grid two-col" style="margin-top:24px">
             <div class="screenshot-card">
-                <img src="assets/images/remote.png" alt="Remote SSH" loading="lazy">
+                <img src="assets/images/menubar.png" alt="Menu Bar Mode" loading="lazy" onclick="openLightbox(this)">
+                <div class="caption">
+                    <h3>Menu Bar Mode</h3>
+                    <p>No notch? No problem. Access VibeHub from a menu bar icon with animated status on any Mac.</p>
+                </div>
+            </div>
+            <div class="screenshot-card">
+                <img src="assets/images/remote.png" alt="Remote SSH" loading="lazy" onclick="openLightbox(this)">
                 <div class="caption">
                     <h3>Remote SSH Monitoring</h3>
                     <p>Connect to remote servers via SSH and monitor AI sessions running on any machine.</p>
                 </div>
             </div>
             <div class="screenshot-card">
-                <img src="assets/images/settings.png" alt="Settings" loading="lazy">
+                <img src="assets/images/onboarding.png" alt="Guided Setup" loading="lazy" onclick="openLightbox(this)">
+                <div class="caption">
+                    <h3>Guided Setup</h3>
+                    <p>Pick your preferred mode on first launch. Auto mode adapts to your screen — notch or menu bar.</p>
+                </div>
+            </div>
+            <div class="screenshot-card">
+                <img src="assets/images/settings.png" alt="Settings" loading="lazy" onclick="openLightbox(this)">
                 <div class="caption">
                     <h3>Flexible Configuration</h3>
                     <p>Notification sounds, multi-display support, launch at login, and more.</p>
@@ -304,6 +350,11 @@
         </div>
     </div>
 </section>
+
+<!-- Lightbox -->
+<div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
+    <img id="lightbox-img" src="" alt="Enlarged screenshot">
+</div>
 
 <section class="features">
     <div class="container">
@@ -402,5 +453,18 @@
     </div>
 </footer>
 
+<script>
+function openLightbox(img) {
+    var overlay = document.getElementById('lightbox');
+    document.getElementById('lightbox-img').src = img.src;
+    overlay.classList.add('active');
+}
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('active');
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
+});
+</script>
 </body>
 </html>
