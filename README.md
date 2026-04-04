@@ -151,10 +151,20 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Acknowledgments
 
-- [Sparkle](https://sparkle-project.org/) — Auto-update framework
-- [swift-markdown](https://github.com/swiftlang/swift-markdown) — Markdown rendering
-- [Mixpanel](https://mixpanel.com/) — Analytics
+VibeHub is an evolution of [Claude Island](https://github.com/anthropics/claude-code/blob/main/.claude/docs/claude-island.md).
+
+- [libssh](https://www.libssh.org/) — SSH library (LGPL-2.1)
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — TLS and cryptography (Apache-2.0)
+- [Sparkle](https://sparkle-project.org/) — Auto-update framework (MIT)
+- [swift-markdown](https://github.com/swiftlang/swift-markdown) — Markdown rendering (Apache-2.0)
+- [swift-cmark](https://github.com/swiftlang/swift-cmark) — CommonMark parser (BSD-2-Clause)
+- [Mixpanel](https://mixpanel.com/) — Analytics (Apache-2.0)
+- [json-logic-swift](https://github.com/nicoli/json-logic-swift) — JSON Logic (MIT)
+
+See [NOTICE](NOTICE) for full third-party license details.
 
 ## License
 
 Apache 2.0 — See [LICENSE](LICENSE.md) for details.
+
+This project links against [libssh](https://www.libssh.org/) which is licensed under LGPL-2.1. The libssh source code is available at https://git.libssh.org/projects/libssh.git/.
