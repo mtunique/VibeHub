@@ -49,5 +49,12 @@ log/
 *.xcodeproj.backup/
 CLAUDE.md
 
-# Nested repo for GitHub Pages
+# GitHub Pages (separate repo: vibehub-site)
+docs/
 vibehub-site/
+
+# Screenshot assets
+appstore_*.png
+raw_*.jpg
+raw_*.png
+thumbnail_*.png
