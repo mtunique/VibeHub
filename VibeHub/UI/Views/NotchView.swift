@@ -448,6 +448,10 @@ struct NotchView: View {
                     sessionMonitor: sessionMonitor,
                     viewModel: viewModel
                 )
+            #if APP_STORE
+            case .welcome:
+                WelcomeView(viewModel: viewModel)
+            #endif
             }
         }
         .frame(width: notchSize.width - 24) // Fixed width to prevent text reflow
@@ -635,3 +639,217 @@ struct NotchView: View {
         return false
     }
 }
+
+// MARK: - Welcome View (App Store only)
+
+#if APP_STORE
+struct WelcomeView: View {
+    @ObservedObject var viewModel: NotchViewModel
+
+    @State private var isInstalling = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // App icon
+            if let appIcon = NSImage(named: "AppIcon") {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
+            }
+
+            // Title
+            Text(L10n.welcomeTitle)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+
+            // Description
+            Text(L10n.welcomeSubtitle)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Install step hint
+            Text(L10n.welcomeInstallStep)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.45))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer().frame(height: 4)
+
+            // Install button
+            Button {
+                guard !isInstalling else { return }
+                Task { @MainActor in
+                    isInstalling = true
+                    let success = await performInstall()
+                    isInstalling = false
+                    if success {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            viewModel.contentType = .instances
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    if isInstalling {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 12))
+                    }
+                    Text(isInstalling ? L10n.welcomeInstallingButton : L10n.welcomeInstallButton)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isInstalling)
+
+            // Skip button
+            Button {
+                viewModel.notchClose()
+            } label: {
+                Text(L10n.welcomeSkipButton)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Install Flow
+
+    @MainActor
+    private func performInstall() async -> Bool {
+        let home: URL = {
+            if let pw = getpwuid(getuid()) {
+                return URL(fileURLWithPath: String(cString: pw.pointee.pw_dir))
+            }
+            return FileManager.default.homeDirectoryForCurrentUser
+        }()
+
+        guard let homeDir = pickDirectory(
+            title: "Grant Access",
+            message: "Select your Home folder (\(home.path)) to grant access for installing hooks.",
+            suggested: home,
+            requiredPath: home.standardizedFileURL.path
+        ) else {
+            return false
+        }
+
+        _ = HookInstaller.rememberClaudeDir(homeDir)
+
+        let ok = homeDir.startAccessingSecurityScopedResource()
+        defer { if ok { homeDir.stopAccessingSecurityScopedResource() } }
+        guard ok else {
+            showMessage(title: "Hooks", message: "Permission denied for Home folder.")
+            return false
+        }
+
+        let claudeDir = homeDir.appendingPathComponent(".claude", isDirectory: true)
+        let ok1 = HookInstaller.installAppStore(claudeDir: claudeDir)
+
+        var ok2 = true
+        let wantsOpenCode = withNotchWindowDeemphasized {
+            NSAlert.runWelcomeChoice(
+                title: "OpenCode",
+                message: "Also install the OpenCode plugin (uses ~/.config/opencode if present)?",
+                primary: "Install",
+                secondary: "Skip"
+            )
+        }
+
+        if wantsOpenCode {
+            let opencodeDir = homeDir
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: true)
+            ok2 = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
+        }
+
+        if ok1 && ok2 {
+            showMessage(title: "Hooks", message: "Installed.")
+            return true
+        } else if ok1 {
+            showMessage(title: "Hooks", message: "Installed Claude hooks, but OpenCode plugin failed.")
+            return true
+        } else {
+            showMessage(title: "Hooks", message: "Install failed.")
+            return false
+        }
+    }
+
+    @MainActor
+    private func pickDirectory(title: String, message: String, suggested: URL, requiredPath: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = message
+        panel.prompt = "Allow"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = suggested.deletingLastPathComponent()
+        panel.nameFieldStringValue = suggested.lastPathComponent
+
+        let resp = withNotchWindowDeemphasized { panel.runModal() }
+        guard resp == .OK, let url = panel.url else { return nil }
+
+        let chosen = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let required = URL(fileURLWithPath: requiredPath).standardizedFileURL.resolvingSymlinksInPath().path
+        guard chosen == required else {
+            showMessage(title: "Hooks", message: "Please select \(required).")
+            return nil
+        }
+        return url
+    }
+
+    @MainActor
+    private func showMessage(title: String, message: String) {
+        _ = withNotchWindowDeemphasized {
+            let a = NSAlert()
+            a.messageText = title
+            a.informativeText = message
+            a.addButton(withTitle: "OK")
+            a.runModal()
+        }
+    }
+
+    @MainActor
+    private func withNotchWindowDeemphasized<T>(_ block: () -> T) -> T {
+        let notchWindow = NSApp.windows.first(where: { $0 is NotchPanel })
+        let prevLevel = notchWindow?.level
+        notchWindow?.level = .normal
+        NSApp.activate(ignoringOtherApps: true)
+        defer {
+            if let prevLevel { notchWindow?.level = prevLevel }
+        }
+        return block()
+    }
+}
+
+private extension NSAlert {
+    @MainActor
+    static func runWelcomeChoice(title: String, message: String, primary: String, secondary: String) -> Bool {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = message
+        a.addButton(withTitle: primary)
+        a.addButton(withTitle: secondary)
+        return a.runModal() == .alertFirstButtonReturn
+    }
+}
+#endif
