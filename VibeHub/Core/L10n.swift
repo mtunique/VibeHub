@@ -164,8 +164,8 @@ enum L10n {
     static var welcomeTitle: String { isChinese ? "欢迎使用 VibeHub" : "Welcome to VibeHub" }
     static var welcomeSubtitle: String {
         isChinese
-            ? "VibeHub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在 Dynamic Island 中实时显示。"
-            : "VibeHub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status in the Dynamic Island."
+            ? "VibeHub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在屏幕顶部实时显示。"
+            : "VibeHub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status at the top of your screen."
     }
     static var welcomeInstallStep: String {
         isChinese

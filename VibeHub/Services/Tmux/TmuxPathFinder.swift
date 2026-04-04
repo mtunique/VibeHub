@@ -17,6 +17,9 @@ actor TmuxPathFinder {
 
     /// Get the path to tmux executable
     func getTmuxPath() -> String? {
+        #if APP_STORE
+        return nil  // Sandbox cannot execute external tmux binary
+        #else
         if let cached = cachedPath {
             return cached
         }
@@ -36,6 +39,7 @@ actor TmuxPathFinder {
         }
 
         return nil
+        #endif
     }
 
     /// Check if tmux is available

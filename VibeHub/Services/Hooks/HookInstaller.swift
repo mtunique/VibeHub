@@ -290,6 +290,19 @@ struct HookInstaller {
         return updateOpenCodeConfig(configFile: configFile, pluginFile: pluginFile)
     }
 
+    /// Returns the real user home directory URL resolved from the stored bookmark, or nil if unavailable.
+    /// The caller receives a URL that can be used for path construction; security scope is managed separately.
+    static func resolvedHomeDirectory() -> URL? {
+        resolveBookmark(key: Defaults.claudeDirBookmarkKey)
+    }
+
+    /// Execute a block with security-scoped access to the user's real home directory.
+    /// Returns nil if no bookmark is stored or security scope cannot be obtained.
+    static func withResolvedHome<T>(_ block: (URL) -> T) -> T? {
+        guard let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) else { return nil }
+        return withSecurityScope(url: homeDir) { block(homeDir) }
+    }
+
     /// Uninstalls hooks using stored bookmarks (best effort).
     static func uninstallAppStore() -> Bool {
         var ok = true

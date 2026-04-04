@@ -28,7 +28,7 @@ struct NotchGeometry: Sendable {
     func openedScreenRect(for size: CGSize) -> CGRect {
         // Match the actual rendered panel size (tuned to match visual output)
         let width = size.width - 6
-        let height = size.height - 30
+        let height = size.height - 8
         return CGRect(
             x: screenRect.midX - width / 2,
             y: screenRect.maxY - height,
