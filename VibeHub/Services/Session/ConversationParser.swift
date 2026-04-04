@@ -72,8 +72,13 @@ actor ConversationParser {
     /// Parse a JSONL file to extract conversation info
     /// Uses caching based on file modification time
     func parse(sessionId: String, cwd: String) -> ConversationInfo {
-        let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        let sessionFile = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+
+        #if APP_STORE
+        let scopedURL = HookInstaller.resolvedHomeDirectory()
+        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
+        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        #endif
 
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: sessionFile),
@@ -265,6 +270,12 @@ actor ConversationParser {
     func parseFullConversation(sessionId: String, cwd: String) -> [ChatMessage] {
         let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
 
+        #if APP_STORE
+        let scopedURL = HookInstaller.resolvedHomeDirectory()
+        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
+        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        #endif
+
         guard FileManager.default.fileExists(atPath: sessionFile) else {
             return []
         }
@@ -289,6 +300,12 @@ actor ConversationParser {
     /// Parse only NEW messages since last call (efficient incremental updates)
     func parseIncremental(sessionId: String, cwd: String) -> IncrementalParseResult {
         let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+
+        #if APP_STORE
+        let scopedURL = HookInstaller.resolvedHomeDirectory()
+        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
+        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        #endif
 
         guard FileManager.default.fileExists(atPath: sessionFile) else {
             return IncrementalParseResult(
@@ -460,7 +477,12 @@ actor ConversationParser {
     /// Build session file path
     private static func sessionFilePath(sessionId: String, cwd: String) -> String {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        return NSHomeDirectory() + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        #if APP_STORE
+        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        #else
+        let homePath = NSHomeDirectory()
+        #endif
+        return homePath + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
     }
 
     private func parseMessageLine(_ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]) -> ChatMessage? {
@@ -888,7 +910,18 @@ actor ConversationParser {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        let agentFile = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        #if APP_STORE
+        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        #else
+        let homePath = NSHomeDirectory()
+        #endif
+        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+
+        #if APP_STORE
+        let scopedURL = HookInstaller.resolvedHomeDirectory()
+        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
+        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        #endif
 
         guard FileManager.default.fileExists(atPath: agentFile),
               let content = try? String(contentsOfFile: agentFile, encoding: .utf8) else {
@@ -980,7 +1013,18 @@ extension ConversationParser {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        let agentFile = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        #if APP_STORE
+        let homePath = HookInstaller.resolvedHomeDirectory()?.path ?? NSHomeDirectory()
+        #else
+        let homePath = NSHomeDirectory()
+        #endif
+        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+
+        #if APP_STORE
+        let scopedURL = HookInstaller.resolvedHomeDirectory()
+        if let url = scopedURL { _ = url.startAccessingSecurityScopedResource() }
+        defer { scopedURL?.stopAccessingSecurityScopedResource() }
+        #endif
 
         guard FileManager.default.fileExists(atPath: agentFile),
               let content = try? String(contentsOfFile: agentFile, encoding: .utf8) else {

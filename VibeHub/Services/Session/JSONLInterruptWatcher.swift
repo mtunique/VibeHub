@@ -25,6 +25,9 @@ class JSONLInterruptWatcher {
     private let sessionId: String
     private let filePath: String
     private let queue = DispatchQueue(label: "com.vibehub.interruptwatcher", qos: .userInteractive)
+    #if APP_STORE
+    private var securityScopedURL: URL?
+    #endif
 
     weak var delegate: JSONLInterruptWatcherDelegate?
 
@@ -41,7 +44,12 @@ class JSONLInterruptWatcher {
         self.sessionId = sessionId
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
-        self.filePath = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        #if APP_STORE
+        let resolvedHome = HookInstaller.withResolvedHome { $0.path } ?? NSHomeDirectory()
+        #else
+        let resolvedHome = NSHomeDirectory()
+        #endif
+        self.filePath = resolvedHome + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
     }
 
     /// Start watching the JSONL file for interrupts
@@ -53,6 +61,13 @@ class JSONLInterruptWatcher {
 
     private func startWatching() {
         stopInternal()
+
+        #if APP_STORE
+        HookInstaller.withResolvedHome { home in
+            _ = home.startAccessingSecurityScopedResource()
+            securityScopedURL = home
+        }
+        #endif
 
         guard FileManager.default.fileExists(atPath: filePath),
               let handle = FileHandle(forReadingAtPath: filePath) else {
@@ -166,6 +181,10 @@ class JSONLInterruptWatcher {
         source?.cancel()
         source = nil
         // fileHandle closed by cancel handler
+        #if APP_STORE
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = nil
+        #endif
     }
 
     deinit {
