@@ -12,10 +12,27 @@ struct SSHConfigEntry: Identifiable, Equatable, Sendable {
 }
 
 enum SSHConfigParser {
+    #if APP_STORE
+    /// Temporarily set during security-scoped access so expandTilde uses the real home.
+    private static var realHomeOverride: String?
+    #endif
+
     static func loadUserConfig() -> [SSHConfigEntry] {
+        #if APP_STORE
+        guard let entries = HookInstaller.withResolvedHome({ home in
+            realHomeOverride = home.path
+            defer { realHomeOverride = nil }
+            let path = home.appendingPathComponent(".ssh/config")
+            return loadConfig(at: path)
+        }) else {
+            return []
+        }
+        return entries
+        #else
         let home = FileManager.default.homeDirectoryForCurrentUser
         let path = home.appendingPathComponent(".ssh/config")
         return loadConfig(at: path)
+        #endif
     }
 
     private static func loadConfig(at url: URL) -> [SSHConfigEntry] {
@@ -210,7 +227,11 @@ enum SSHConfigParser {
     private static func expandTilde(_ path: String?) -> String? {
         guard let path else { return nil }
         guard path.hasPrefix("~") else { return path }
+        #if APP_STORE
+        let home = realHomeOverride ?? FileManager.default.homeDirectoryForCurrentUser.path
+        #else
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #endif
         if path == "~" { return home }
         if path.hasPrefix("~/") { return home + String(path.dropFirst()) }
         return path

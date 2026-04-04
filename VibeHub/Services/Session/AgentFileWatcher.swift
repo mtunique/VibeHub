@@ -28,6 +28,9 @@ class AgentFileWatcher {
     private let cwd: String
     private let filePath: String
     private let queue = DispatchQueue(label: "com.vibehub.agentfilewatcher", qos: .userInitiated)
+    #if APP_STORE
+    private var securityScopedURL: URL?
+    #endif
 
     /// Track seen tool IDs to avoid duplicates
     private var seenToolIds: Set<String> = []
@@ -42,7 +45,12 @@ class AgentFileWatcher {
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
-        self.filePath = NSHomeDirectory() + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        #if APP_STORE
+        let resolvedHome = HookInstaller.withResolvedHome { $0.path } ?? NSHomeDirectory()
+        #else
+        let resolvedHome = NSHomeDirectory()
+        #endif
+        self.filePath = resolvedHome + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
     }
 
     /// Start watching the agent file
@@ -54,6 +62,13 @@ class AgentFileWatcher {
 
     private func startWatching() {
         stopInternal()
+
+        #if APP_STORE
+        HookInstaller.withResolvedHome { home in
+            _ = home.startAccessingSecurityScopedResource()
+            securityScopedURL = home
+        }
+        #endif
 
         guard FileManager.default.fileExists(atPath: filePath),
               let handle = FileHandle(forReadingAtPath: filePath) else {
@@ -126,6 +141,10 @@ class AgentFileWatcher {
         }
         source?.cancel()
         source = nil
+        #if APP_STORE
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = nil
+        #endif
     }
 
     deinit {

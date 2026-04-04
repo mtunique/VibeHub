@@ -110,18 +110,6 @@ final class SSHForwarder: ObservableObject {
     private func buildArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
 
-        // ControlMaster socket directory. In sandbox, use /tmp/ to stay under
-        // the 104-byte sun_path limit (app group container paths are too long
-        // once SSH expands %C to a 64-char hash).
-        #if APP_STORE
-        let controlPath = "/tmp/vh-ssh-%C"
-        #else
-        let controlDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vibehub", isDirectory: true)
-        try? FileManager.default.createDirectory(at: controlDir, withIntermediateDirectories: true)
-        let controlPath = controlDir.appendingPathComponent("ssh-%C").path
-        #endif
-
         args += [
             "-N",
             "-T",
@@ -132,13 +120,34 @@ final class SSHForwarder: ObservableObject {
             // Make the remote unix socket connectable by the actual CLI process user.
             // Default is 0177 (srw-------) which often breaks hooks.
             "-o", "StreamLocalBindMask=0000",
-            // ControlMaster=auto: reuse an existing socket if present, otherwise create one.
-            // This avoids killing a stale SSH process that holds the socket.
-            // ControlPersist=300: keeps the master socket alive for 5 min after the last session.
+        ]
+
+        // Sandbox: SSH child processes cannot read ~/.ssh/config through the
+        // security-scoped bookmark. Copy the config into the container so SSH
+        // can read it via -F.
+        #if APP_STORE
+        if let ssh = Self.sandboxSSHDir() {
+            args += ["-F", ssh.config]
+            args += ["-o", "UserKnownHostsFile=\(ssh.knownHosts)"]
+        }
+        #endif
+
+        // ControlMaster socket. Sandbox cannot create Unix sockets in /tmp
+        // (Operation not permitted), and container paths exceed the 104-byte
+        // sun_path limit, so disable ControlMaster entirely in App Store builds.
+        #if APP_STORE
+        args += ["-o", "ControlMaster=no"]
+        #else
+        let controlDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vibehub", isDirectory: true)
+        try? FileManager.default.createDirectory(at: controlDir, withIntermediateDirectories: true)
+        let controlPath = controlDir.appendingPathComponent("ssh-%C").path
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlPath)",
             "-o", "ControlPersist=300",
         ]
+        #endif
 
         // GSSAPI authentication for jump hosts, Kerberos environments, etc.
         if host.useGSSAPI {
@@ -153,7 +162,12 @@ final class SSHForwarder: ObservableObject {
         }
 
         if let key = host.identityFile, !key.isEmpty {
+            #if APP_STORE
+            // Config copy already has rewritten IdentityFile paths; skip -i
+            // to avoid passing the original (inaccessible) path.
+            #else
             args += ["-i", key]
+            #endif
         }
 
         // Remote unix socket -> local unix socket
@@ -161,6 +175,80 @@ final class SSHForwarder: ObservableObject {
         args += [host.sshTarget]
         return args
     }
+
+    #if APP_STORE
+    /// Mirrors essential ~/.ssh/ files into the sandbox container so SSH child
+    /// processes can access them. Returns (configPath, knownHostsPath) or nil.
+    /// Uses the container tmp dir (no spaces) because SSH treats spaces in
+    /// UserKnownHostsFile as path separators.
+    nonisolated static func sandboxSSHDir() -> (config: String, knownHosts: String)? {
+        // Use a path without spaces — Group Containers path contains "Group Containers"
+        // which breaks SSH's UserKnownHostsFile (space = separator).
+        let destDir = FileManager.default.temporaryDirectory.appendingPathComponent("vibehub-ssh", isDirectory: true)
+        let destConfig = destDir.appendingPathComponent("config")
+        let destKnownHosts = destDir.appendingPathComponent("known_hosts")
+
+        // Copy from real home using security-scoped bookmark.
+        let ok: Bool = HookInstaller.withResolvedHome { home -> Bool in
+            let fm = FileManager.default
+            let srcSSH = home.appendingPathComponent(".ssh")
+            let srcConfig = srcSSH.appendingPathComponent("config")
+            guard fm.fileExists(atPath: srcConfig.path) else { return false }
+
+            try? fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+
+            // config — copy then rewrite IdentityFile/IdentityAgent paths
+            // so SSH child processes can find keys inside the container.
+            try? fm.removeItem(at: destConfig)
+            if var configText = try? String(contentsOf: srcConfig, encoding: .utf8) {
+                // Rewrite ~/.<path> and ~/<path> references to point at the container copy.
+                let srcHome = home.path  // e.g. /Users/mtunique
+                configText = configText.replacingOccurrences(of: "~/.ssh/", with: destDir.path + "/")
+                configText = configText.replacingOccurrences(of: srcHome + "/.ssh/", with: destDir.path + "/")
+                // Rewrite IdentityAgent paths that reference the real home
+                configText = configText.replacingOccurrences(of: "~/Library/", with: srcHome + "/Library/")
+                try? configText.write(to: destConfig, atomically: true, encoding: .utf8)
+            } else {
+                try? fm.copyItem(at: srcConfig, to: destConfig)
+            }
+
+            // known_hosts
+            let srcKH = srcSSH.appendingPathComponent("known_hosts")
+            if fm.fileExists(atPath: srcKH.path) {
+                try? fm.removeItem(at: destKnownHosts)
+                try? fm.copyItem(at: srcKH, to: destKnownHosts)
+            }
+
+            // Copy key files (id_rsa, id_ed25519, etc.) so SSH can load them.
+            let keyFiles = ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"]
+            for keyName in keyFiles {
+                for suffix in ["", ".pub"] {
+                    let src = srcSSH.appendingPathComponent(keyName + suffix)
+                    let dst = destDir.appendingPathComponent(keyName + suffix)
+                    if fm.fileExists(atPath: src.path) {
+                        try? fm.removeItem(at: dst)
+                        try? fm.copyItem(at: src, to: dst)
+                    }
+                }
+            }
+
+            // Include sub-directories (config.d, conf.d)
+            for subdir in ["config.d", "conf.d"] {
+                let src = srcSSH.appendingPathComponent(subdir)
+                let dst = destDir.appendingPathComponent(subdir)
+                if fm.fileExists(atPath: src.path) {
+                    try? fm.removeItem(at: dst)
+                    try? fm.copyItem(at: src, to: dst)
+                }
+            }
+
+            return true
+        } ?? false
+
+        guard ok else { return nil }
+        return (config: destConfig.path, knownHosts: destKnownHosts.path)
+    }
+    #endif
 
     private func startStderrMonitor(_ pipe: Pipe, generation gen: UInt64) {
         let handle = pipe.fileHandleForReading

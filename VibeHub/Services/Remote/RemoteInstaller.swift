@@ -239,14 +239,13 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
     private static func sshBaseArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
 
-        // Must match SSHForwarder.buildArgs ControlPath exactly.
+        // Sandbox: SSH child processes cannot read ~/.ssh/{config,known_hosts}.
+        // Use the container copies prepared by SSHForwarder.sandboxSSHDir().
         #if APP_STORE
-        let controlPath = "/tmp/vh-ssh-%C"
-        #else
-        let controlPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vibehub", isDirectory: true)
-            .appendingPathComponent("ssh-%C")
-            .path
+        if let ssh = SSHForwarder.sandboxSSHDir() {
+            args += ["-F", ssh.config]
+            args += ["-o", "UserKnownHostsFile=\(ssh.knownHosts)"]
+        }
         #endif
 
         args += [
@@ -257,17 +256,29 @@ cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
             "-o", "ServerAliveCountMax=2",
             // Avoid interactive host key prompts; accept new hosts and still protect against MITM changes.
             "-o", "StrictHostKeyChecking=accept-new",
-            // ControlPath: reuse the ControlMaster socket created by SSHForwarder.
-            // Must match the path in SSHForwarder.buildArgs exactly.
-            "-o", "ControlPath=\(controlPath)",
         ]
+
+        // Reuse the ControlMaster socket from SSHForwarder when available.
+        // In App Store builds ControlMaster is disabled (sandbox cannot create
+        // Unix sockets outside the container), so each command opens its own connection.
+        #if !APP_STORE
+        let controlPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vibehub", isDirectory: true)
+            .appendingPathComponent("ssh-%C")
+            .path
+        args += ["-o", "ControlPath=\(controlPath)"]
+        #endif
         // GSSAPI authentication for jump hosts, Kerberos environments, etc.
         if host.useGSSAPI {
             args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
         }
 
         if let port = host.port { args += ["-p", String(port)] }
+        #if APP_STORE
+        // Config copy already has rewritten IdentityFile paths; skip -i.
+        #else
         if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
+        #endif
         return args
     }
 

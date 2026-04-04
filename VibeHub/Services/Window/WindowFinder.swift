@@ -40,6 +40,9 @@ actor WindowFinder {
 
     /// Check if yabai is available (caches result)
     func isYabaiAvailable() -> Bool {
+        #if APP_STORE
+        return false  // Sandbox cannot execute external yabai binary
+        #else
         if let cached = isAvailableCache { return cached }
 
         let paths = ["/opt/homebrew/bin/yabai", "/usr/local/bin/yabai"]
@@ -52,6 +55,7 @@ actor WindowFinder {
         }
         isAvailableCache = false
         return false
+        #endif
     }
 
     /// Get the yabai path if available
