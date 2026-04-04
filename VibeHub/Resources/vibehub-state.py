@@ -227,38 +227,35 @@ def uninstall_all():
 
 
 def get_tty():
-    """Get the TTY of the Claude process (parent)"""
+    """Get the TTY by walking up the process tree until a process with a TTY is found."""
     import subprocess
 
-    # Get parent PID (Claude process)
-    ppid = os.getppid()
-
-    # Try to get TTY from ps command for the parent process
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(ppid), "-o", "tty="],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        tty = result.stdout.strip()
-        if tty and tty != "??" and tty != "-":
-            # ps returns just "ttys001", we need "/dev/ttys001"
-            if not tty.startswith("/dev/"):
-                tty = "/dev/" + tty
-            return tty
-    except Exception:
-        pass
-
-    # Fallback: try current process stdin/stdout
-    try:
-        return os.ttyname(sys.stdin.fileno())
-    except (OSError, AttributeError):
-        pass
-    try:
-        return os.ttyname(sys.stdout.fileno())
-    except (OSError, AttributeError):
-        pass
+    pid = os.getppid()
+    for _ in range(20):
+        if pid <= 1:
+            break
+        try:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "tty=,ppid="],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            parts = result.stdout.strip().split()
+            if not parts:
+                break
+            tty = parts[0]
+            if tty and tty != "??" and tty != "-":
+                if not tty.startswith("/dev/"):
+                    tty = "/dev/" + tty
+                return tty
+            # No TTY on this process, walk up to parent
+            if len(parts) >= 2:
+                pid = int(parts[1])
+            else:
+                break
+        except Exception:
+            break
     return None
 
 

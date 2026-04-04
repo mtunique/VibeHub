@@ -89,14 +89,11 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        guard session.isInTmux else { return }
-
+        let msg = "focusSession: pid=\(session.pid ?? -1)\n"
+        FileManager.default.createFile(atPath: "/tmp/vibehub-activator.log", contents: msg.data(using: .utf8))
+        viewModel.notchClose()
         Task {
-            if let pid = session.pid {
-                _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
-            } else {
-                _ = await YabaiController.shared.focusWindow(forWorkingDirectory: session.cwd)
-            }
+            await TerminalActivator.shared.activateTerminal(for: session)
         }
     }
 
@@ -109,11 +106,7 @@ struct ClaudeInstancesView: View {
     }
 
     private func approveSessionAlways(_ session: SessionState) {
-        if session.opencodeRawSessionId != nil {
-            sessionMonitor.approvePermissionAlways(sessionId: session.sessionId)
-        } else {
-            sessionMonitor.approvePermission(sessionId: session.sessionId)
-        }
+        sessionMonitor.approvePermissionAlways(sessionId: session.sessionId)
     }
 
     private func rejectSession(_ session: SessionState) {
@@ -138,8 +131,6 @@ struct InstanceRow: View {
 
     @State private var isHovered = false
     @State private var spinnerPhase = 0
-    @State private var isYabaiAvailable = false
-
     private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
     private let spinnerTimer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
@@ -290,9 +281,9 @@ struct InstanceRow: View {
                         IconButton(icon: "bubble.left") {
                             onChat()
                         }
-                        if isYabaiAvailable {
+                        if session.pid != nil || session.isRemote {
                             TerminalButton(
-                                isEnabled: session.isInTmux,
+                                isEnabled: true,
                                 onTap: { onFocus() }
                             )
                         }
@@ -312,7 +303,7 @@ struct InstanceRow: View {
                         IconButton(icon: "bubble.left") {
                             onChat()
                         }
-                        if session.isInTmux && isYabaiAvailable {
+                        if session.pid != nil || session.isRemote {
                             IconButton(icon: "eye") {
                                 onFocus()
                             }
@@ -340,9 +331,6 @@ struct InstanceRow: View {
                 .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }
-        .task {
-            isYabaiAvailable = await WindowFinder.shared.isYabaiAvailable()
-        }
     }
 
     @ViewBuilder
