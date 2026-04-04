@@ -1,6 +1,6 @@
-// VibeHub OpenCode plugin
-// - Forwards OpenCode bus events to VibeHub's Unix socket.
-// - Exposes a local control socket so VibeHub can send prompts without requiring an HTTP server.
+// Vibe Hub OpenCode plugin
+// - Forwards OpenCode bus events to Vibe Hub's Unix socket.
+// - Exposes a local control socket so Vibe Hub can send prompts without requiring an HTTP server.
 
 import { connect, createServer } from "net";
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
@@ -41,6 +41,19 @@ function resolveSocketPath() {
 
 const SOCKET = resolveSocketPath();
 
+// Native SSH mode: Vibe Hub writes the reverse-TCP port to this file.
+const TCP_PORT_FILE = "/tmp/vibehub.port";
+
+function resolveConnectOpts() {
+  try {
+    if (existsSync(TCP_PORT_FILE)) {
+      const port = parseInt(readFileSync(TCP_PORT_FILE, "utf8").trim(), 10);
+      if (port > 0) return { host: "127.0.0.1", port };
+    }
+  } catch { /* ignore */ }
+  return { path: SOCKET };
+}
+
 // Terminal environment sampling (mirrors vibe-island behavior)
 const ENV_KEYS = [
   "TERM_PROGRAM",
@@ -69,7 +82,7 @@ function collectEnv() {
 function sendToSocket(json) {
   return new Promise((resolve) => {
     try {
-      const sock = connect({ path: SOCKET }, () => {
+      const sock = connect(resolveConnectOpts(), () => {
         sock.write(JSON.stringify(json));
         sock.end();
         resolve(true);
@@ -88,7 +101,7 @@ function sendToSocket(json) {
 function sendAndWaitResponse(json, timeoutMs = 300000) {
   return new Promise((resolve) => {
     try {
-      const sock = connect({ path: SOCKET }, () => {
+      const sock = connect(resolveConnectOpts(), () => {
         sock.write(JSON.stringify(json));
       });
       let buf = "";
@@ -339,7 +352,7 @@ export default async ({ client, serverUrl }) => {
 
   // OpenCode may use different ID properties across event types
   // (e.g. session.created uses info.id while session.status uses sessionID).
-  // If they diverge, VibeHub would see two sessions for one logical session.
+  // If they diverge, Vibe Hub would see two sessions for one logical session.
   // resolveSessionId maps an unknown ID back to the canonical one when possible.
   function resolveSessionId(rawId) {
     if (sessions.has(rawId)) return rawId;
@@ -645,7 +658,7 @@ export default async ({ client, serverUrl }) => {
     const reason = response.reason;
     if (!decision) return;
 
-    // VibeHub sends { decision: allow|deny|always|ask }.
+    // Vibe Hub sends { decision: allow|deny|always|ask }.
     // OpenCode expects { reply: once|always|reject }.
     const reply =
       decision === "allow" ? "once" :
@@ -669,7 +682,7 @@ export default async ({ client, serverUrl }) => {
       // Ignore
     }
 
-    // Mark the permission placeholder as completed in VibeHub.
+    // Mark the permission placeholder as completed in Vibe Hub.
     await sendToSocket(
       base(mapped.permission.session_id, {
         event: "PostToolUse",
