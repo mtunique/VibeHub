@@ -223,6 +223,10 @@ final class SSHForwarder: ObservableObject {
                     if fm.fileExists(atPath: src.path) {
                         try? fm.removeItem(at: dst)
                         try? fm.copyItem(at: src, to: dst)
+                        // Private keys must not be world-readable
+                        if suffix.isEmpty {
+                            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dst.path)
+                        }
                     }
                 }
             }
