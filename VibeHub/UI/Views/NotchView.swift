@@ -25,6 +25,9 @@ struct NotchView: View {
     @ObservedObject private var sessionMonitor = ClaudeSessionMonitor.shared
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
+    #if !APP_STORE
+    @ObservedObject private var licenseManager = LicenseManager.shared
+    #endif
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
@@ -255,7 +258,7 @@ struct NotchView: View {
 
     #if !APP_STORE
     private var isLicenseLocked: Bool {
-        LicenseManager.shared.status == .locked
+        licenseManager.status == .locked
     }
     #endif
 
@@ -475,36 +478,47 @@ struct NotchView: View {
     @ViewBuilder
     private var contentView: some View {
         Group {
-            switch viewModel.contentType {
-            case .instances:
-                ClaudeInstancesView(
-                    sessionMonitor: sessionMonitor,
-                    viewModel: viewModel
-                )
-            case .menu:
-                NotchMenuView(viewModel: viewModel)
-            case .remote:
-                RemoteHostsView(viewModel: viewModel)
-            case .chat(let session):
-                ChatView(
-                    sessionId: session.sessionId,
-                    initialSession: session,
-                    sessionMonitor: sessionMonitor,
-                    viewModel: viewModel
-                )
-            case .onboarding:
-                OnboardingView(viewModel: viewModel)
-            #if APP_STORE
-            case .welcome:
-                OnboardingView(viewModel: viewModel)
-            #else
-            case .license:
-                LicenseActivationView(licenseManager: LicenseManager.shared)
-            #endif
+            #if !APP_STORE
+            // Single license gate: locked + not in settings → show activation view
+            if isLicenseLocked && viewModel.contentType != .menu {
+                LicenseActivationView(licenseManager: licenseManager)
+            } else {
+                normalContent
             }
+            #else
+            normalContent
+            #endif
         }
         .frame(width: notchSize.width - 24) // Fixed width to prevent text reflow
         // Removed .id() - was causing view recreation and performance issues
+    }
+
+    @ViewBuilder
+    private var normalContent: some View {
+        switch viewModel.contentType {
+        case .instances:
+            ClaudeInstancesView(
+                sessionMonitor: sessionMonitor,
+                viewModel: viewModel
+            )
+        case .menu:
+            NotchMenuView(viewModel: viewModel)
+        case .remote:
+            RemoteHostsView(viewModel: viewModel)
+        case .chat(let session):
+            ChatView(
+                sessionId: session.sessionId,
+                initialSession: session,
+                sessionMonitor: sessionMonitor,
+                viewModel: viewModel
+            )
+        case .onboarding:
+            OnboardingView(viewModel: viewModel)
+        #if APP_STORE
+        case .welcome:
+            OnboardingView(viewModel: viewModel)
+        #endif
+        }
     }
 
     // MARK: - Event Handlers
