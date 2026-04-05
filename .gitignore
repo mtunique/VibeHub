@@ -54,6 +54,9 @@ CLAUDE.md
 docs/*
 !docs/engineering/
 !docs/engineering/*.md
+!docs/superpowers/
+!docs/superpowers/specs/
+!docs/superpowers/specs/*.md
 vibehub-site/
 
 # Screenshot assets
