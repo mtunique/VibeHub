@@ -80,7 +80,11 @@ class ChatHistoryManager: ObservableObject {
             let filteredItems = filterOutSubagentTools(session.chatItems)
             newHistories[session.sessionId] = filteredItems
             newAgentDescriptions[session.sessionId] = session.subagentState.agentDescriptions
-            loadedSessions.insert(session.sessionId)
+            // Don't mark OpenCode sessions as loaded here — they need an explicit
+            // loadFromFile call to fetch full history from the SQLite database.
+            if session.opencodeRawSessionId == nil {
+                loadedSessions.insert(session.sessionId)
+            }
         }
         histories = newHistories
         agentDescriptions = newAgentDescriptions
