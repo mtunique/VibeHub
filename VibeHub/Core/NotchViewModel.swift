@@ -281,8 +281,11 @@ class NotchViewModel: ObservableObject {
         // Don't override welcome screen with other content
         if case .welcome = contentType { return }
         #else
-        // Don't override license activation screen with other content
-        if case .license = contentType, reason != .boot { return }
+        // Always show license screen when locked
+        if LicenseManager.shared.status == .locked {
+            contentType = .license
+            return
+        }
         #endif
 
         // Don't restore chat on notification - show instances list instead.
@@ -304,6 +307,14 @@ class NotchViewModel: ObservableObject {
     }
 
     func notchClose() {
+        #if !APP_STORE
+        // When locked, keep license contentType so next open shows activation screen
+        if LicenseManager.shared.status == .locked {
+            status = .closed
+            contentType = .license
+            return
+        }
+        #endif
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session
