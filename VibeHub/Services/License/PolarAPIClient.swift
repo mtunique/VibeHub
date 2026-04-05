@@ -12,7 +12,7 @@ import Foundation
 enum PolarAPIClient {
     private static let baseURL = "https://api.polar.sh/v1/customer-portal/license-keys"
 
-    static let organizationId = "oatgnem"
+    static let organizationId = "30d3efa6-bed7-43a6-b6c7-086c39fdc959"
     static let checkoutURL = "https://buy.polar.sh/polar_cl_hKBTeDMwYhu9UcjwYiifmhKxifY7E33bm39Kf4QMTm4"
 
     // MARK: - Validate
