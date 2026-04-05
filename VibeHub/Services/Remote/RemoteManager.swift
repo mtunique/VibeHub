@@ -85,6 +85,12 @@ final class RemoteManager: ObservableObject {
         servers[hostId]
     }
 
+    /// Execute a command on the remote host via the existing native SSH session.
+    func exec(hostId: String, command: String) async -> (output: String, exitCode: Int32) {
+        guard let forwarder = forwarders[hostId] else { return ("", -1) }
+        return await forwarder.exec(command: command)
+    }
+
     func connectWithCleanup(id: String) {
         guard let host = hosts.first(where: { $0.id == id }) else { return }
 
