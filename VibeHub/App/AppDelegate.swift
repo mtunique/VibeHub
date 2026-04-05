@@ -129,11 +129,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let vm = self?.windowController?.viewModel else { return }
                 switch newStatus {
                 case .locked:
+                    // Just open the notch — the view gate shows activation screen
                     vm.notchOpen(reason: .boot)
-                    vm.contentType = .license
                 case .activated, .trial:
-                    if case .license = vm.contentType {
-                        vm.contentType = .instances
+                    // View gate automatically shows normal content
+                    if vm.status == .opened {
                         vm.notchClose()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             vm.performBootAnimation()
@@ -173,10 +173,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             let isValid = await LicenseManager.shared.validateOnStartup()
             if !isValid {
-                if let vm = windowController?.viewModel {
-                    vm.notchOpen(reason: .boot)
-                    vm.contentType = .license
-                }
+                // Just open notch — the view gate shows activation screen
+                windowController?.viewModel.notchOpen(reason: .boot)
             }
         }
     }
