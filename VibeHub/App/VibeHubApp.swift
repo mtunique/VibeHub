@@ -12,9 +12,10 @@ struct VibeHubApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // We use a completely custom window, so no default scene needed
+        // We use a completely custom window for the notch overlay
         Settings {
-            EmptyView()
+            SettingsContentView()
+                .frame(minWidth: 680, minHeight: 480)
         }
     }
 }

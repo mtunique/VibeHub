@@ -86,61 +86,37 @@ struct SettingsContentView: View {
     @State private var selectedSection: SettingsSection? = .appearance
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Sidebar — macOS System Settings style
-            VStack(spacing: 0) {
-                List(selection: $selectedSection) {
-                    ForEach(SettingsSection.allCases) { section in
-                        Label {
-                            Text(section.title)
-                                .font(.system(size: 13))
-                        } icon: {
-                            SettingsIcon(systemName: section.icon, color: section.iconColor)
-                        }
-                        .tag(section)
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-
-                Divider()
-
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
+        NavigationSplitView {
+            List(selection: $selectedSection) {
+                ForEach(SettingsSection.allCases) { section in
                     Label {
-                        Text(L10n.quit)
-                            .font(.system(size: 12))
+                        Text(section.title)
                     } icon: {
-                        SettingsIcon(systemName: "power", color: .red)
+                        SettingsIcon(systemName: section.icon, color: section.iconColor)
                     }
-                    .foregroundColor(.primary)
+                    .tag(section)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Section {
+                    Button {
+                        NSApplication.shared.terminate(nil)
+                    } label: {
+                        Label {
+                            Text(L10n.quit)
+                        } icon: {
+                            SettingsIcon(systemName: "power", color: .red)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .frame(width: 220)
-            .background(.ultraThinMaterial)
-
-            // Detail pane with title
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+        } detail: {
             if let section = selectedSection {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Title bar
-                    Text(section.title)
-                        .font(.system(size: 22, weight: .bold))
-                        .padding(.horizontal, 28)
-                        .padding(.top, 24)
-                        .padding(.bottom, 12)
-
-                    sectionDetail(section)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color(nsColor: .windowBackgroundColor))
+                sectionDetail(section)
             }
         }
-        .frame(minWidth: 680, minHeight: 480)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
             selectedSection = .license
