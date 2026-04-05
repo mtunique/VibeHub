@@ -56,34 +56,40 @@ struct SettingsContentView: View {
     @State private var selectedSection: SettingsSection? = .appearance
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selectedSection) {
-                ForEach(SettingsSection.allCases) { section in
-                    Label(section.title, systemImage: section.icon)
-                        .tag(section)
+        HStack(spacing: 0) {
+            // Sidebar
+            VStack(spacing: 0) {
+                List(selection: $selectedSection) {
+                    ForEach(SettingsSection.allCases) { section in
+                        Label(section.title, systemImage: section.icon)
+                            .tag(section)
+                    }
                 }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 200)
-            .safeAreaInset(edge: .bottom) {
+                .listStyle(.sidebar)
+
+                Divider()
+
                 Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
-                    Label(L10n.quit, systemImage: "xmark.circle")
-                        .foregroundColor(.red)
+                    Label(L10n.quit, systemImage: "power")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } detail: {
-            Group {
-                if let section = selectedSection {
-                    sectionDetail(section)
-                }
+            .frame(width: 170)
+
+            Divider()
+
+            // Detail
+            if let section = selectedSection {
+                sectionDetail(section)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(minWidth: 600, minHeight: 400)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
@@ -161,7 +167,7 @@ private struct AppearanceSection: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(L10n.settingsAppearance)
+        // title handled by sidebar selection
     }
 }
 
@@ -194,7 +200,7 @@ private struct NotificationsSection: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(L10n.settingsNotifications)
+        // title handled by sidebar selection
     }
 }
 
@@ -203,7 +209,7 @@ private struct NotificationsSection: View {
 private struct RemoteSection: View {
     var body: some View {
         RemoteHostsView()
-            .navigationTitle(L10n.remote)
+            // title handled by sidebar selection
     }
 }
 
@@ -259,7 +265,7 @@ private struct SystemSection: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(L10n.settingsSystem)
+        // title handled by sidebar selection
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityEnabled = AXIsProcessTrusted()
         }
@@ -354,7 +360,7 @@ private struct LicenseSection: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(L10n.license)
+        // title handled by sidebar selection
     }
 
     @ViewBuilder
@@ -423,6 +429,6 @@ private struct AboutSection: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(L10n.settingsAbout)
+        // title handled by sidebar selection
     }
 }
