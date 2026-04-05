@@ -18,8 +18,10 @@ final class LicenseManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var activationCount: Int = 0
     @Published var activationLimit: Int = 3
+    @Published var trialDaysRemaining: Int = TrialData.trialDays
 
     private let cacheKey = "license_cache"
+    private let trialKey = "trial_data"
     private let offlineGraceDays: TimeInterval = 7 * 24 * 60 * 60  // 7 days
 
     private init() {}
@@ -28,9 +30,9 @@ final class LicenseManager: ObservableObject {
 
     /// Called at app launch. Returns true if the app should proceed, false if locked.
     func validateOnStartup() async -> Bool {
+        // If no license, check/start trial
         guard let cache = KeychainStore.load(LicenseCache.self, forKey: cacheKey) else {
-            status = .locked
-            return false
+            return checkTrial()
         }
 
         status = .validating
@@ -106,7 +108,7 @@ final class LicenseManager: ObservableObject {
             updateActivationInfo(from: validation)
             status = .activated
         } catch let error as PolarAPIError {
-            status = .locked
+            status = trialStatus()
             switch error {
             case .invalidKey:
                 errorMessage = L10n.licenseKeyInvalid
@@ -120,7 +122,7 @@ final class LicenseManager: ObservableObject {
                 errorMessage = L10n.licenseNetworkError
             }
         } catch {
-            status = .locked
+            status = trialStatus()
             errorMessage = L10n.licenseNetworkError
         }
     }
@@ -154,6 +156,36 @@ final class LicenseManager: ObservableObject {
             return String(repeating: "•", count: min(key.count - 4, 16)) + suffix
         }
         return key
+    }
+
+    // MARK: - Trial
+
+    /// Returns true if trial is active, false if expired
+    private func checkTrial() -> Bool {
+        let trial = getOrCreateTrial()
+        trialDaysRemaining = trial.daysRemaining
+        if trial.isExpired {
+            status = .locked
+            return false
+        } else {
+            status = .trial
+            return true
+        }
+    }
+
+    private func getOrCreateTrial() -> TrialData {
+        if let existing = KeychainStore.load(TrialData.self, forKey: trialKey) {
+            return existing
+        }
+        let newTrial = TrialData(startDate: Date())
+        _ = KeychainStore.save(newTrial, forKey: trialKey)
+        return newTrial
+    }
+
+    /// Status to fall back to when activation fails (trial if active, locked if expired)
+    private func trialStatus() -> LicenseStatus {
+        guard let trial = KeychainStore.load(TrialData.self, forKey: trialKey) else { return .locked }
+        return trial.isExpired ? .locked : .trial
     }
 
     // MARK: - Private

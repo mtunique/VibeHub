@@ -29,7 +29,8 @@ struct LicenseSettingsView: View {
 
                 Spacer()
 
-                if licenseManager.status == .activated {
+                switch licenseManager.status {
+                case .activated:
                     HStack(spacing: 6) {
                         Circle()
                             .fill(TerminalColors.green)
@@ -38,6 +39,17 @@ struct LicenseSettingsView: View {
                             .font(.system(size: 11))
                             .foregroundColor(.white.opacity(0.4))
                     }
+                case .trial:
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(TerminalColors.amber)
+                            .frame(width: 6, height: 6)
+                        Text(L10n.trialDaysRemaining(licenseManager.trialDaysRemaining))
+                            .font(.system(size: 11))
+                            .foregroundColor(TerminalColors.amber.opacity(0.8))
+                    }
+                default:
+                    EmptyView()
                 }
             }
             .padding(.horizontal, 12)
@@ -112,6 +124,7 @@ struct LicenseSettingsView: View {
     private var statusColor: Color {
         switch licenseManager.status {
         case .activated: return TerminalColors.green
+        case .trial: return TerminalColors.amber
         case .locked: return Color(red: 1.0, green: 0.4, blue: 0.4)
         case .validating: return .white.opacity(0.5)
         }
