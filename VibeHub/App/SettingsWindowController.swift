@@ -2,23 +2,42 @@
 //  SettingsWindowController.swift
 //  VibeHub
 //
-//  Opens the system-managed Settings window
+//  Manages a standalone macOS settings window
 //
 
 import AppKit
+import SwiftUI
 
 @MainActor
 class SettingsWindowController {
     static let shared = SettingsWindowController()
+    private var window: NSWindow?
 
     func show() {
-        // Use the SwiftUI Settings scene — gives native macOS window appearance
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
+
+        let contentView = SettingsContentView()
+        let hostingController = NSHostingController(rootView: contentView)
+
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = L10n.isChinese ? "VibeHub 设置" : "VibeHub Settings"
+        w.contentViewController = hostingController
+        w.center()
+        w.isReleasedWhenClosed = false
+        w.setFrameAutosaveName("VibeHubSettings")
+        w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        self.window = w
     }
 
     #if !APP_STORE
