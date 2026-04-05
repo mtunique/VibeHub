@@ -101,6 +101,7 @@ struct SettingsContentView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
 
                 Divider()
 
@@ -120,26 +121,26 @@ struct SettingsContentView: View {
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 200)
-
-            Divider()
+            .frame(width: 220)
+            .background(.ultraThinMaterial)
 
             // Detail pane with title
             if let section = selectedSection {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Title bar matching macOS settings
+                    // Title bar
                     Text(section.title)
-                        .font(.system(size: 20, weight: .bold))
-                        .padding(.horizontal, 24)
-                        .padding(.top, 20)
-                        .padding(.bottom, 8)
+                        .font(.system(size: 22, weight: .bold))
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                        .padding(.bottom, 12)
 
                     sectionDetail(section)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(Color(nsColor: .windowBackgroundColor))
             }
         }
-        .frame(minWidth: 650, minHeight: 450)
+        .frame(minWidth: 680, minHeight: 480)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
             selectedSection = .license
