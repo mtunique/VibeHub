@@ -57,8 +57,11 @@ struct SettingsContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsSection.allCases, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.icon)
+            List(selection: $selectedSection) {
+                ForEach(SettingsSection.allCases) { section in
+                    Label(section.title, systemImage: section.icon)
+                        .tag(section)
+                }
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 200)
