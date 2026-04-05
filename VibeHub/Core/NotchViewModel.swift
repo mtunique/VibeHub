@@ -304,12 +304,6 @@ class NotchViewModel: ObservableObject {
     }
 
     func notchClose() {
-        #if !APP_STORE
-        // Prevent closing the license activation screen
-        if case .license = contentType {
-            return
-        }
-        #endif
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session
