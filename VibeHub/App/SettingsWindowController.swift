@@ -21,11 +21,12 @@ class SettingsWindowController {
         }
 
         let contentView = SettingsContentView()
+            .frame(width: 680, height: 520)
         let hostingController = NSHostingController(rootView: contentView)
 
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
@@ -33,7 +34,6 @@ class SettingsWindowController {
         w.contentViewController = hostingController
         w.center()
         w.isReleasedWhenClosed = false
-        w.setFrameAutosaveName("VibeHubSettings")
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 

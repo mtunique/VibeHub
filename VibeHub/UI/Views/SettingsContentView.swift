@@ -85,19 +85,45 @@ private struct SettingsIcon: View {
 struct SettingsContentView: View {
     @State private var selectedSection: SettingsSection? = .appearance
 
+    private var mainSections: [SettingsSection] {
+        [.appearance, .notifications, .remote, .system]
+    }
+
+    private var bottomSections: [SettingsSection] {
+        var sections: [SettingsSection] = []
+        #if !APP_STORE
+        sections.append(.license)
+        #endif
+        sections.append(.about)
+        return sections
+    }
+
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             List(selection: $selectedSection) {
-                ForEach(SettingsSection.allCases) { section in
-                    Label {
-                        Text(section.title)
-                    } icon: {
-                        SettingsIcon(systemName: section.icon, color: section.iconColor)
+                Section {
+                    ForEach(mainSections) { section in
+                        Label {
+                            Text(section.title)
+                        } icon: {
+                            SettingsIcon(systemName: section.icon, color: section.iconColor)
+                        }
+                        .padding(.vertical, 4)
+                        .tag(section)
                     }
-                    .tag(section)
                 }
 
                 Section {
+                    ForEach(bottomSections) { section in
+                        Label {
+                            Text(section.title)
+                        } icon: {
+                            SettingsIcon(systemName: section.icon, color: section.iconColor)
+                        }
+                        .padding(.vertical, 4)
+                        .tag(section)
+                    }
+
                     Button {
                         NSApplication.shared.terminate(nil)
                     } label: {
@@ -106,17 +132,19 @@ struct SettingsContentView: View {
                         } icon: {
                             SettingsIcon(systemName: "power", color: .red)
                         }
+                        .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+            .navigationSplitViewColumnWidth(190)
         } detail: {
             if let section = selectedSection {
                 sectionDetail(section)
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
             selectedSection = .license
@@ -457,3 +485,4 @@ private struct AboutSection: View {
         // title handled by sidebar selection
     }
 }
+
