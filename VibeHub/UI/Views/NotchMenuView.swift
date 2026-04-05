@@ -30,6 +30,7 @@ struct NotchMenuView: View {
     @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
 
     var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
         VStack(spacing: 4) {
             if showBackButton {
                 // Back button
@@ -181,6 +182,8 @@ struct NotchMenuView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             refreshStates()
