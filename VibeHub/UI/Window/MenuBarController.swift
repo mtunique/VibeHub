@@ -96,15 +96,17 @@ class MenuBarController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self else { return }
-                if status == .locked {
-                    self.viewModel.contentType = .license
-                    self.showPopover()
-                } else if case .activated = status {
-                    if self.viewModel.contentType == .license {
-                        self.viewModel.contentType = .instances
-                        self.popover.performClose(nil)
-                    }
+                switch status {
+                case .locked:
+                    // Just show popover — the view gate shows activation screen
+                    if !self.popover.isShown { self.showPopover() }
+                case .activated, .trial:
+                    // Dismiss popover; next open auto-shows normal content via view gate
+                    if self.popover.isShown { self.popover.performClose(nil) }
+                case .validating:
+                    break
                 }
+                self.updateIcon(instances: self.sessionMonitor.instances)
             }
             .store(in: &cancellables)
     }
@@ -248,11 +250,7 @@ class MenuBarController {
 
     private func showPopover() {
         guard let button = statusItem?.button else { return }
-        #if !APP_STORE
-        viewModel.contentType = LicenseManager.shared.status == .locked ? .license : .instances
-        #else
         viewModel.contentType = .instances
-        #endif
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }

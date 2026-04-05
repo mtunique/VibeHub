@@ -33,8 +33,6 @@ enum NotchContentType: Equatable {
     case onboarding
     #if APP_STORE
     case welcome
-    #else
-    case license
     #endif
 
     var id: String {
@@ -46,8 +44,6 @@ enum NotchContentType: Equatable {
         case .onboarding: return "onboarding"
         #if APP_STORE
         case .welcome: return "welcome"
-        #else
-        case .license: return "license"
         #endif
         }
     }
@@ -83,6 +79,15 @@ class NotchViewModel: ObservableObject {
 
     /// Dynamic opened size based on content type
     var openedSize: CGSize {
+        #if !APP_STORE
+        // License lock screen overrides size regardless of contentType
+        if LicenseManager.shared.status == .locked && contentType != .menu {
+            return CGSize(
+                width: min(screenRect.width * 0.4, 480),
+                height: 420
+            )
+        }
+        #endif
         switch contentType {
         case .chat:
             // Large size for chat view
@@ -113,13 +118,6 @@ class NotchViewModel: ObservableObject {
                 width: min(screenRect.width * 0.4, 480),
                 height: 440
             )
-        #if !APP_STORE
-        case .license:
-            return CGSize(
-                width: min(screenRect.width * 0.4, 480),
-                height: 420
-            )
-        #endif
         #if APP_STORE
         case .welcome:
             return CGSize(
@@ -280,12 +278,6 @@ class NotchViewModel: ObservableObject {
         #if APP_STORE
         // Don't override welcome screen with other content
         if case .welcome = contentType { return }
-        #else
-        // Always show license screen when locked
-        if LicenseManager.shared.status == .locked {
-            contentType = .license
-            return
-        }
         #endif
 
         // Don't restore chat on notification - show instances list instead.
@@ -307,14 +299,6 @@ class NotchViewModel: ObservableObject {
     }
 
     func notchClose() {
-        #if !APP_STORE
-        // When locked, keep license contentType so next open shows activation screen
-        if LicenseManager.shared.status == .locked {
-            status = .closed
-            contentType = .license
-            return
-        }
-        #endif
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session

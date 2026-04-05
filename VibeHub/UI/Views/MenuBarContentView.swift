@@ -4,6 +4,9 @@ import SwiftUI
 struct MenuBarContentView: View {
     @ObservedObject var viewModel: NotchViewModel
     @EnvironmentObject var sessionMonitor: ClaudeSessionMonitor
+    #if !APP_STORE
+    @ObservedObject private var licenseManager = LicenseManager.shared
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,36 +62,46 @@ struct MenuBarContentView: View {
     @ViewBuilder
     private var content: some View {
         Group {
-            switch viewModel.contentType {
-            case .instances:
-                ClaudeInstancesView(
-                    sessionMonitor: sessionMonitor,
-                    viewModel: viewModel
-                )
-            case .menu:
-                ScrollView {
-                    NotchMenuView(viewModel: viewModel)
-                }
-            case .remote:
-                RemoteHostsView(viewModel: viewModel)
-            case .chat(let session):
-                ChatView(
-                    sessionId: session.sessionId,
-                    initialSession: session,
-                    sessionMonitor: sessionMonitor,
-                    viewModel: viewModel
-                )
-            case .onboarding:
-                OnboardingView(viewModel: viewModel)
-            #if APP_STORE
-            case .welcome:
-                OnboardingView(viewModel: viewModel)
-            #else
-            case .license:
-                LicenseActivationView(licenseManager: LicenseManager.shared)
-            #endif
+            #if !APP_STORE
+            if licenseManager.status == .locked && viewModel.contentType != .menu {
+                LicenseActivationView(licenseManager: licenseManager)
+            } else {
+                normalContent
             }
+            #else
+            normalContent
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var normalContent: some View {
+        switch viewModel.contentType {
+        case .instances:
+            ClaudeInstancesView(
+                sessionMonitor: sessionMonitor,
+                viewModel: viewModel
+            )
+        case .menu:
+            ScrollView {
+                NotchMenuView(viewModel: viewModel)
+            }
+        case .remote:
+            RemoteHostsView(viewModel: viewModel)
+        case .chat(let session):
+            ChatView(
+                sessionId: session.sessionId,
+                initialSession: session,
+                sessionMonitor: sessionMonitor,
+                viewModel: viewModel
+            )
+        case .onboarding:
+            OnboardingView(viewModel: viewModel)
+        #if APP_STORE
+        case .welcome:
+            OnboardingView(viewModel: viewModel)
+        #endif
+        }
     }
 }
