@@ -111,30 +111,36 @@ struct SettingsContentView: View {
                     ForEach(bottomSections) { section in
                         sidebarRow(section)
                     }
-
-                    Button {
-                        NSApplication.shared.terminate(nil)
-                    } label: {
-                        Label {
-                            Text(L10n.quit)
-                        } icon: {
-                            SettingsIcon(systemName: "power", color: .red)
-                        }
-                        .padding(.vertical, 2)
-                    }
-                    .buttonStyle(.plain)
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
+            .navigationSplitViewColumnWidth(200)
             .toolbar(removing: .sidebarToggle)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label {
+                        Text(L10n.quit)
+                    } icon: {
+                        SettingsIcon(systemName: "power", color: .red)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         } detail: {
             if let section = selectedSection {
                 sectionDetail(section)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(nsColor: .windowBackgroundColor))
+                    .navigationSplitViewColumnWidth(530)
             }
         }
+        .navigationSplitViewColumnWidth(730)
         .navigationSplitViewStyle(.balanced)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
