@@ -29,6 +29,9 @@ class MenuBarController {
         setupPopover()
         setupEventMonitor()
         observeSessions()
+        #if !APP_STORE
+        observeLicenseStatus()
+        #endif
     }
 
     nonisolated deinit {
@@ -85,6 +88,27 @@ class MenuBarController {
     }
 
     // MARK: - Session observation (update icon badge)
+
+    #if !APP_STORE
+    private func observeLicenseStatus() {
+        LicenseManager.shared.$status
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                if status == .locked {
+                    self.viewModel.contentType = .license
+                    self.showPopover()
+                } else if case .activated = status {
+                    if self.viewModel.contentType == .license {
+                        self.viewModel.contentType = .instances
+                        self.popover.performClose(nil)
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
+    #endif
 
     private func observeSessions() {
         sessionMonitor.$instances
@@ -211,7 +235,11 @@ class MenuBarController {
 
     private func showPopover() {
         guard let button = statusItem?.button else { return }
+        #if !APP_STORE
+        viewModel.contentType = LicenseManager.shared.status == .locked ? .license : .instances
+        #else
         viewModel.contentType = .instances
+        #endif
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
