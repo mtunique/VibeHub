@@ -94,6 +94,10 @@ struct NotchMenuView: View {
                 viewModel.contentType = .remote
             }
 
+            #if !APP_STORE
+            LicenseSettingsView(licenseManager: LicenseManager.shared)
+            #endif
+
             Divider()
                 .background(Color.white.opacity(0.08))
                 .padding(.vertical, 4)

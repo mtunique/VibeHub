@@ -472,6 +472,9 @@ struct NotchView: View {
             #if APP_STORE
             case .welcome:
                 OnboardingView(viewModel: viewModel)
+            #else
+            case .license:
+                LicenseActivationView(licenseManager: LicenseManager.shared)
             #endif
             }
         }
