@@ -409,8 +409,8 @@ struct NotchView: View {
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                 }
 
-                // Session count badge — far right
-                if viewModel.status != .opened && sessionCount > 0 {
+                // Session count badge — far right (hidden when locked)
+                if viewModel.status != .opened && sessionCount > 0 && !licenseBlocking {
                     Text("\(sessionCount)")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.45))

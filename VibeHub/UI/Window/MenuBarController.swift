@@ -121,6 +121,19 @@ class MenuBarController {
 
     private func updateIcon(instances: [SessionState]) {
         guard let button = statusItem?.button else { return }
+
+        #if !APP_STORE
+        // When license is locked, show static red icon — don't reflect session activity
+        if LicenseManager.shared.status == .locked {
+            stopLegAnimation()
+            currentIconColor = NSColor.systemRed
+            button.image = renderCrabIcon(color: .systemRed, legPhase: 1)
+            button.image?.isTemplate = false
+            button.title = ""
+            return
+        }
+        #endif
+
         let hasActive = instances.contains(where: { $0.phase == .processing || $0.phase == .compacting })
         let hasPending = instances.contains(where: {
             if case .waitingForApproval = $0.phase { return true }
