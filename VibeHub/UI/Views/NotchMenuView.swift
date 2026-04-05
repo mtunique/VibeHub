@@ -17,6 +17,15 @@ import Sparkle
 
 // MARK: - NotchMenuView
 
+// MARK: - Settings Section
+
+private enum SettingsSection: Hashable {
+    case appearance
+    case notifications
+    case system
+    case license
+}
+
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
     var showBackButton: Bool = true
@@ -28,53 +37,104 @@ struct NotchMenuView: View {
     @State private var notifyApproval: NotifyMode = AppSettings.notifyApproval
     @State private var displayMode: DisplayMode = AppSettings.displayMode
     @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
+    @State private var activeSection: SettingsSection? = nil
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-        VStack(spacing: 4) {
-            if showBackButton {
-                // Back button
-                MenuRow(
-                    icon: "chevron.left",
-                    label: L10n.back
-                ) {
-                    viewModel.toggleMenu()
+            VStack(spacing: 4) {
+                // Back button (to instances or to section list)
+                if showBackButton {
+                    MenuRow(
+                        icon: "chevron.left",
+                        label: activeSection != nil ? L10n.settingsTitle : L10n.back
+                    ) {
+                        if activeSection != nil {
+                            withAnimation(.easeInOut(duration: 0.15)) { activeSection = nil }
+                        } else {
+                            viewModel.toggleMenu()
+                        }
+                    }
+
+                    Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
                 }
 
-                Divider()
-                    .background(Color.white.opacity(0.08))
-                    .padding(.vertical, 4)
+                if let section = activeSection {
+                    sectionDetail(section)
+                } else {
+                    sectionList
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { refreshStates() }
+        .onChange(of: viewModel.contentType) { _, newValue in
+            if newValue == .menu { refreshStates(); activeSection = nil }
+        }
+    }
 
-            // Appearance settings
+    // MARK: - Level 1: Section List
+
+    @ViewBuilder
+    private var sectionList: some View {
+        // Appearance
+        MenuRow(icon: "paintbrush", label: L10n.settingsAppearance) {
+            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .appearance }
+        }
+
+        // Notifications
+        MenuRow(icon: "bell", label: L10n.settingsNotifications) {
+            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .notifications }
+        }
+
+        // System
+        MenuRow(icon: "gearshape.2", label: L10n.settingsSystem) {
+            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .system }
+        }
+
+        // License (non-App Store)
+        #if !APP_STORE
+        LicenseSettingsView(licenseManager: LicenseManager.shared)
+        #endif
+
+        // Remote
+        MenuRow(icon: "network", label: L10n.remote) {
+            viewModel.contentType = .remote
+        }
+
+        Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
+
+        // About
+        #if !APP_STORE
+        UpdateRow(updateManager: UpdateManager.shared)
+        #else
+        MenuRow(icon: "info.circle", label: L10n.version) {}
+        #endif
+
+        MenuRow(icon: "star", label: L10n.starOnGitHub) {
+            if let url = URL(string: "https://github.com/mtunique/vibehub") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+
+        Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
+
+        MenuRow(icon: "xmark.circle", label: L10n.quit, isDestructive: true) {
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    // MARK: - Level 2: Section Detail
+
+    @ViewBuilder
+    private func sectionDetail(_ section: SettingsSection) -> some View {
+        switch section {
+        case .appearance:
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
-
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
-
-            // Notification behavior settings
-            NotifySectionHeader(label: L10n.notificationsHeader)
-
-            NotifyModePicker(
-                icon: "checkmark.circle",
-                label: L10n.notifyCompletion,
-                mode: $notifyCompletion
-            ) { newMode in
-                AppSettings.notifyCompletion = newMode
-            }
-
-            NotifyModePicker(
-                icon: "lock.shield",
-                label: L10n.notifyApproval,
-                mode: $notifyApproval
-            ) { newMode in
-                AppSettings.notifyApproval = newMode
-            }
-
             DisplayModePicker(currentMode: $displayMode)
-
             if WindowManager.resolveMode(displayMode) == .menuBar {
                 MenuToggleRow(
                     icon: "text.alignleft",
@@ -87,23 +147,20 @@ struct NotchMenuView: View {
                 }
             }
 
+        case .notifications:
+            NotifyModePicker(
+                icon: "checkmark.circle",
+                label: L10n.notifyCompletion,
+                mode: $notifyCompletion
+            ) { newMode in AppSettings.notifyCompletion = newMode }
 
-            MenuRow(
-                icon: "network",
-                label: L10n.remote
-            ) {
-                viewModel.contentType = .remote
-            }
+            NotifyModePicker(
+                icon: "lock.shield",
+                label: L10n.notifyApproval,
+                mode: $notifyApproval
+            ) { newMode in AppSettings.notifyApproval = newMode }
 
-            #if !APP_STORE
-            LicenseSettingsView(licenseManager: LicenseManager.shared)
-            #endif
-
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
-
-            // System settings
+        case .system:
             MenuToggleRow(
                 icon: "power",
                 label: L10n.launchAtLogin,
@@ -127,11 +184,11 @@ struct NotchMenuView: View {
                 label: L10n.hooks,
                 isOn: hooksInstalled
             ) {
-#if APP_STORE
+                #if APP_STORE
                 Task { @MainActor in
                     await installOrUninstallHooksAppStore()
                 }
-#else
+                #else
                 if hooksInstalled {
                     HookInstaller.uninstall()
                     hooksInstalled = false
@@ -139,59 +196,17 @@ struct NotchMenuView: View {
                     HookInstaller.installIfNeeded()
                     hooksInstalled = true
                 }
-#endif
+                #endif
             }
 
             AccessibilityRow(isEnabled: AXIsProcessTrusted())
 
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
-
-            // About
-
-#if !APP_STORE
-            UpdateRow(updateManager: UpdateManager.shared)
-#else
-            MenuRow(
-                icon: "info.circle",
-                label: L10n.version
-            ) {}
-#endif
-
-            MenuRow(
-                icon: "star",
-                label: L10n.starOnGitHub
-            ) {
-                if let url = URL(string: "https://github.com/mtunique/vibehub") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-
-            Divider()
-                .background(Color.white.opacity(0.08))
-                .padding(.vertical, 4)
-
-            MenuRow(
-                icon: "xmark.circle",
-                label: L10n.quit,
-                isDestructive: true
-            ) {
-                NSApplication.shared.terminate(nil)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear {
-            refreshStates()
-        }
-        .onChange(of: viewModel.contentType) { _, newValue in
-            if newValue == .menu {
-                refreshStates()
-            }
+        case .license:
+            #if !APP_STORE
+            LicenseSettingsView(licenseManager: LicenseManager.shared)
+            #else
+            EmptyView()
+            #endif
         }
     }
 

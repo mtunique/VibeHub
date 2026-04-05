@@ -57,6 +57,10 @@ enum L10n {
     static var onboardingMenuBarDesc: String { isChinese ? "在菜单栏显示图标，点击弹出面板" : "Shows an icon in the menu bar with a popover panel" }
     static var onboardingShowDetail: String { isChinese ? "在菜单栏显示会话详情" : "Show session details in menu bar" }
     static var onboardingGetStarted: String { isChinese ? "开始使用" : "Get Started" }
+    static var settingsTitle: String { isChinese ? "设置" : "Settings" }
+    static var settingsAppearance: String { isChinese ? "外观" : "Appearance" }
+    static var settingsNotifications: String { isChinese ? "通知" : "Notifications" }
+    static var settingsSystem: String { isChinese ? "系统" : "System" }
     static var remote: String { isChinese ? "远程" : "Remote" }
     static var launchAtLogin: String { isChinese ? "开机启动" : "Launch at Login" }
     static var hooks: String { isChinese ? "Hook 脚本" : "Hooks" }
