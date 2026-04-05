@@ -14,8 +14,7 @@ struct VibeHubApp: App {
     var body: some Scene {
         // We use a completely custom window for the notch overlay
         Settings {
-            SettingsContentView()
-                .frame(minWidth: 680, minHeight: 480)
+            EmptyView()
         }
     }
 }
