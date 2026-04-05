@@ -1,5 +1,6 @@
 import AppKit
 import Clibssh
+import Combine
 import IOKit
 import SwiftUI
 
@@ -13,6 +14,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenObserver: ScreenObserver?
     private var updateCheckTimer: Timer?
     private var onboardingWindow: OnboardingWindowController?
+    #if !APP_STORE
+    private var licenseCancellables = Set<AnyCancellable>()
+    #endif
 
     static var shared: AppDelegate?
 
@@ -99,16 +103,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if AppSettings.hasCompletedOnboarding {
             startDisplayMode()
+            #if !APP_STORE
+            validateLicenseOnStartup()
+            #endif
         } else {
             // Show standalone onboarding window before any display mode
             onboardingWindow = OnboardingWindowController()
             onboardingWindow?.show { [weak self] in
                 self?.onboardingWindow = nil
                 self?.startDisplayMode()
+                #if !APP_STORE
+                self?.validateLicenseOnStartup()
+                #endif
             }
         }
 
         RemoteManager.shared.startup()
+
+        #if !APP_STORE
+        // Watch for license status changes to lock/unlock UI
+        LicenseManager.shared.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newStatus in
+                guard let vm = self?.windowController?.viewModel else { return }
+                switch newStatus {
+                case .locked:
+                    vm.notchOpen(reason: .boot)
+                    vm.contentType = .license
+                case .activated:
+                    if case .license = vm.contentType {
+                        vm.contentType = .instances
+                        vm.notchClose()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            vm.performBootAnimation()
+                        }
+                    }
+                case .validating:
+                    break
+                }
+            }
+            .store(in: &licenseCancellables)
+        #endif
 
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()
@@ -131,6 +166,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager()
         windowManager?.setup()
     }
+
+    #if !APP_STORE
+    private func validateLicenseOnStartup() {
+        Task { @MainActor in
+            let isValid = await LicenseManager.shared.validateOnStartup()
+            if !isValid {
+                if let vm = windowController?.viewModel {
+                    vm.notchOpen(reason: .boot)
+                    vm.contentType = .license
+                }
+            }
+        }
+    }
+    #endif
 
     private func handleScreenChange() {
         _ = windowManager?.setupNotchWindow()

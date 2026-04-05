@@ -33,6 +33,8 @@ enum NotchContentType: Equatable {
     case onboarding
     #if APP_STORE
     case welcome
+    #else
+    case license
     #endif
 
     var id: String {
@@ -44,6 +46,8 @@ enum NotchContentType: Equatable {
         case .onboarding: return "onboarding"
         #if APP_STORE
         case .welcome: return "welcome"
+        #else
+        case .license: return "license"
         #endif
         }
     }
@@ -108,6 +112,13 @@ class NotchViewModel: ObservableObject {
                 width: min(screenRect.width * 0.4, 480),
                 height: 440
             )
+        #if !APP_STORE
+        case .license:
+            return CGSize(
+                width: min(screenRect.width * 0.4, 480),
+                height: 420
+            )
+        #endif
         #if APP_STORE
         case .welcome:
             return CGSize(
@@ -268,6 +279,9 @@ class NotchViewModel: ObservableObject {
         #if APP_STORE
         // Don't override welcome screen with other content
         if case .welcome = contentType { return }
+        #else
+        // Don't override license activation screen with other content
+        if case .license = contentType, reason != .boot { return }
         #endif
 
         // Don't restore chat on notification - show instances list instead.
@@ -289,6 +303,12 @@ class NotchViewModel: ObservableObject {
     }
 
     func notchClose() {
+        #if !APP_STORE
+        // Prevent closing the license activation screen
+        if case .license = contentType {
+            return
+        }
+        #endif
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session
