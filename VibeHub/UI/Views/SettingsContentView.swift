@@ -38,15 +38,45 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .appearance: return "paintbrush"
-        case .notifications: return "bell"
+        case .appearance: return "paintbrush.fill"
+        case .notifications: return "bell.badge.fill"
         case .remote: return "network"
-        case .system: return "gearshape"
+        case .system: return "gearshape.fill"
         #if !APP_STORE
-        case .license: return "key"
+        case .license: return "key.fill"
         #endif
-        case .about: return "info.circle"
+        case .about: return "info.circle.fill"
         }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .appearance: return .purple
+        case .notifications: return .red
+        case .remote: return .blue
+        case .system: return .gray
+        #if !APP_STORE
+        case .license: return .orange
+        #endif
+        case .about: return .blue
+        }
+    }
+}
+
+/// macOS System Settings style icon: white SF Symbol on a colored rounded-rect background
+private struct SettingsIcon: View {
+    let systemName: String
+    let color: Color
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(.white)
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(color)
+            )
     }
 }
 
@@ -57,12 +87,17 @@ struct SettingsContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar
+            // Sidebar — macOS System Settings style
             VStack(spacing: 0) {
                 List(selection: $selectedSection) {
                     ForEach(SettingsSection.allCases) { section in
-                        Label(section.title, systemImage: section.icon)
-                            .tag(section)
+                        Label {
+                            Text(section.title)
+                                .font(.system(size: 13))
+                        } icon: {
+                            SettingsIcon(systemName: section.icon, color: section.iconColor)
+                        }
+                        .tag(section)
                     }
                 }
                 .listStyle(.sidebar)
@@ -72,26 +107,39 @@ struct SettingsContentView: View {
                 Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
-                    Label(L10n.quit, systemImage: "power")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                    Label {
+                        Text(L10n.quit)
+                            .font(.system(size: 12))
+                    } icon: {
+                        SettingsIcon(systemName: "power", color: .red)
+                    }
+                    .foregroundColor(.primary)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 170)
+            .frame(width: 200)
 
             Divider()
 
-            // Detail
+            // Detail pane with title
             if let section = selectedSection {
-                sectionDetail(section)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(alignment: .leading, spacing: 0) {
+                    // Title bar matching macOS settings
+                    Text(section.title)
+                        .font(.system(size: 20, weight: .bold))
+                        .padding(.horizontal, 24)
+                        .padding(.top, 20)
+                        .padding(.bottom, 8)
+
+                    sectionDetail(section)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .frame(minWidth: 600, minHeight: 400)
+        .frame(minWidth: 650, minHeight: 450)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
             selectedSection = .license
