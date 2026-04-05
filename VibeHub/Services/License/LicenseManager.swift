@@ -84,19 +84,7 @@ final class LicenseManager: ObservableObject {
                 label: label
             )
 
-            // Step 2: Validate to confirm and get full status
-            let validation = try await PolarAPIClient.validate(
-                key: key,
-                activationId: activation.id
-            )
-
-            guard validation.status == "granted" else {
-                status = .locked
-                errorMessage = L10n.licenseKeyRevoked
-                return
-            }
-
-            // Step 3: Save to Keychain
+            // Step 2: Save activation immediately (prevents slot leak if validate fails)
             let cache = LicenseCache(
                 licenseKey: key,
                 activationId: activation.id,
@@ -105,7 +93,19 @@ final class LicenseManager: ObservableObject {
             )
             _ = KeychainStore.save(cache, forKey: cacheKey)
 
-            updateActivationInfo(from: validation)
+            // Step 3: Validate to confirm status (best-effort, Keychain already saved)
+            do {
+                let validation = try await PolarAPIClient.validate(
+                    key: key,
+                    activationId: activation.id
+                )
+                if validation.status == "granted" {
+                    updateActivationInfo(from: validation)
+                }
+            } catch {
+                // Validate failed but activation is saved — treat as offline-activated
+            }
+
             status = .activated
         } catch let error as PolarAPIError {
             status = trialStatus()
