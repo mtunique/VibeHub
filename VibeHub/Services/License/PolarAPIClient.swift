@@ -12,11 +12,8 @@ import Foundation
 enum PolarAPIClient {
     private static let baseURL = "https://api.polar.sh/v1/customer-portal/license-keys"
 
-    // TODO: Replace with actual Polar.sh organization ID after product setup
-    static let organizationId = "REPLACE_WITH_ORG_ID"
-
-    // TODO: Replace with actual Polar.sh checkout URL after product setup
-    static let checkoutURL = "https://polar.sh/REPLACE_WITH_CHECKOUT_URL"
+    static let organizationId = "oatgnem"
+    static let checkoutURL = "https://buy.polar.sh/polar_cl_hKBTeDMwYhu9UcjwYiifmhKxifY7E33bm39Kf4QMTm4"
 
     // MARK: - Validate
 
