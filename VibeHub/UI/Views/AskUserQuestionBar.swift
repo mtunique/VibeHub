@@ -59,7 +59,7 @@ struct AskUserQuestionPayload: Sendable {
 struct AskUserQuestionBar: View {
     let payload: AskUserQuestionPayload
     let onSubmit: ([[String]]) -> Void
-    let onUseTerminal: () -> Void
+    var onUseTerminal: (() -> Void)? = nil
 
     @State private var selections: [Int: Set<Int>] = [:]
 
@@ -171,18 +171,20 @@ struct AskUserQuestionBar: View {
             }
 
             HStack(spacing: 10) {
-                Button {
-                    onUseTerminal()
-                } label: {
-                    Text("Use terminal")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.75))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.10))
-                        .clipShape(Capsule())
+                if let onUseTerminal {
+                    Button {
+                        onUseTerminal()
+                    } label: {
+                        Text("Use terminal")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.75))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.10))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Spacer(minLength: 0)
 

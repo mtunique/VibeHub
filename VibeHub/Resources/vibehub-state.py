@@ -352,13 +352,59 @@ def main():
         state["status"] = "processing"
 
     elif event == "PreToolUse":
+        tool_name = data.get("tool_name")
         state["status"] = "running_tool"
-        state["tool"] = data.get("tool_name")
+        state["tool"] = tool_name
         state["tool_input"] = tool_input
         # Send tool_use_id to Swift for caching
         tool_use_id_from_event = data.get("tool_use_id")
         if tool_use_id_from_event:
             state["tool_use_id"] = tool_use_id_from_event
+
+        # AskUserQuestion: block and let the app UI handle it
+        if tool_name == "AskUserQuestion":
+            state["event"] = "PermissionRequest"
+            state["status"] = "waiting_for_approval"
+
+            response = send_event(state)
+
+            if response:
+                decision = response.get("decision", "ask")
+                answers_raw = response.get("answers")
+
+                if decision == "allow" and answers_raw:
+                    # Build answers map: question text -> selected label(s)
+                    answers_map = {}
+                    questions = (tool_input or {}).get("questions", [])
+                    for qi, q in enumerate(questions):
+                        q_text = q.get("question", "")
+                        if qi < len(answers_raw):
+                            selected = answers_raw[qi]
+                            if isinstance(selected, list):
+                                answers_map[q_text] = ",".join(selected)
+                            else:
+                                answers_map[q_text] = str(selected)
+
+                    output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "allow",
+                            "permissionDecisionReason": "Answered via Vibe Hub",
+                            "updatedInput": {
+                                "questions": questions,
+                                "answers": answers_map,
+                            },
+                        }
+                    }
+                    print(json.dumps(output))
+                    sys.exit(0)
+
+                elif decision == "ask":
+                    # Let Claude Code handle it in terminal
+                    sys.exit(0)
+
+            # No response - let Claude Code show its normal UI
+            sys.exit(0)
 
     elif event == "PostToolUse":
         state["status"] = "processing"
@@ -384,11 +430,38 @@ def main():
             reason = response.get("reason", "")
 
             if decision == "allow":
-                # Output JSON to approve
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",
                         "decision": {"behavior": "allow"},
+                    }
+                }
+                print(json.dumps(output))
+                sys.exit(0)
+
+            elif decision == "always":
+                # Allow and add a permanent rule for this tool
+                tool_name = data.get("tool_name", "")
+                rule = {"toolName": tool_name}
+                # For Bash, include the command pattern
+                if tool_name == "Bash" and isinstance(tool_input, dict):
+                    cmd = tool_input.get("command", "")
+                    if cmd:
+                        rule["ruleContent"] = cmd
+                output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PermissionRequest",
+                        "decision": {
+                            "behavior": "allow",
+                            "updatedPermissions": [
+                                {
+                                    "type": "addRules",
+                                    "rules": [rule],
+                                    "behavior": "allow",
+                                    "destination": "projectSettings",
+                                }
+                            ],
+                        },
                     }
                 }
                 print(json.dumps(output))
