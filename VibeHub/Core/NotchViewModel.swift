@@ -95,8 +95,8 @@ class NotchViewModel: ObservableObject {
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
                 // Ensure the full menu (including Quit) stays clickable within the hit-test rect.
-                // +80 accounts for LicenseSettingsView (trial status row + purchase/activate buttons)
-                height: 640 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                // +160 accounts for LicenseSettingsView section
+                height: 720 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
             )
         case .instances:
             return CGSize(
