@@ -17,226 +17,43 @@ import Sparkle
 
 // MARK: - NotchMenuView
 
-// MARK: - Settings Section
-
-private enum SettingsSection: Hashable {
-    case appearance
-    case notifications
-    case system
-    case license
-    case remote
-}
-
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
     var showBackButton: Bool = true
-    @ObservedObject private var screenSelector = ScreenSelector.shared
-    @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var hooksInstalled: Bool = false
-    @State private var launchAtLogin: Bool = false
-    @State private var notifyCompletion: NotifyMode = AppSettings.notifyCompletion
-    @State private var notifyApproval: NotifyMode = AppSettings.notifyApproval
-    @State private var displayMode: DisplayMode = AppSettings.displayMode
-    @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
-    @State private var activeSection: SettingsSection = .appearance
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
+        VStack(spacing: 4) {
             if showBackButton {
-                HStack {
-                    Button {
-                        viewModel.toggleMenu()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.4))
-                    }
-                    .buttonStyle(.plain)
-
-                    Text(L10n.settingsTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
-
-                    Spacer()
+                MenuRow(icon: "chevron.left", label: L10n.back) {
+                    viewModel.toggleMenu()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
             }
 
-            Divider().background(Color.white.opacity(0.06))
-
-            // Sidebar + Detail
-            HStack(spacing: 0) {
-                sidebar
-                    .frame(width: 80)
-
-                Divider().background(Color.white.opacity(0.06))
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 4) {
-                        sectionDetail(activeSection)
-                    }
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            // Remote hosts
+            MenuRow(icon: "network", label: L10n.remote) {
+                viewModel.contentType = .remote
             }
 
-            Divider().background(Color.white.opacity(0.06))
-
-            // Footer
-            footer
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { refreshStates() }
-        .onChange(of: viewModel.contentType) { _, newValue in
-            if newValue == .menu { refreshStates() }
-        }
-    }
-
-    // MARK: - Sidebar
-
-    private var sidebar: some View {
-        VStack(spacing: 2) {
-            sidebarItem(.appearance, icon: .appearance, label: L10n.settingsAppearance)
-            sidebarItem(.notifications, icon: .notifications, label: L10n.settingsNotifications)
-            sidebarItem(.system, icon: .system, label: L10n.settingsSystem)
-            #if !APP_STORE
-            sidebarItem(.license, icon: .license, label: L10n.license)
-            #endif
-            sidebarItem(.remote, icon: .remote, label: L10n.remote)
-
-            Spacer()
-        }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 4)
-    }
-
-    private func sidebarItem(_ section: SettingsSection, icon: SettingsIconType, label: String) -> some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.12)) { activeSection = section }
-        } label: {
-            VStack(spacing: 3) {
-                PixelSettingsIcon(type: icon, size: 14, color: activeSection == section ? .white : .white.opacity(0.4))
-                Text(label)
-                    .font(.system(size: 9, weight: activeSection == section ? .semibold : .medium))
-                    .foregroundColor(activeSection == section ? .white : .white.opacity(0.4))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(activeSection == section ? Color.white.opacity(0.1) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            #if !APP_STORE
-            Button {
-                UpdateManager.shared.checkForUpdates()
-            } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-            .buttonStyle(.plain)
-            #endif
-
-            Button {
-                if let url = URL(string: "https://github.com/mtunique/vibehub") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                Image(systemName: "star")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Text(L10n.quit)
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.25))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    // MARK: - Section Detail
-
-    @ViewBuilder
-    private func sectionDetail(_ section: SettingsSection) -> some View {
-        switch section {
-        case .appearance:
-            ScreenPickerRow(screenSelector: screenSelector)
-            SoundPickerRow(soundSelector: soundSelector)
-            DisplayModePicker(currentMode: $displayMode)
-            if WindowManager.resolveMode(displayMode) == .menuBar {
-                MenuToggleRow(
-                    icon: "text.alignleft",
-                    label: L10n.menuBarShowDetail,
-                    isOn: menuBarShowDetail
-                ) {
-                    menuBarShowDetail.toggle()
-                    AppSettings.menuBarShowDetail = menuBarShowDetail
-                    NotificationCenter.default.post(name: .displayModeChanged, object: nil)
-                }
+            // Open standalone settings window
+            MenuRow(icon: "gearshape", label: L10n.settingsTitle) {
+                SettingsWindowController.shared.show()
             }
 
-        case .notifications:
-            NotifyModePicker(
-                icon: "checkmark.circle",
-                label: L10n.notifyCompletion,
-                mode: $notifyCompletion
-            ) { newMode in AppSettings.notifyCompletion = newMode }
+            Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
 
-            NotifyModePicker(
-                icon: "lock.shield",
-                label: L10n.notifyApproval,
-                mode: $notifyApproval
-            ) { newMode in AppSettings.notifyApproval = newMode }
-
-        case .system:
-            MenuToggleRow(
-                icon: "power",
-                label: L10n.launchAtLogin,
-                isOn: launchAtLogin
-            ) {
-                do {
-                    if launchAtLogin {
-                        try SMAppService.mainApp.unregister()
-                        launchAtLogin = false
-                    } else {
-                        try SMAppService.mainApp.register()
-                        launchAtLogin = true
-                    }
-                } catch {
-                    print("Failed to toggle launch at login: \(error)")
-                }
-            }
-
+            // Hooks toggle (quick access)
             MenuToggleRow(
                 icon: "arrow.triangle.2.circlepath",
                 label: L10n.hooks,
                 isOn: hooksInstalled
             ) {
-                #if APP_STORE
+#if APP_STORE
                 Task { @MainActor in
                     await installOrUninstallHooksAppStore()
                 }
-                #else
+#else
                 if hooksInstalled {
                     HookInstaller.uninstall()
                     hooksInstalled = false
@@ -244,31 +61,36 @@ struct NotchMenuView: View {
                     HookInstaller.installIfNeeded()
                     hooksInstalled = true
                 }
-                #endif
+#endif
             }
 
-            AccessibilityRow(isEnabled: AXIsProcessTrusted())
-
-        case .license:
             #if !APP_STORE
-            LicenseSettingsView(licenseManager: LicenseManager.shared)
-            #else
-            EmptyView()
+            UpdateRow(updateManager: UpdateManager.shared)
             #endif
 
-        case .remote:
-            MenuRow(icon: "network", label: L10n.remote) {
-                viewModel.contentType = .remote
+            Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
+
+            MenuRow(icon: "star", label: L10n.starOnGitHub) {
+                if let url = URL(string: "https://github.com/mtunique/vibehub") {
+                    NSWorkspace.shared.open(url)
+                }
             }
+
+            MenuRow(icon: "xmark.circle", label: L10n.quit, isDestructive: true) {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { refreshStates() }
+        .onChange(of: viewModel.contentType) { _, newValue in
+            if newValue == .menu { refreshStates() }
         }
     }
 
     private func refreshStates() {
         hooksInstalled = HookInstaller.isInstalled()
-        launchAtLogin = SMAppService.mainApp.status == .enabled
-        notifyCompletion = AppSettings.notifyCompletion
-        notifyApproval = AppSettings.notifyApproval
-        screenSelector.refreshScreens()
     }
 
 #if APP_STORE

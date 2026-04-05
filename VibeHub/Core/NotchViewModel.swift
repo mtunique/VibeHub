@@ -96,12 +96,10 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Compact size for settings menu
+            // Compact quick-menu (full settings in standalone window)
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                // Ensure the full menu (including Quit) stays clickable within the hit-test rect.
-                // +160 accounts for LicenseSettingsView section
-                height: 720 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                height: 420
             )
         case .instances:
             return CGSize(
