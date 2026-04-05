@@ -29,6 +29,7 @@ struct NotchView: View {
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
     @State private var pendingCompletionOpenWork: DispatchWorkItem? = nil
+    @State private var pendingSoundWork: [String: DispatchWorkItem] = [:]  // sessionId -> pending sound work
     @State private var lastCompletionShownAt: [String: Date] = [:]
     @State private var isVisible: Bool = false
     @State private var isHovering: Bool = false
@@ -252,10 +253,19 @@ struct NotchView: View {
         activityCoordinator.expandingActivity.show && activityCoordinator.expandingActivity.type == .claude
     }
 
+    #if !APP_STORE
+    private var isLicenseLocked: Bool {
+        LicenseManager.shared.status == .locked
+    }
+    #endif
+
     /// Whether to show something in the closed notch.
     /// We keep a minimal indicator (crab + session count) whenever there are tracked sessions.
     private var showClosedActivity: Bool {
-        sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
+        #if !APP_STORE
+        if isLicenseLocked { return true }
+        #endif
+        return sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
     }
 
     @ViewBuilder
@@ -374,11 +384,26 @@ struct NotchView: View {
 
             // Right side - spinner when processing/pending, checkmark when waiting for input
             if showClosedActivity {
-                if isProcessing || hasPendingPermission {
+                #if !APP_STORE
+                if isLicenseLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.8))
+                        .frame(width: viewModel.status == .opened ? 20 : sideWidth)
+                }
+                #endif
+                let licenseBlocking: Bool = {
+                    #if !APP_STORE
+                    return isLicenseLocked
+                    #else
+                    return false
+                    #endif
+                }()
+                if !licenseBlocking && (isProcessing || hasPendingPermission) {
                     ProcessingSpinner()
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-                } else if hasWaitingForInput {
+                } else if !licenseBlocking && hasWaitingForInput {
                     ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
@@ -574,6 +599,9 @@ struct NotchView: View {
         let staleIds = Set(waitingForInputTimestamps.keys).subtracting(currentIds)
         for staleId in staleIds {
             waitingForInputTimestamps.removeValue(forKey: staleId)
+            // Cancel any pending sound for stale sessions
+            pendingSoundWork[staleId]?.cancel()
+            pendingSoundWork.removeValue(forKey: staleId)
         }
 
         // Bounce the notch when a session newly enters waitingForInput state
@@ -614,15 +642,32 @@ struct NotchView: View {
             }
 
             // Play notification sound if the session is not actively focused
+            // IMPORTANT: Delay the sound to avoid false positives when state transitions quickly
+            // (e.g., when multiple tools execute in sequence)
             if let soundName = AppSettings.notificationSound.soundName {
-                // Check if we should play sound (async check for tmux pane focus)
-                Task {
-                    let shouldPlaySound = await shouldPlayNotificationSound(for: newlyWaitingSessions)
-                    if shouldPlaySound {
-                        await MainActor.run {
-                            NSSound(named: soundName)?.play()
+                for session in newlyWaitingSessions {
+                    let stableId = session.stableId
+                    // Cancel any pending sound for this session
+                    pendingSoundWork[stableId]?.cancel()
+
+                    let soundWork = DispatchWorkItem { [self] in
+                        // Re-check: is this session still in waitingForInput state?
+                        guard let latest = sessionMonitor.instances.first(where: { $0.stableId == stableId }) else { return }
+                        guard latest.phase == .waitingForInput else { return }
+
+                        // Check if we should play sound (async check for tmux pane focus)
+                        Task {
+                            let shouldPlaySound = await shouldPlayNotificationSound(for: [latest])
+                            if shouldPlaySound {
+                                await MainActor.run {
+                                    NSSound(named: soundName)?.play()
+                                }
+                            }
                         }
                     }
+
+                    pendingSoundWork[stableId] = soundWork
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: soundWork)
                 }
             }
 
