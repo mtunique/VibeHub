@@ -103,25 +103,13 @@ struct SettingsContentView: View {
             List(selection: $selectedSection) {
                 Section {
                     ForEach(mainSections) { section in
-                        Label {
-                            Text(section.title)
-                        } icon: {
-                            SettingsIcon(systemName: section.icon, color: section.iconColor)
-                        }
-                        .padding(.vertical, 4)
-                        .tag(section)
+                        sidebarRow(section)
                     }
                 }
 
                 Section {
                     ForEach(bottomSections) { section in
-                        Label {
-                            Text(section.title)
-                        } icon: {
-                            SettingsIcon(systemName: section.icon, color: section.iconColor)
-                        }
-                        .padding(.vertical, 4)
-                        .tag(section)
+                        sidebarRow(section)
                     }
 
                     Button {
@@ -132,16 +120,19 @@ struct SettingsContentView: View {
                         } icon: {
                             SettingsIcon(systemName: "power", color: .red)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(190)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             if let section = selectedSection {
                 sectionDetail(section)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(nsColor: .windowBackgroundColor))
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -152,8 +143,35 @@ struct SettingsContentView: View {
         }
     }
 
+    private func sidebarRow(_ section: SettingsSection) -> some View {
+        Label {
+            Text(section.title)
+        } icon: {
+            SettingsIcon(systemName: section.icon, color: section.iconColor)
+        }
+        .padding(.vertical, 2)
+        .tag(section)
+    }
+
     @ViewBuilder
     private func sectionDetail(_ section: SettingsSection) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Section title header
+                Text(section.title)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 4)
+
+                sectionContent(section)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sectionContent(_ section: SettingsSection) -> some View {
         switch section {
         case .appearance:
             AppearanceSection()
@@ -220,7 +238,6 @@ private struct AppearanceSection: View {
             }
         }
         .formStyle(.grouped)
-        // title handled by sidebar selection
     }
 }
 
@@ -253,7 +270,6 @@ private struct NotificationsSection: View {
             }
         }
         .formStyle(.grouped)
-        // title handled by sidebar selection
     }
 }
 
@@ -262,7 +278,6 @@ private struct NotificationsSection: View {
 private struct RemoteSection: View {
     var body: some View {
         RemoteHostsView()
-            // title handled by sidebar selection
     }
 }
 
@@ -318,7 +333,6 @@ private struct SystemSection: View {
             }
         }
         .formStyle(.grouped)
-        // title handled by sidebar selection
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityEnabled = AXIsProcessTrusted()
         }
@@ -413,7 +427,6 @@ private struct LicenseSection: View {
             }
         }
         .formStyle(.grouped)
-        // title handled by sidebar selection
     }
 
     @ViewBuilder
@@ -482,7 +495,5 @@ private struct AboutSection: View {
             }
         }
         .formStyle(.grouped)
-        // title handled by sidebar selection
     }
 }
-
