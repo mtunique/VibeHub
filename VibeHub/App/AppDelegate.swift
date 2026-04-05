@@ -123,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         #if !APP_STORE
         // Watch for license status changes to lock/unlock UI
         LicenseManager.shared.$status
+            .dropFirst()  // skip initial .locked value before validateOnStartup runs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newStatus in
                 guard let vm = self?.windowController?.viewModel else { return }

@@ -25,14 +25,14 @@ struct LicenseActivationView: View {
             }
 
             // Title
-            Text(licenseManager.trialDaysRemaining == 0 && licenseManager.activationCount == 0
+            Text(licenseManager.trialHoursRemaining == 0 && licenseManager.activationCount == 0
                  ? L10n.trialExpiredTitle
                  : L10n.licenseLockedTitle)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
 
             // Subtitle
-            Text(licenseManager.trialDaysRemaining == 0 && licenseManager.activationCount == 0
+            Text(licenseManager.trialHoursRemaining == 0 && licenseManager.activationCount == 0
                  ? L10n.trialExpiredSubtitle
                  : L10n.licenseLockedSubtitle)
                 .font(.system(size: 12))
