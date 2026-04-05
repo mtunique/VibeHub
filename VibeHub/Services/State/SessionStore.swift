@@ -277,8 +277,13 @@ actor SessionStore {
             // New user turn starts a new assistant stream.
             opencodeActiveAssistantItemId[session.sessionId] = nil
 
-            // De-dupe if the last item is already this exact prompt.
-            if case .user(let last) = session.chatItems.last?.type, last == prompt {
+            // De-dupe: check recent items for an existing user message with the same text.
+            // After SQLite history load, the matching item may not be the very last one.
+            let recentItems = session.chatItems.suffix(10)
+            if recentItems.contains(where: { item in
+                if case .user(let text) = item.type { return text == prompt }
+                return false
+            }) {
                 return
             }
 
@@ -306,6 +311,16 @@ actor SessionStore {
                     timestamp: session.chatItems[idx].timestamp
                 )
             } else {
+                // De-dupe: if the last assistant item already has the same (or longer) text,
+                // this is a stale event after SQLite history load — skip it.
+                if let lastAssistant = session.chatItems.last(where: { item in
+                    if case .assistant = item.type { return true }
+                    return false
+                }), case .assistant(let existing) = lastAssistant.type,
+                   text.count <= existing.count, existing.hasPrefix(text) {
+                    return
+                }
+
                 let id = "opencode-assistant-\(UUID().uuidString)"
                 opencodeActiveAssistantItemId[session.sessionId] = id
                 session.chatItems.append(
@@ -1018,20 +1033,34 @@ actor SessionStore {
     // MARK: - History Loading
 
     private func loadHistoryFromFile(sessionId: String, cwd: String) async {
-        // Parse file asynchronously
-        let messages = await ConversationParser.shared.parseFullConversation(
-            sessionId: sessionId,
-            cwd: cwd
-        )
-        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+        let messages: [ChatMessage]
+        let completedTools: Set<String>
+        let toolResults: [String: ConversationParser.ToolResult]
+        let structuredResults: [String: ToolResultData]
+        let conversationInfo: ConversationInfo
 
-        // Also parse conversationInfo (summary, lastMessage, etc.)
-        let conversationInfo = await ConversationParser.shared.parse(
-            sessionId: sessionId,
-            cwd: cwd
-        )
+        if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
+            // OpenCode: load from SQLite database
+            let result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+            messages = result.messages
+            completedTools = result.completedToolIds
+            toolResults = result.toolResults
+            structuredResults = [:]
+            conversationInfo = result.conversationInfo
+        } else {
+            // Claude Code: load from JSONL file
+            messages = await ConversationParser.shared.parseFullConversation(
+                sessionId: sessionId,
+                cwd: cwd
+            )
+            completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
+            toolResults = await ConversationParser.shared.toolResults(for: sessionId)
+            structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+            conversationInfo = await ConversationParser.shared.parse(
+                sessionId: sessionId,
+                cwd: cwd
+            )
+        }
 
         // Process loaded history
         await process(.historyLoaded(
@@ -1056,6 +1085,14 @@ actor SessionStore {
 
         // Update conversationInfo (summary, lastMessage, etc.)
         session.conversationInfo = conversationInfo
+
+        // For OpenCode sessions, clear real-time items before loading from SQLite.
+        // The SQLite DB has the complete history; real-time items (with "opencode-" IDs)
+        // would otherwise duplicate the DB content since IDs differ.
+        if session.opencodeRawSessionId != nil {
+            session.chatItems.removeAll()
+            session.toolTracker = ToolTracker()
+        }
 
         // Convert messages to chat items
         let existingIds = Set(session.chatItems.map { $0.id })
