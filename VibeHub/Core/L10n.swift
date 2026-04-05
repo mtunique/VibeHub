@@ -222,4 +222,10 @@ enum L10n {
     static func licenseDeviceCount(_ current: Int, _ limit: Int) -> String {
         isChinese ? "设备：\(current)/\(limit)" : "Devices: \(current)/\(limit)"
     }
+    static var trialActive: String { isChinese ? "试用中" : "Trial" }
+    static var trialExpiredTitle: String { isChinese ? "试用期已结束" : "Trial Expired" }
+    static var trialExpiredSubtitle: String { isChinese ? "请购买许可证以继续使用" : "Purchase a license to continue" }
+    static func trialDaysRemaining(_ days: Int) -> String {
+        isChinese ? "剩余 \(days) 天" : "\(days) day\(days == 1 ? "" : "s") left"
+    }
 }
