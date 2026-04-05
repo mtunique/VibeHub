@@ -96,10 +96,10 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Compact quick-menu (full settings in standalone window)
+            // Minimal quick-menu (full settings in standalone window)
             return CGSize(
-                width: min(screenRect.width * 0.4, 480),
-                height: 420
+                width: min(screenRect.width * 0.3, 280),
+                height: 160
             )
         case .instances:
             return CGSize(

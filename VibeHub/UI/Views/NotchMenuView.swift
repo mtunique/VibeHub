@@ -30,15 +30,9 @@ struct NotchMenuView: View {
                 Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
             }
 
-            MenuRow(icon: "network", label: L10n.remote) {
-                viewModel.contentType = .remote
-            }
-
             MenuRow(icon: "gearshape", label: L10n.settingsTitle) {
                 SettingsWindowController.shared.show()
             }
-
-            Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
 
             MenuRow(icon: "xmark.circle", label: L10n.quit, isDestructive: true) {
                 NSApplication.shared.terminate(nil)

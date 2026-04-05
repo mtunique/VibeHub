@@ -2,7 +2,7 @@
 //  SettingsContentView.swift
 //  VibeHub
 //
-//  Standalone settings window content with sidebar navigation
+//  Standalone settings window with native macOS sidebar + Form layout
 //
 
 import ApplicationServices
@@ -53,66 +53,42 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 // MARK: - Main View
 
 struct SettingsContentView: View {
-    @State private var selectedSection: SettingsSection = .appearance
+    @State private var selectedSection: SettingsSection? = .appearance
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Sidebar
-            VStack(spacing: 2) {
-                ForEach(SettingsSection.allCases) { section in
-                    sidebarButton(section)
-                }
-                Spacer()
+        NavigationSplitView {
+            List(SettingsSection.allCases, selection: $selectedSection) { section in
+                Label(section.title, systemImage: section.icon)
             }
-            .padding(8)
-            .frame(width: 160)
-            .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
-
-            Divider()
-
-            // Detail
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    sectionDetail(selectedSection)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 200)
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label(L10n.quit, systemImage: "xmark.circle")
+                        .foregroundColor(.red)
                 }
-                .padding(20)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        } detail: {
+            Group {
+                if let section = selectedSection {
+                    sectionDetail(section)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 580, minHeight: 380)
+        .frame(minWidth: 600, minHeight: 400)
         .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
             #if !APP_STORE
             selectedSection = .license
             #endif
         }
     }
-
-    // MARK: - Sidebar Button
-
-    private func sidebarButton(_ section: SettingsSection) -> some View {
-        Button {
-            selectedSection = section
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: section.icon)
-                    .font(.system(size: 13))
-                    .frame(width: 20)
-                Text(section.title)
-                    .font(.system(size: 13))
-                Spacer()
-            }
-            .foregroundColor(selectedSection == section ? .white : .primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(selectedSection == section ? Color.accentColor : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Detail Content
 
     @ViewBuilder
     private func sectionDetail(_ section: SettingsSection) -> some View {
@@ -138,37 +114,51 @@ struct SettingsContentView: View {
 // MARK: - Appearance Section
 
 private struct AppearanceSection: View {
-    @ObservedObject private var screenSelector = ScreenSelector.shared
-    @ObservedObject private var soundSelector = SoundSelector.shared
     @State private var displayMode: DisplayMode = AppSettings.displayMode
     @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
+    @State private var sound: NotificationSound = AppSettings.notificationSound
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.settingsAppearance)
+        Form {
+            Section(L10n.displayModeLabel) {
+                Picker(L10n.displayModeLabel, selection: $displayMode) {
+                    Text(L10n.displayModeAuto).tag(DisplayMode.auto)
+                    Text(L10n.displayModeNotch).tag(DisplayMode.notch)
+                    Text(L10n.displayModeMenuBar).tag(DisplayMode.menuBar)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .onChange(of: displayMode) { _, newValue in
+                    AppSettings.displayMode = newValue
+                    NotificationCenter.default.post(name: .displayModeChanged, object: nil)
+                }
 
-            settingsGroup {
-                ScreenPickerRow(screenSelector: screenSelector)
-                Divider()
-                SoundPickerRow(soundSelector: soundSelector)
+                if WindowManager.resolveMode(displayMode) == .menuBar {
+                    Toggle(L10n.menuBarShowDetail, isOn: $menuBarShowDetail)
+                        .onChange(of: menuBarShowDetail) { _, newValue in
+                            AppSettings.menuBarShowDetail = newValue
+                            NotificationCenter.default.post(name: .displayModeChanged, object: nil)
+                        }
+                }
             }
 
-            settingsGroup {
-                DisplayModePicker(currentMode: $displayMode)
-                if WindowManager.resolveMode(displayMode) == .menuBar {
-                    Divider()
-                    MenuToggleRow(
-                        icon: "text.alignleft",
-                        label: L10n.menuBarShowDetail,
-                        isOn: menuBarShowDetail
-                    ) {
-                        menuBarShowDetail.toggle()
-                        AppSettings.menuBarShowDetail = menuBarShowDetail
-                        NotificationCenter.default.post(name: .displayModeChanged, object: nil)
+            Section(L10n.notificationSound) {
+                Picker(L10n.notificationSound, selection: $sound) {
+                    ForEach(NotificationSound.allCases, id: \.self) { s in
+                        Text(s.rawValue).tag(s)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: sound) { _, newValue in
+                    AppSettings.notificationSound = newValue
+                    if let name = newValue.soundName {
+                        NSSound(named: name)?.play()
                     }
                 }
             }
         }
+        .formStyle(.grouped)
+        .navigationTitle(L10n.settingsAppearance)
     }
 }
 
@@ -179,25 +169,38 @@ private struct NotificationsSection: View {
     @State private var notifyApproval: NotifyMode = AppSettings.notifyApproval
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.settingsNotifications)
+        Form {
+            Section {
+                Picker(L10n.notifyCompletion, selection: $notifyCompletion) {
+                    Text(L10n.notifyNever).tag(NotifyMode.never)
+                    Text(L10n.notifyBackgroundOnly).tag(NotifyMode.backgroundOnly)
+                    Text(L10n.notifyAlways).tag(NotifyMode.always)
+                }
+                .onChange(of: notifyCompletion) { _, newValue in
+                    AppSettings.notifyCompletion = newValue
+                }
 
-            settingsGroup {
-                NotifyModePicker(
-                    icon: "checkmark.circle",
-                    label: L10n.notifyCompletion,
-                    mode: $notifyCompletion
-                ) { newMode in AppSettings.notifyCompletion = newMode }
-
-                Divider()
-
-                NotifyModePicker(
-                    icon: "lock.shield",
-                    label: L10n.notifyApproval,
-                    mode: $notifyApproval
-                ) { newMode in AppSettings.notifyApproval = newMode }
+                Picker(L10n.notifyApproval, selection: $notifyApproval) {
+                    Text(L10n.notifyNever).tag(NotifyMode.never)
+                    Text(L10n.notifyBackgroundOnly).tag(NotifyMode.backgroundOnly)
+                    Text(L10n.notifyAlways).tag(NotifyMode.always)
+                }
+                .onChange(of: notifyApproval) { _, newValue in
+                    AppSettings.notifyApproval = newValue
+                }
             }
         }
+        .formStyle(.grouped)
+        .navigationTitle(L10n.settingsNotifications)
+    }
+}
+
+// MARK: - Remote Section
+
+private struct RemoteSection: View {
+    var body: some View {
+        RemoteHostsView()
+            .navigationTitle(L10n.remote)
     }
 }
 
@@ -206,56 +209,56 @@ private struct NotificationsSection: View {
 private struct SystemSection: View {
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hooksInstalled: Bool = HookInstaller.isInstalled()
+    @State private var accessibilityEnabled: Bool = AXIsProcessTrusted()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.settingsSystem)
-
-            settingsGroup {
-                MenuToggleRow(
-                    icon: "power",
-                    label: L10n.launchAtLogin,
-                    isOn: launchAtLogin
-                ) {
-                    do {
-                        if launchAtLogin {
-                            try SMAppService.mainApp.unregister()
-                            launchAtLogin = false
-                        } else {
-                            try SMAppService.mainApp.register()
-                            launchAtLogin = true
+        Form {
+            Section {
+                Toggle(L10n.launchAtLogin, isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        do {
+                            if newValue {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            launchAtLogin = !newValue
                         }
-                    } catch {
-                        print("Failed to toggle launch at login: \(error)")
                     }
-                }
 
-                Divider()
+                Toggle(L10n.hooks, isOn: $hooksInstalled)
+                    .onChange(of: hooksInstalled) { _, newValue in
+                        if newValue {
+                            HookInstaller.installIfNeeded()
+                        } else {
+                            HookInstaller.uninstall()
+                        }
+                        hooksInstalled = HookInstaller.isInstalled()
+                    }
+            }
 
-                MenuToggleRow(
-                    icon: "arrow.triangle.2.circlepath",
-                    label: L10n.hooks,
-                    isOn: hooksInstalled
-                ) {
-                    if hooksInstalled {
-                        HookInstaller.uninstall()
-                        hooksInstalled = false
+            Section {
+                HStack {
+                    Text(L10n.accessibility)
+                    Spacer()
+                    if accessibilityEnabled {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
                     } else {
-                        HookInstaller.installIfNeeded()
-                        hooksInstalled = true
+                        Button(L10n.enable) {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
                     }
                 }
-
-                Divider()
-
-                AccessibilityRow(isEnabled: AXIsProcessTrusted())
             }
-
-            #if !APP_STORE
-            settingsGroup {
-                UpdateRow(updateManager: UpdateManager.shared)
-            }
-            #endif
+        }
+        .formStyle(.grouped)
+        .navigationTitle(L10n.settingsSystem)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            accessibilityEnabled = AXIsProcessTrusted()
         }
     }
 }
@@ -270,140 +273,98 @@ private struct LicenseSection: View {
     @State private var showConfirmDeactivate = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.license)
-
-            // Status
-            settingsGroup {
+        Form {
+            Section {
                 HStack {
                     Text(L10n.license)
-                        .font(.system(size: 13))
                     Spacer()
                     statusBadge
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
 
                 if licenseManager.status == .activated {
-                    Divider()
-                    HStack {
+                    LabeledContent(L10n.licenseKeyPlaceholder) {
                         Text(licenseManager.maskedKey)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(L10n.licenseDeviceCount(licenseManager.activationCount, licenseManager.activationLimit))
-                            .font(.system(size: 11))
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    LabeledContent {
+                        Text(L10n.licenseDeviceCount(licenseManager.activationCount, licenseManager.activationLimit))
+                    } label: {
+                        EmptyView()
+                    }
                 }
             }
 
-            // Activate (if not activated)
             if licenseManager.status != .activated {
-                settingsGroup {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.licenseActivate)
-                            .font(.system(size: 12, weight: .medium))
-
-                        HStack(spacing: 8) {
-                            TextField(L10n.licenseKeyPlaceholder, text: $licenseKeyInput)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 12, design: .monospaced))
-                                .disabled(isActivating)
-                                .onSubmit { doActivate() }
-
-                            Button {
-                                doActivate()
-                            } label: {
-                                if isActivating {
-                                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
-                                } else {
-                                    Text(L10n.licenseActivate)
-                                }
-                            }
-                            .disabled(licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isActivating)
-                        }
-
-                        if let err = licenseManager.errorMessage {
-                            Text(err)
-                                .font(.system(size: 11))
-                                .foregroundColor(.red)
-                        }
+                Section(L10n.licenseActivate) {
+                    HStack(spacing: 8) {
+                        TextField(L10n.licenseKeyPlaceholder, text: $licenseKeyInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                            .disabled(isActivating)
+                            .onSubmit { doActivate() }
 
                         Button {
-                            if let url = URL(string: PolarAPIClient.checkoutURL) {
-                                NSWorkspace.shared.open(url)
-                            }
+                            doActivate()
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "cart")
-                                    .font(.system(size: 11))
-                                Text(L10n.licensePurchase)
-                                    .font(.system(size: 12))
+                            if isActivating {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text(L10n.licenseActivate)
                             }
                         }
-                        .buttonStyle(.link)
+                        .disabled(licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isActivating)
                     }
-                    .padding(12)
+
+                    if let err = licenseManager.errorMessage {
+                        Text(err).foregroundColor(.red).font(.caption)
+                    }
+
+                    Link(destination: URL(string: PolarAPIClient.checkoutURL)!) {
+                        Label(L10n.licensePurchase, systemImage: "cart")
+                    }
                 }
             }
 
-            // Manage (if activated)
             if licenseManager.status == .activated {
-                settingsGroup {
-                    HStack {
-                        if showConfirmDeactivate {
+                Section {
+                    if showConfirmDeactivate {
+                        HStack {
                             Text(L10n.licenseDeactivateDevice)
-                                .font(.system(size: 12))
                                 .foregroundColor(.red)
                             Spacer()
-                            Button(L10n.licenseDeactivateDevice) {
+                            Button(role: .destructive) {
                                 Task {
                                     await licenseManager.deactivateThisDevice()
                                     showConfirmDeactivate = false
                                 }
-                            }
-                            .foregroundColor(.red)
-                        } else {
-                            Text(L10n.licenseManage)
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Button(L10n.licenseDeactivateDevice) {
-                                showConfirmDeactivate = true
+                            } label: {
+                                Text(L10n.licenseDeactivateDevice)
                             }
                         }
+                    } else {
+                        Button(L10n.licenseDeactivateDevice) {
+                            showConfirmDeactivate = true
+                        }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
                 }
             }
         }
+        .formStyle(.grouped)
+        .navigationTitle(L10n.license)
     }
 
     @ViewBuilder
     private var statusBadge: some View {
         switch licenseManager.status {
         case .activated:
-            HStack(spacing: 4) {
-                Circle().fill(.green).frame(width: 6, height: 6)
-                Text(L10n.licenseActivated).font(.system(size: 11)).foregroundColor(.green)
-            }
+            Label(L10n.licenseActivated, systemImage: "checkmark.circle.fill").foregroundColor(.green)
         case .trial:
-            HStack(spacing: 4) {
-                Circle().fill(.orange).frame(width: 6, height: 6)
-                Text(L10n.trialTimeRemaining(hours: licenseManager.trialHoursRemaining))
-                    .font(.system(size: 11)).foregroundColor(.orange)
-            }
+            Label(L10n.trialTimeRemaining(hours: licenseManager.trialHoursRemaining), systemImage: "clock").foregroundColor(.orange)
         case .locked:
-            HStack(spacing: 4) {
-                Circle().fill(.red).frame(width: 6, height: 6)
-                Text(L10n.trialExpiredTitle).font(.system(size: 11)).foregroundColor(.red)
-            }
+            Label(L10n.trialExpiredTitle, systemImage: "exclamationmark.triangle.fill").foregroundColor(.red)
         case .validating:
-            ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+            ProgressView().controlSize(.small)
         }
     }
 
@@ -414,43 +375,11 @@ private struct LicenseSection: View {
         Task {
             await licenseManager.activate(key: trimmed)
             isActivating = false
-            if licenseManager.status == .activated {
-                licenseKeyInput = ""
-            }
+            if licenseManager.status == .activated { licenseKeyInput = "" }
         }
     }
 }
 #endif
-
-// MARK: - Remote Section
-
-private struct RemoteSection: View {
-    @ObservedObject private var remoteManager = RemoteManager.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.remote)
-
-            settingsGroup {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(L10n.remoteHosts)
-                            .font(.system(size: 13))
-                        Spacer()
-                        Text("\(remoteManager.hosts.count)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                    }
-
-                    Text(L10n.settingsRemoteHint)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                .padding(12)
-            }
-        }
-    }
-}
 
 // MARK: - About Section
 
@@ -462,72 +391,35 @@ private struct AboutSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(L10n.settingsAbout)
-
-            settingsGroup {
-                HStack {
+        Form {
+            Section {
+                HStack(spacing: 12) {
                     if let appIcon = NSImage(named: "AppIcon") {
                         Image(nsImage: appIcon)
                             .resizable()
                             .frame(width: 48, height: 48)
                             .clipShape(RoundedRectangle(cornerRadius: 11))
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("VibeHub")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text(appVersion)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("VibeHub").font(.headline)
+                        Text(appVersion).font(.subheadline).foregroundColor(.secondary)
                     }
-                    Spacer()
-                    #if !APP_STORE
-                    Button(L10n.checkForUpdates) {
-                        UpdateManager.shared.checkForUpdates()
-                    }
-                    #endif
                 }
-                .padding(12)
             }
 
-            settingsGroup {
-                Button {
-                    if let url = URL(string: "https://github.com/mtunique/vibehub") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: "star")
-                            .font(.system(size: 12))
-                        Text(L10n.starOnGitHub)
-                            .font(.system(size: 13))
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+            Section {
+                #if !APP_STORE
+                Button(L10n.checkForUpdates) {
+                    UpdateManager.shared.checkForUpdates()
                 }
-                .buttonStyle(.plain)
+                #endif
+
+                Link(destination: URL(string: "https://github.com/mtunique/vibehub")!) {
+                    Label(L10n.starOnGitHub, systemImage: "star")
+                }
             }
         }
+        .formStyle(.grouped)
+        .navigationTitle(L10n.settingsAbout)
     }
-}
-
-// MARK: - Helpers
-
-private func sectionHeader(_ title: String) -> some View {
-    Text(title)
-        .font(.system(size: 18, weight: .semibold))
-}
-
-private func settingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-    VStack(spacing: 0) {
-        content()
-    }
-    .background(
-        RoundedRectangle(cornerRadius: 8)
-            .fill(Color(nsColor: .controlBackgroundColor))
-    )
 }
