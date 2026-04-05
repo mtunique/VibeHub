@@ -93,6 +93,8 @@ enum L10n {
     static var working: String { isChinese ? "工作中" : "Working" }
     static var interrupted: String { isChinese ? "已中断" : "Interrupted" }
     static var claudeCodeNeedsInput: String { isChinese ? "Claude Code 需要你的输入" : "Claude Code needs your input" }
+    static var typeAnswer: String { isChinese ? "输入回答…" : "Type your answer…" }
+    static var submit: String { isChinese ? "提交" : "Submit" }
 
     static func newMessages(_ count: Int) -> String {
         if isChinese {
@@ -199,4 +201,25 @@ enum L10n {
     static var welcomeInstallButton: String { isChinese ? "安装 Hook 脚本" : "Install Hooks" }
     static var welcomeSkipButton: String { isChinese ? "稍后再说" : "Later" }
     static var welcomeInstallingButton: String { isChinese ? "安装中…" : "Installing..." }
+
+    // MARK: - License
+
+    static var license: String { isChinese ? "许可证" : "License" }
+    static var licenseActivated: String { isChinese ? "已激活" : "Activated" }
+    static var licenseLocked: String { isChinese ? "需要激活" : "Activation Required" }
+    static var licenseLockedTitle: String { isChinese ? "VibeHub 需要许可证" : "VibeHub Requires a License" }
+    static var licenseLockedSubtitle: String { isChinese ? "请输入许可证密钥以继续使用" : "Enter your license key to continue" }
+    static var licenseKeyPlaceholder: String { isChinese ? "许可证密钥" : "License key" }
+    static var licenseActivate: String { isChinese ? "激活" : "Activate" }
+    static var licensePurchase: String { isChinese ? "购买" : "Purchase" }
+    static var licenseActivating: String { isChinese ? "激活中…" : "Activating..." }
+    static var licenseManage: String { isChinese ? "管理许可证" : "Manage License" }
+    static var licenseDeactivateDevice: String { isChinese ? "取消激活此设备" : "Deactivate This Device" }
+    static var licenseKeyInvalid: String { isChinese ? "许可证密钥无效，请检查后重试" : "Invalid license key. Please check and try again." }
+    static var licenseDeviceLimit: String { isChinese ? "已达到设备数量上限，请在其他设备上取消激活" : "Device limit reached. Deactivate another device first." }
+    static var licenseKeyRevoked: String { isChinese ? "此许可证已被撤销，请联系支持" : "This license has been revoked. Contact support." }
+    static var licenseNetworkError: String { isChinese ? "无法连接验证服务器，请检查网络" : "Cannot reach license server. Check your network." }
+    static func licenseDeviceCount(_ current: Int, _ limit: Int) -> String {
+        isChinese ? "设备：\(current)/\(limit)" : "Devices: \(current)/\(limit)"
+    }
 }
