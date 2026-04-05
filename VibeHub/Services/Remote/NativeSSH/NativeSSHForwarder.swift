@@ -37,6 +37,17 @@ final class NativeSSHForwarder: ObservableObject {
         runner?.stop()
         runner = nil
     }
+
+    /// Execute a command on the remote host via the existing SSH session.
+    /// Returns (stdout, exitCode). Returns ("", -1) if not connected.
+    func exec(command: String) async -> (output: String, exitCode: Int32) {
+        guard let runner else { return ("", -1) }
+        return await withCheckedContinuation { cont in
+            runner.enqueueExec(command) { output, exitCode in
+                cont.resume(returning: (output, exitCode))
+            }
+        }
+    }
 }
 
 // MARK: - SSHRunner
@@ -46,6 +57,23 @@ final class NativeSSHForwarder: ObservableObject {
 private final class SSHRunner: @unchecked Sendable {
     private var shouldStop = false
     private var session: OpaquePointer?  // ssh_session — access only from SSH thread
+
+    // MARK: - Remote command execution queue
+
+    private struct ExecRequest {
+        let command: String
+        let completion: @Sendable (String, Int32) -> Void
+    }
+
+    private let execLock = NSLock()
+    private var pendingExecs: [ExecRequest] = []
+
+    /// Enqueue a command to be executed on the SSH thread. Thread-safe.
+    func enqueueExec(_ command: String, completion: @escaping @Sendable (String, Int32) -> Void) {
+        execLock.lock()
+        pendingExecs.append(ExecRequest(command: command, completion: completion))
+        execLock.unlock()
+    }
 
     func start(host: RemoteHost, onStatus: @escaping (SSHForwarder.Status) -> Void) {
         let t = Thread { [weak self] in
@@ -262,6 +290,9 @@ private final class SSHRunner: @unchecked Sendable {
                 }
             }
 
+            // Process any pending remote exec requests
+            drainPendingExecs(s)
+
             // Reap closed channels.
             // 回收已关闭的 channel
             proxies = proxies.filter { p in
@@ -291,6 +322,53 @@ private final class SSHRunner: @unchecked Sendable {
     private func cleanupProxies(_ proxies: inout [ProxyEntry], event: OpaquePointer, session: OpaquePointer) {
         for p in proxies { freeProxy(p, event: event) }
         proxies.removeAll()
+    }
+
+    // MARK: Remote command execution
+
+    /// Drain the pending exec queue on the SSH thread.
+    private func drainPendingExecs(_ s: OpaquePointer) {
+        execLock.lock()
+        let requests = pendingExecs
+        pendingExecs.removeAll()
+        execLock.unlock()
+
+        for req in requests {
+            let (output, exitCode) = execWithOutput(s, command: req.command)
+            req.completion(output, exitCode)
+        }
+    }
+
+    /// Execute a command and return (stdout, exit_code). Runs on the SSH thread.
+    private func execWithOutput(_ s: OpaquePointer, command: String) -> (String, Int32) {
+        guard let ch = ssh_channel_new(s) else { return ("", -1) }
+        defer {
+            ssh_channel_close(ch)
+            ssh_channel_free(ch)
+        }
+        guard ssh_channel_open_session(ch) == SSH_OK else { return ("", -1) }
+
+        var rc: Int32 = -1
+        command.withCString { rc = ssh_channel_request_exec(ch, $0) }
+        guard rc == SSH_OK else { return ("", -1) }
+
+        // Read stdout with timeout
+        var output = Data()
+        var buf = [CChar](repeating: 0, count: 4096)
+        while true {
+            let n = ssh_channel_read_timeout(ch, &buf, UInt32(buf.count), 0, 5000)
+            if n <= 0 { break }
+            output.append(Data(bytes: buf, count: Int(n)))
+        }
+
+        ssh_channel_send_eof(ch)
+        // Drain until remote closes
+        while ssh_channel_is_eof(ch) == 0 {
+            let _ = ssh_channel_read_timeout(ch, &buf, UInt32(buf.count), 0, 1000)
+        }
+        let exitStatus = ssh_channel_get_exit_status(ch)
+
+        return (String(data: output, encoding: .utf8) ?? "", exitStatus)
     }
 
     // MARK: Remote port file helpers
