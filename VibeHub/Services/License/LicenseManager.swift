@@ -106,6 +106,8 @@ final class LicenseManager: ObservableObject {
                 // Validate failed but activation is saved — treat as offline-activated
             }
 
+            activationCount = 1
+            activationLimit = 3
             status = .activated
         } catch let error as PolarAPIError {
             status = trialStatus()
@@ -201,7 +203,9 @@ final class LicenseManager: ObservableObject {
     }
 
     private func updateActivationInfo(from response: PolarValidateResponse) {
-        activationCount = response.activation != nil ? 1 : 0
+        // Customer portal API doesn't return total activation count.
+        // activationCount represents whether this device has an active activation (1) or not (0).
+        activationCount = 1
         activationLimit = response.limit_activations ?? 3
     }
 }
