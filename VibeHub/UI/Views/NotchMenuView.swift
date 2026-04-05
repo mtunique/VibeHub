@@ -24,6 +24,7 @@ private enum SettingsSection: Hashable {
     case notifications
     case system
     case license
+    case remote
 }
 
 struct NotchMenuView: View {
@@ -37,96 +38,143 @@ struct NotchMenuView: View {
     @State private var notifyApproval: NotifyMode = AppSettings.notifyApproval
     @State private var displayMode: DisplayMode = AppSettings.displayMode
     @State private var menuBarShowDetail: Bool = AppSettings.menuBarShowDetail
-    @State private var activeSection: SettingsSection? = nil
+    @State private var activeSection: SettingsSection = .appearance
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 4) {
-                // Back button (to instances or to section list)
-                if showBackButton {
-                    MenuRow(
-                        icon: "chevron.left",
-                        label: activeSection != nil ? L10n.settingsTitle : L10n.back
-                    ) {
-                        if activeSection != nil {
-                            withAnimation(.easeInOut(duration: 0.15)) { activeSection = nil }
-                        } else {
-                            viewModel.toggleMenu()
-                        }
+        VStack(spacing: 0) {
+            // Header
+            if showBackButton {
+                HStack {
+                    Button {
+                        viewModel.toggleMenu()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.4))
                     }
+                    .buttonStyle(.plain)
 
-                    Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
+                    Text(L10n.settingsTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+
+                    Spacer()
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
 
-                if let section = activeSection {
-                    sectionDetail(section)
-                } else {
-                    sectionList
+            Divider().background(Color.white.opacity(0.06))
+
+            // Sidebar + Detail
+            HStack(spacing: 0) {
+                sidebar
+                    .frame(width: 80)
+
+                Divider().background(Color.white.opacity(0.06))
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 4) {
+                        sectionDetail(activeSection)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
+
+            Divider().background(Color.white.opacity(0.06))
+
+            // Footer
+            footer
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refreshStates() }
         .onChange(of: viewModel.contentType) { _, newValue in
-            if newValue == .menu { refreshStates(); activeSection = nil }
+            if newValue == .menu { refreshStates() }
         }
     }
 
-    // MARK: - Level 1: Section List
+    // MARK: - Sidebar
 
-    @ViewBuilder
-    private var sectionList: some View {
-        // Appearance
-        MenuRow(icon: "paintbrush", label: L10n.settingsAppearance) {
-            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .appearance }
+    private var sidebar: some View {
+        VStack(spacing: 2) {
+            sidebarItem(.appearance, icon: .appearance, label: L10n.settingsAppearance)
+            sidebarItem(.notifications, icon: .notifications, label: L10n.settingsNotifications)
+            sidebarItem(.system, icon: .system, label: L10n.settingsSystem)
+            #if !APP_STORE
+            sidebarItem(.license, icon: .license, label: L10n.license)
+            #endif
+            sidebarItem(.remote, icon: .remote, label: L10n.remote)
+
+            Spacer()
         }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+    }
 
-        // Notifications
-        MenuRow(icon: "bell", label: L10n.settingsNotifications) {
-            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .notifications }
-        }
-
-        // System
-        MenuRow(icon: "gearshape.2", label: L10n.settingsSystem) {
-            withAnimation(.easeInOut(duration: 0.15)) { activeSection = .system }
-        }
-
-        // License (non-App Store)
-        #if !APP_STORE
-        LicenseSettingsView(licenseManager: LicenseManager.shared)
-        #endif
-
-        // Remote
-        MenuRow(icon: "network", label: L10n.remote) {
-            viewModel.contentType = .remote
-        }
-
-        Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
-
-        // About
-        #if !APP_STORE
-        UpdateRow(updateManager: UpdateManager.shared)
-        #else
-        MenuRow(icon: "info.circle", label: L10n.version) {}
-        #endif
-
-        MenuRow(icon: "star", label: L10n.starOnGitHub) {
-            if let url = URL(string: "https://github.com/mtunique/vibehub") {
-                NSWorkspace.shared.open(url)
+    private func sidebarItem(_ section: SettingsSection, icon: SettingsIconType, label: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.12)) { activeSection = section }
+        } label: {
+            VStack(spacing: 3) {
+                PixelSettingsIcon(type: icon, size: 14, color: activeSection == section ? .white : .white.opacity(0.4))
+                Text(label)
+                    .font(.system(size: 9, weight: activeSection == section ? .semibold : .medium))
+                    .foregroundColor(activeSection == section ? .white : .white.opacity(0.4))
+                    .lineLimit(1)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(activeSection == section ? Color.white.opacity(0.1) : Color.clear)
+            )
         }
-
-        Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
-
-        MenuRow(icon: "xmark.circle", label: L10n.quit, isDestructive: true) {
-            NSApplication.shared.terminate(nil)
-        }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Level 2: Section Detail
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            #if !APP_STORE
+            Button {
+                UpdateManager.shared.checkForUpdates()
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
+            }
+            .buttonStyle(.plain)
+            #endif
+
+            Button {
+                if let url = URL(string: "https://github.com/mtunique/vibehub") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Image(systemName: "star")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Text(L10n.quit)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Section Detail
 
     @ViewBuilder
     private func sectionDetail(_ section: SettingsSection) -> some View {
@@ -207,6 +255,11 @@ struct NotchMenuView: View {
             #else
             EmptyView()
             #endif
+
+        case .remote:
+            MenuRow(icon: "network", label: L10n.remote) {
+                viewModel.contentType = .remote
+            }
         }
     }
 
