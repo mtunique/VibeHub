@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RemoteHostsView: View {
-    @ObservedObject var viewModel: NotchViewModel
+    var viewModel: NotchViewModel?
     @ObservedObject private var remoteManager = RemoteManager.shared
 
     @State private var name: String = ""
@@ -37,7 +37,7 @@ struct RemoteHostsView: View {
                     .foregroundColor(.white.opacity(0.9))
                 Spacer()
                 Button {
-                    viewModel.contentType = .menu
+                    viewModel?.contentType = .menu
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
