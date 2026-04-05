@@ -39,9 +39,12 @@ actor TerminalActivator {
     func isSessionTerminalFocused(for session: SessionState) async -> Bool {
         if session.isRemote {
             // For remote sessions, check if the local SSH client terminal is frontmost
-            guard let terminalPid = await findLocalSSHTerminalPid(for: session) else {
+            guard let sshPid = await findLocalSSHPid(for: session) else {
                 return false
             }
+            guard let terminalPid = ProcessTreeBuilder.shared.findTerminalPid(
+                forProcess: sshPid, tree: ProcessTreeBuilder.shared.buildTree()
+            ) else { return false }
             return await isAppFrontmost(pid: terminalPid)
         }
 
@@ -155,17 +158,172 @@ actor TerminalActivator {
     // MARK: - Remote SSH Session
 
     private func activateRemoteSession(_ session: SessionState) async -> Bool {
-        guard let terminalPid = await findLocalSSHTerminalPid(for: session) else {
+        guard let remoteHostId = session.remoteHostId else { return false }
+
+        let host: RemoteHost? = await MainActor.run {
+            RemoteManager.shared.hosts.first { $0.id == remoteHostId }
+        }
+        guard let host else { return false }
+
+        let tree = ProcessTreeBuilder.shared.buildTree()
+        let sshTarget = host.sshTarget
+        let hostname = host.host
+
+        // Collect all local SSH processes to this host that have a TTY
+        // (background tunnels like SSHForwarder have no TTY)
+        var sshCandidates: [(pid: Int, tty: String)] = []
+        for (pid, info) in tree {
+            let cmd = info.command.lowercased()
+            guard cmd.contains("ssh") else { continue }
+            let hasTarget = info.command.contains(sshTarget) || info.command.contains(hostname)
+            guard hasTarget else { continue }
+            if let tty = getLocalTTY(forPid: pid) {
+                sshCandidates.append((pid: pid, tty: tty))
+            }
+        }
+
+        log("activateRemoteSession: found \(sshCandidates.count) SSH candidates for host=\(hostname)")
+
+        // If multiple candidates, query remote to find the exact match
+        var targetTTY: String?
+        if sshCandidates.count > 1, let remotePid = session.pid {
+            if let clientPort = await queryRemoteSSHClientPort(host: host, remotePid: remotePid) {
+                log("activateRemoteSession: remote client port=\(clientPort)")
+                targetTTY = findLocalTTYBySourcePort(clientPort, candidates: sshCandidates)
+                log("activateRemoteSession: matched targetTTY=\(targetTTY ?? "nil")")
+            }
+        }
+
+        // Use matched TTY, or fall back to first candidate
+        let chosen: (pid: Int, tty: String)?
+        if let targetTTY {
+            chosen = sshCandidates.first(where: { $0.tty == targetTTY })
+        } else {
+            chosen = sshCandidates.first
+        }
+
+        guard let chosen else {
+            log("activateRemoteSession: no SSH terminal found for host=\(hostname)")
             return false
         }
-        return await activateApp(pid: terminalPid)
+
+        if let bundleId = await activateTerminalApp(forProcess: chosen.pid, tree: tree) {
+            log("activateRemoteSession: activating ssh pid=\(chosen.pid) tty=\(chosen.tty)")
+            await TerminalTabSwitcher.switchToTab(bundleId: bundleId, tty: chosen.tty, cwd: nil)
+            return true
+        }
+
+        return false
     }
 
-    /// Find the local terminal PID that is running an SSH connection to the remote host
-    private func findLocalSSHTerminalPid(for session: SessionState) async -> Int? {
+    /// Query the remote host to find the SSH client source port for a given remote PID.
+    /// Uses the existing native SSH session (no process spawning).
+    private func queryRemoteSSHClientPort(host: RemoteHost, remotePid: Int) async -> String? {
+        let script = """
+        import subprocess, sys
+
+        pid = int(sys.argv[1])
+        pp = {}
+        for line in subprocess.check_output(['ps', '-eo', 'pid=,ppid='], text=True).splitlines():
+            p = line.strip().split()
+            if len(p) != 2: continue
+            try: pp[int(p[0])] = int(p[1])
+            except Exception: continue
+
+        cur = pid
+        sshd_pid = None
+        for _ in range(100):
+            if cur <= 1: break
+            try:
+                comm = subprocess.check_output(['ps', '-p', str(cur), '-o', 'comm='], text=True).strip()
+            except Exception:
+                cur = pp.get(cur, 0)
+                continue
+            if 'sshd' in comm:
+                sshd_pid = cur
+                break
+            cur = pp.get(cur, 0)
+
+        if not sshd_pid:
+            sys.exit(1)
+
+        def found(port):
+            print(port)
+            sys.exit(0)
+
+        # Method 1: /proc/<pid>/environ (Linux)
+        try:
+            env = open(f'/proc/{sshd_pid}/environ', 'rb').read()
+            for kv in env.split(b'\\x00'):
+                if kv.startswith(b'SSH_CLIENT='):
+                    parts = kv.split(b'=', 1)[1].decode().split()
+                    if len(parts) >= 2:
+                        found(parts[1])
+        except Exception: pass
+
+        # Method 2: lsof (macOS, most Linux)
+        try:
+            out = subprocess.check_output(
+                ['lsof', '-a', '-p', str(sshd_pid), '-i', 'TCP', '-n', '-P', '-F', 'n'],
+                text=True, stderr=subprocess.DEVNULL
+            )
+            for line in out.splitlines():
+                if line.startswith('n') and '->' in line:
+                    peer = line.split('->')[1]
+                    found(peer.rsplit(':', 1)[-1])
+        except Exception: pass
+
+        # Method 3: ss (Linux without lsof)
+        try:
+            out = subprocess.check_output(['ss', '-tnp'], text=True, stderr=subprocess.DEVNULL)
+            for line in out.splitlines():
+                if f'pid={sshd_pid}' in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        found(parts[4].rsplit(':', 1)[-1])
+        except Exception: pass
+
+        sys.exit(1)
+        """
+
+        let remoteCmd = "python3 - \(remotePid) <<'PY'\n\(script)\nPY"
+        let (output, exitCode) = await RemoteManager.shared.exec(hostId: host.id, command: remoteCmd)
+        log("queryRemoteSSHClientPort: exit=\(exitCode) output=\(output.prefix(100))")
+        guard exitCode == 0 else { return nil }
+        let port = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return port.isEmpty ? nil : port
+    }
+
+    /// Find which local SSH candidate has a TCP connection with the given source port.
+    private nonisolated func findLocalTTYBySourcePort(_ clientPort: String, candidates: [(pid: Int, tty: String)]) -> String? {
+        // Use lsof to find which SSH process uses this source port
+        guard let output = ProcessExecutor.shared.runSyncOrNil(
+            "/usr/sbin/lsof", arguments: ["-n", "-P", "-i", "TCP", "-a", "-c", "ssh", "-F", "pcn"]
+        ) else { return nil }
+
+        // Parse lsof field output: p<pid>, c<command>, n<connection>
+        var currentPid: Int?
+        for line in output.split(separator: "\n").map(String.init) {
+            if line.hasPrefix("p") {
+                currentPid = Int(line.dropFirst())
+            } else if line.hasPrefix("n"), let pid = currentPid {
+                // n like "192.168.1.1:54321->10.0.0.1:22"
+                if line.contains(":\(clientPort)->") {
+                    if let match = candidates.first(where: { $0.pid == pid }) {
+                        return match.tty
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Find a local SSH process that connects to the given remote session's host
+    /// and runs inside a terminal (not a background tunnel).
+    private func findLocalSSHPid(for session: SessionState) async -> Int? {
         guard let remoteHostId = session.remoteHostId else { return nil }
 
-        // Look up the remote host on the main actor to avoid threading issues
         let host: RemoteHost? = await MainActor.run {
             RemoteManager.shared.hosts.first { $0.id == remoteHostId }
         }
@@ -175,22 +333,30 @@ actor TerminalActivator {
         let sshTarget = host.sshTarget
         let hostname = host.host
 
-        // Scan for SSH processes connecting to this host
         for (pid, info) in tree {
             let cmd = info.command.lowercased()
             guard cmd.contains("ssh") else { continue }
 
-            // Match by full target (user@host) or just hostname
             let hasTarget = info.command.contains(sshTarget) || info.command.contains(hostname)
             guard hasTarget else { continue }
 
-            // Walk up to find the terminal ancestor
-            if let terminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: pid, tree: tree) {
-                return terminalPid
+            if ProcessTreeBuilder.shared.findTerminalPid(forProcess: pid, tree: tree) != nil {
+                return pid
             }
         }
 
         return nil
+    }
+
+    /// Get the local TTY name for a process (e.g. "ttys005")
+    private nonisolated func getLocalTTY(forPid pid: Int) -> String? {
+        guard let output = ProcessExecutor.shared.runSyncOrNil(
+            "/bin/ps", arguments: ["-p", String(pid), "-o", "tty="]
+        ) else { return nil }
+        let tty = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tty.isEmpty, tty != "??" else { return nil }
+        // ps returns "ttys005", which is what TerminalTabSwitcher expects
+        return tty
     }
 
     // MARK: - NSRunningApplication Helpers
