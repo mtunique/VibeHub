@@ -9,7 +9,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-class SettingsWindowController {
+class SettingsWindowController: NSObject, NSToolbarDelegate {
     static let shared = SettingsWindowController()
     private var window: NSWindow?
 
@@ -26,11 +26,22 @@ class SettingsWindowController {
 
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         w.title = L10n.isChinese ? "VibeHub 设置" : "VibeHub Settings"
+        w.titlebarAppearsTransparent = true
+        w.titleVisibility = .hidden
+        w.toolbarStyle = .unified
+
+        // Add an empty toolbar to enable the unified titlebar+toolbar area
+        let toolbar = NSToolbar(identifier: "SettingsToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.showsBaselineSeparator = false
+        w.toolbar = toolbar
+
         w.contentViewController = hostingController
         w.center()
         w.isReleasedWhenClosed = false
@@ -39,6 +50,11 @@ class SettingsWindowController {
 
         self.window = w
     }
+
+    // MARK: - NSToolbarDelegate
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [] }
 
     #if !APP_STORE
     func showLicense() {
