@@ -102,12 +102,11 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
-    /// Approve a permission request and remember (OpenCode only)
+    /// Approve a permission request and add a permanent allow rule
     func approvePermissionAlways(sessionId: String) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
-                   session.opencodeRawSessionId != nil,
-                   let permission = session.activePermission else {
+                  let permission = session.activePermission else {
                 return
             }
 
@@ -122,11 +121,10 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
-    /// Submit answers for an OpenCode AskUserQuestion prompt
+    /// Submit answers for an AskUserQuestion prompt (works for both Claude Code and OpenCode)
     func submitAskUserQuestion(sessionId: String, answers: [[String]]) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
-                  session.opencodeRawSessionId != nil,
                   let permission = session.activePermission else {
                 return
             }
@@ -143,11 +141,10 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
-    /// Close the Claude Island prompt and let OpenCode handle it in-terminal.
+    /// Close the prompt and let the CLI handle it in-terminal.
     func deferAskUserQuestionToTerminal(sessionId: String) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
-                  session.opencodeRawSessionId != nil,
                   let permission = session.activePermission else {
                 return
             }
