@@ -84,9 +84,7 @@ struct MenuBarContentView: View {
                 viewModel: viewModel
             )
         case .menu:
-            ScrollView {
-                NotchMenuView(viewModel: viewModel)
-            }
+            NotchMenuView(viewModel: viewModel)
         case .remote:
             RemoteHostsView(viewModel: viewModel)
         case .chat(let session):
