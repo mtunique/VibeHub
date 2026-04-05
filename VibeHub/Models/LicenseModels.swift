@@ -13,8 +13,24 @@ import Foundation
 
 enum LicenseStatus: String, Codable {
     case locked
+    case trial
     case activated
     case validating
+}
+
+// MARK: - Trial Data
+
+struct TrialData: Codable {
+    let startDate: Date
+
+    static let trialDays = 7
+
+    var daysRemaining: Int {
+        let elapsed = Calendar.current.dateComponents([.day], from: startDate, to: Date()).day ?? 0
+        return max(0, Self.trialDays - elapsed)
+    }
+
+    var isExpired: Bool { daysRemaining == 0 }
 }
 
 // MARK: - Local Cache

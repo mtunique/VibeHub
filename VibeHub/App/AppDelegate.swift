@@ -130,7 +130,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .locked:
                     vm.notchOpen(reason: .boot)
                     vm.contentType = .license
-                case .activated:
+                case .activated, .trial:
                     if case .license = vm.contentType {
                         vm.contentType = .instances
                         vm.notchClose()
