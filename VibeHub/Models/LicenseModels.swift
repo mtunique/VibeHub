@@ -25,12 +25,15 @@ struct TrialData: Codable {
 
     static let trialDays = 7
 
-    var daysRemaining: Int {
-        let elapsed = Calendar.current.dateComponents([.day], from: startDate, to: Date()).day ?? 0
-        return max(0, Self.trialDays - elapsed)
+    var hoursRemaining: Int {
+        let totalSeconds = TimeInterval(Self.trialDays * 24 * 3600)
+        let elapsed = Date().timeIntervalSince(startDate)
+        return max(0, Int((totalSeconds - elapsed) / 3600))
     }
 
-    var isExpired: Bool { daysRemaining == 0 }
+    var daysRemaining: Int { hoursRemaining / 24 }
+
+    var isExpired: Bool { hoursRemaining == 0 }
 }
 
 // MARK: - Local Cache

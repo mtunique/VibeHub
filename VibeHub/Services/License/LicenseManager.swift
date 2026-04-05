@@ -18,7 +18,7 @@ final class LicenseManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var activationCount: Int = 0
     @Published var activationLimit: Int = 3
-    @Published var trialDaysRemaining: Int = TrialData.trialDays
+    @Published var trialHoursRemaining: Int = TrialData.trialDays * 24
 
     private let cacheKey = "license_cache"
     private let trialKey = "trial_data"
@@ -144,8 +144,8 @@ final class LicenseManager: ObservableObject {
         }
 
         KeychainStore.delete(forKey: cacheKey)
-        status = .locked
         activationCount = 0
+        _ = checkTrial()  // fall back to trial if still within trial period
     }
 
     // MARK: - Accessors
@@ -165,7 +165,7 @@ final class LicenseManager: ObservableObject {
     /// Returns true if trial is active, false if expired
     private func checkTrial() -> Bool {
         let trial = getOrCreateTrial()
-        trialDaysRemaining = trial.daysRemaining
+        trialHoursRemaining = trial.hoursRemaining
         if trial.isExpired {
             status = .locked
             return false

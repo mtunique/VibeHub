@@ -47,7 +47,7 @@ struct LicenseSettingsView: View {
                         Circle()
                             .fill(TerminalColors.amber)
                             .frame(width: 6, height: 6)
-                        Text(L10n.trialDaysRemaining(licenseManager.trialDaysRemaining))
+                        Text(L10n.trialTimeRemaining(hours: licenseManager.trialHoursRemaining))
                             .font(.system(size: 11))
                             .foregroundColor(TerminalColors.amber.opacity(0.8))
                     }
