@@ -14,10 +14,12 @@ import SwiftUI
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case appearance
     case notifications
+    case remote
     case system
     #if !APP_STORE
     case license
     #endif
+    case about
 
     var id: String { rawValue }
 
@@ -25,10 +27,12 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return L10n.settingsAppearance
         case .notifications: return L10n.settingsNotifications
+        case .remote: return L10n.remote
         case .system: return L10n.settingsSystem
         #if !APP_STORE
         case .license: return L10n.license
         #endif
+        case .about: return L10n.settingsAbout
         }
     }
 
@@ -36,10 +40,12 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "paintbrush"
         case .notifications: return "bell"
+        case .remote: return "network"
         case .system: return "gearshape"
         #if !APP_STORE
         case .license: return "key"
         #endif
+        case .about: return "info.circle"
         }
     }
 }
@@ -115,12 +121,16 @@ struct SettingsContentView: View {
             AppearanceSection()
         case .notifications:
             NotificationsSection()
+        case .remote:
+            RemoteSection()
         case .system:
             SystemSection()
         #if !APP_STORE
         case .license:
             LicenseSection()
         #endif
+        case .about:
+            AboutSection()
         }
     }
 }
@@ -411,6 +421,99 @@ private struct LicenseSection: View {
     }
 }
 #endif
+
+// MARK: - Remote Section
+
+private struct RemoteSection: View {
+    @ObservedObject private var remoteManager = RemoteManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(L10n.remote)
+
+            settingsGroup {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(L10n.remoteHosts)
+                            .font(.system(size: 13))
+                        Spacer()
+                        Text("\(remoteManager.hosts.count)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text(L10n.settingsRemoteHint)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(12)
+            }
+        }
+    }
+}
+
+// MARK: - About Section
+
+private struct AboutSection: View {
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "v\(version) (\(build))"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(L10n.settingsAbout)
+
+            settingsGroup {
+                HStack {
+                    if let appIcon = NSImage(named: "AppIcon") {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .frame(width: 48, height: 48)
+                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("VibeHub")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(appVersion)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    #if !APP_STORE
+                    Button(L10n.checkForUpdates) {
+                        UpdateManager.shared.checkForUpdates()
+                    }
+                    #endif
+                }
+                .padding(12)
+            }
+
+            settingsGroup {
+                Button {
+                    if let url = URL(string: "https://github.com/mtunique/vibehub") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "star")
+                            .font(.system(size: 12))
+                        Text(L10n.starOnGitHub)
+                            .font(.system(size: 13))
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
 
 // MARK: - Helpers
 

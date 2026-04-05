@@ -61,7 +61,9 @@ enum L10n {
     static var settingsAppearance: String { isChinese ? "外观" : "Appearance" }
     static var settingsNotifications: String { isChinese ? "通知" : "Notifications" }
     static var settingsSystem: String { isChinese ? "系统" : "System" }
+    static var settingsAbout: String { isChinese ? "关于" : "About" }
     static var remote: String { isChinese ? "远程" : "Remote" }
+    static var settingsRemoteHint: String { isChinese ? "在菜单中管理远程主机连接" : "Manage remote host connections from the menu" }
     static var launchAtLogin: String { isChinese ? "开机启动" : "Launch at Login" }
     static var hooks: String { isChinese ? "Hook 脚本" : "Hooks" }
     static var starOnGitHub: String { isChinese ? "在 GitHub 上点星" : "Star on GitHub" }

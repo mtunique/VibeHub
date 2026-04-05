@@ -20,7 +20,6 @@ import Sparkle
 struct NotchMenuView: View {
     @ObservedObject var viewModel: NotchViewModel
     var showBackButton: Bool = true
-    @State private var hooksInstalled: Bool = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -31,50 +30,15 @@ struct NotchMenuView: View {
                 Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
             }
 
-            // Remote hosts
             MenuRow(icon: "network", label: L10n.remote) {
                 viewModel.contentType = .remote
             }
 
-            // Open standalone settings window
             MenuRow(icon: "gearshape", label: L10n.settingsTitle) {
                 SettingsWindowController.shared.show()
             }
 
             Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
-
-            // Hooks toggle (quick access)
-            MenuToggleRow(
-                icon: "arrow.triangle.2.circlepath",
-                label: L10n.hooks,
-                isOn: hooksInstalled
-            ) {
-#if APP_STORE
-                Task { @MainActor in
-                    await installOrUninstallHooksAppStore()
-                }
-#else
-                if hooksInstalled {
-                    HookInstaller.uninstall()
-                    hooksInstalled = false
-                } else {
-                    HookInstaller.installIfNeeded()
-                    hooksInstalled = true
-                }
-#endif
-            }
-
-            #if !APP_STORE
-            UpdateRow(updateManager: UpdateManager.shared)
-            #endif
-
-            Divider().background(Color.white.opacity(0.08)).padding(.vertical, 4)
-
-            MenuRow(icon: "star", label: L10n.starOnGitHub) {
-                if let url = URL(string: "https://github.com/mtunique/vibehub") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
 
             MenuRow(icon: "xmark.circle", label: L10n.quit, isDestructive: true) {
                 NSApplication.shared.terminate(nil)
@@ -83,14 +47,6 @@ struct NotchMenuView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { refreshStates() }
-        .onChange(of: viewModel.contentType) { _, newValue in
-            if newValue == .menu { refreshStates() }
-        }
-    }
-
-    private func refreshStates() {
-        hooksInstalled = HookInstaller.isInstalled()
     }
 
 #if APP_STORE
