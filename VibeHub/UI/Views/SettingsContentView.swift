@@ -157,13 +157,12 @@ struct SettingsContentView: View {
     private func sectionDetail(_ section: SettingsSection) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Section title header
                 Text(section.title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(.title)
+                    .fontWeight(.bold)
                     .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 4)
+                    .padding(.top, -4)
+                    .padding(.bottom, 12)
 
                 sectionContent(section)
             }
@@ -238,6 +237,7 @@ private struct AppearanceSection: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -270,6 +270,7 @@ private struct NotificationsSection: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -333,6 +334,7 @@ private struct SystemSection: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityEnabled = AXIsProcessTrusted()
         }
@@ -427,6 +429,7 @@ private struct LicenseSection: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder
@@ -495,5 +498,6 @@ private struct AboutSection: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
