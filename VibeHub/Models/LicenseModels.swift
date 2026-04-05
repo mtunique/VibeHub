@@ -55,11 +55,11 @@ struct PolarValidateResponse: Decodable {
     let organization_id: String
     let status: String  // "granted", "revoked", "disabled"
     let key: String
-    let usage: Int
+    let usage: Int?
     let limit_usage: Int?
-    let validations: Int
+    let validations: Int?
     let limit_activations: Int?
-    let activations: [PolarActivation]?
+    let activation: PolarActivation?   // single activation for the passed activation_id
     let expires_at: String?
 }
 
@@ -74,7 +74,7 @@ struct PolarActivateResponse: Decodable {
     let id: String
     let license_key_id: String
     let label: String
-    let conditions: [String: String]?
+    let meta: [String: String]?
 }
 
 struct PolarDeactivateRequest: Encodable {
@@ -86,7 +86,7 @@ struct PolarDeactivateRequest: Encodable {
 struct PolarActivation: Decodable {
     let id: String
     let label: String
-    let conditions: [String: String]?
+    let meta: [String: String]?
 }
 
 enum PolarAPIError: Error, LocalizedError {
