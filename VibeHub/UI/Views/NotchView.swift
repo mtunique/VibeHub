@@ -444,24 +444,20 @@ struct NotchView: View {
 
             Spacer()
 
-            // Menu toggle
+            // Settings button — opens standalone settings window
             Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    viewModel.toggleMenu()
-                    if viewModel.contentType == .menu {
-                        updateManager.markUpdateSeen()
-                    }
-                }
+                SettingsWindowController.shared.show()
+                updateManager.markUpdateSeen()
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: viewModel.contentType == .menu ? "xmark" : "line.3.horizontal")
+                    Image(systemName: "gearshape")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.white.opacity(0.4))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
 
                     // Green dot for unseen update
-                    if updateManager.hasUnseenUpdate && viewModel.contentType != .menu {
+                    if updateManager.hasUnseenUpdate {
                         Circle()
                             .fill(TerminalColors.green)
                             .frame(width: 6, height: 6)

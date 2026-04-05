@@ -35,23 +35,14 @@ struct MenuBarContentView: View {
     }
 
     private var headerButtons: some View {
-        HStack(spacing: 8) {
-            headerButton(icon: "list.bullet", type: .instances)
-            headerButton(icon: "gearshape", type: .menu)
-        }
-    }
-
-    private func headerButton(icon: String, type: NotchContentType) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                viewModel.contentType = type
-            }
+            SettingsWindowController.shared.show()
         } label: {
-            Image(systemName: icon)
+            Image(systemName: "gearshape")
                 .font(.system(size: 12))
-                .foregroundColor(viewModel.contentType == type ? .white : .gray)
+                .foregroundColor(.gray)
                 .frame(width: 24, height: 24)
-                .background(viewModel.contentType == type ? Color.white.opacity(0.15) : Color.clear)
+                .background(Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
