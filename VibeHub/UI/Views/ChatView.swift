@@ -73,20 +73,19 @@ struct ChatView: View {
                 if let tool = approvalTool {
                     if tool == "AskUserQuestion" {
                         Group {
-                            if isOpenCodeSession,
-                               let payload = AskUserQuestionPayload.from(toolInput: session.activePermission?.toolInput) {
+                            if let payload = AskUserQuestionPayload.from(toolInput: session.activePermission?.toolInput) {
                                 AskUserQuestionBar(
                                     payload: payload,
                                     onSubmit: { answers in
                                         sessionMonitor.submitAskUserQuestion(sessionId: sessionId, answers: answers)
                                     },
-                                    onUseTerminal: {
+                                    onUseTerminal: isOpenCodeSession ? {
                                         sessionMonitor.deferAskUserQuestionToTerminal(sessionId: sessionId)
-                                    }
+                                    } : nil
                                 )
                             } else {
-                                // Claude Code interactive tools - show prompt to answer in terminal
-                                interactivePromptBar
+                                // Fallback: free text input for unstructured questions
+                                claudeCodeQuestionBar
                             }
                         }
                         .transition(.asymmetric(
@@ -498,13 +497,37 @@ struct ChatView: View {
         )
     }
 
-    // MARK: - Interactive Prompt Bar
+    // MARK: - Claude Code Question Bar
 
-    /// Bar for interactive tools like AskUserQuestion that need terminal input
-    private var interactivePromptBar: some View {
-        ChatInteractivePromptBar(
-            isInTmux: session.isInTmux,
-            onGoToTerminal: { focusTerminal() }
+    /// Extract question and options from AskUserQuestion tool input
+    private var askUserQuestionData: (question: String?, options: [String]) {
+        guard let input = session.activePermission?.toolInput else { return (nil, []) }
+        let question: String? =
+            (input["question"]?.value as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (input["text"]?.value as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let options: [String] = (input["options"]?.value as? [Any])?.compactMap { $0 as? String } ?? []
+        return (question, options)
+    }
+
+    /// Bar for Claude Code AskUserQuestion — shows question + options or text input
+    private var claudeCodeQuestionBar: some View {
+        let data = askUserQuestionData
+        return ClaudeCodeQuestionBar(
+            question: data.question,
+            options: data.options,
+            onSubmit: { answer in
+                // 1. Allow the permission so Claude Code proceeds
+                approvePermission()
+                // 2. Wait for Claude Code to process the approval before sending answer
+                Task {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    await sendToSession(answer)
+                }
+            },
+            onGoToTerminal: {
+                approvePermission()
+                focusTerminal()
+            }
         )
     }
 
@@ -963,6 +986,30 @@ struct ToolCallView: View {
         }
     }
 
+    private var toolNameColor: Color {
+        switch tool.name {
+        case "Read":
+            return Color.cyan
+        case "Edit", "Write", "NotebookEdit":
+            return Color.orange
+        case "Bash":
+            return Color.green
+        case "Grep", "Glob":
+            return Color.yellow
+        case "Agent", "Task":
+            return Color.indigo.opacity(0.8)
+        case "WebSearch", "WebFetch":
+            return Color.blue
+        case "AskUserQuestion":
+            return Color.mint
+        default:
+            if MCPToolFormatter.isMCPTool(tool.name) {
+                return Color.teal
+            }
+            return .white.opacity(0.8)
+        }
+    }
+
     private var hasResult: Bool {
         tool.result != nil || tool.structuredResult != nil
     }
@@ -998,10 +1045,9 @@ struct ToolCallView: View {
                         }
                     }
 
-                // Tool name (formatted for MCP tools)
                 Text(MCPToolFormatter.formatToolName(tool.name))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(textColor)
+                    .foregroundColor(tool.status == .error || tool.status == .interrupted ? textColor : toolNameColor)
                     .fixedSize()
 
                 if tool.name == "Task" && !tool.subagentTools.isEmpty {
@@ -1288,67 +1334,139 @@ struct InterruptedMessageView: View {
     }
 }
 
-// MARK: - Chat Interactive Prompt Bar
+// MARK: - Claude Code Question Bar
 
-/// Bar for interactive tools like AskUserQuestion that need terminal input
-struct ChatInteractivePromptBar: View {
-    let isInTmux: Bool
+/// Bar for Claude Code AskUserQuestion — supports both free text and option selection
+struct ClaudeCodeQuestionBar: View {
+    let question: String?
+    let options: [String]
+    let onSubmit: (String) -> Void
     let onGoToTerminal: () -> Void
 
-    @State private var showContent = false
-    @State private var showButton = false
+    @State private var answerText: String = ""
+    @State private var selectedOption: Int? = nil
+    @FocusState private var isFocused: Bool
+
+    private var hasOptions: Bool { !options.isEmpty }
+    private var trimmedAnswer: String { answerText.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Tool info - same style as approval bar
-            VStack(alignment: .leading, spacing: 2) {
-                Text(MCPToolFormatter.formatToolName("AskUserQuestion"))
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(TerminalColors.amber)
+        VStack(alignment: .leading, spacing: 8) {
+            if let question, !question.isEmpty {
+                Text(question)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
+                    .padding(.horizontal, 16)
+            } else {
                 Text(L10n.claudeCodeNeedsInput)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.5))
-                    .lineLimit(1)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .padding(.horizontal, 16)
             }
-            .opacity(showContent ? 1 : 0)
-            .offset(x: showContent ? 0 : -10)
 
-            Spacer()
+            if hasOptions {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            Button {
+                                selectedOption = index
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(selectedOption == index ? Color.white.opacity(0.9) : Color.white.opacity(0.15))
+                                        .frame(width: 8, height: 8)
+                                    Text(option)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(selectedOption == index ? .white.opacity(0.95) : .white.opacity(0.7))
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(selectedOption == index ? 0.12 : 0.05))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .frame(maxHeight: 150)
 
-            // Terminal button on right (similar to Allow button)
-            Button {
-                if isInTmux {
-                    onGoToTerminal()
+                HStack(spacing: 8) {
+                    Spacer()
+                    terminalButton
+
+                    Button {
+                        if let idx = selectedOption, idx < options.count {
+                            onSubmit(options[idx])
+                        }
+                    } label: {
+                        Text(L10n.submit)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(selectedOption != nil ? .black : .white.opacity(0.3))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(selectedOption != nil ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedOption == nil)
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 11, weight: .medium))
-                    Text(L10n.terminal)
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundColor(isInTmux ? .black : .white.opacity(0.4))
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isInTmux ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
-                .clipShape(Capsule())
+            } else {
+                HStack(spacing: 8) {
+                    TextField(L10n.typeAnswer, text: $answerText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white)
+                        .focused($isFocused)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .onSubmit { submitFreeText() }
+
+                    terminalButton
+
+                    Button { submitFreeText() } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(trimmedAnswer.isEmpty ? .white.opacity(0.3) : .black)
+                            .frame(width: 30, height: 30)
+                            .background(trimmedAnswer.isEmpty ? Color.white.opacity(0.1) : Color.white.opacity(0.95))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(trimmedAnswer.isEmpty)
+                }
+                .padding(.horizontal, 16)
             }
-            .buttonStyle(.plain)
-            .opacity(showButton ? 1 : 0)
-            .scaleEffect(showButton ? 1 : 0.8)
         }
-        .frame(minHeight: 44)  // Consistent height with other bars
-        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.black.opacity(0.2))
-        .onAppear {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.05)) {
-                showContent = true
-            }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7).delay(0.1)) {
-                showButton = true
-            }
+        .onAppear { if !hasOptions { isFocused = true } }
+    }
+
+    private var terminalButton: some View {
+        Button { onGoToTerminal() } label: {
+            Image(systemName: "terminal")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+        .buttonStyle(.plain)
+    }
+
+    private func submitFreeText() {
+        let text = answerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        answerText = ""
+        onSubmit(text)
     }
 }
 
@@ -1369,7 +1487,7 @@ struct ChatApprovalBar: View {
     @State private var showDenyButton = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             // Tool info
             VStack(alignment: .leading, spacing: 2) {
                 Text(MCPToolFormatter.formatToolName(tool))
@@ -1385,60 +1503,60 @@ struct ChatApprovalBar: View {
             .opacity(showContent ? 1 : 0)
             .offset(x: showContent ? 0 : -10)
 
-            Spacer()
+            // Buttons row
+            HStack(spacing: 8) {
+                Spacer()
 
-            // Deny button
-            Button {
-                onDeny()
-            } label: {
-                Text(L10n.deny)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .opacity(showDenyButton ? 1 : 0)
-            .scaleEffect(showDenyButton ? 1 : 0.8)
-
-            if allowAlways {
+                // Deny button
                 Button {
-                    onAlways()
+                    onDeny()
                 } label: {
-                    Text(L10n.always)
+                    Text(L10n.deny)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.14))
+                        .background(Color.white.opacity(0.1))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .opacity(showAlwaysButton ? 1 : 0)
-                .scaleEffect(showAlwaysButton ? 1 : 0.8)
-            }
+                .opacity(showDenyButton ? 1 : 0)
+                .scaleEffect(showDenyButton ? 1 : 0.8)
 
-            // Allow button
-            Button {
-                onApprove()
-            } label: {
-                Text(L10n.allow)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.95))
-                    .clipShape(Capsule())
+                if allowAlways {
+                    Button {
+                        onAlways()
+                    } label: {
+                        Text(L10n.always)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.14))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(showAlwaysButton ? 1 : 0)
+                    .scaleEffect(showAlwaysButton ? 1 : 0.8)
+                }
+
+                // Allow button
+                Button {
+                    onApprove()
+                } label: {
+                    Text(L10n.allow)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.95))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(showAllowButton ? 1 : 0)
+                .scaleEffect(showAllowButton ? 1 : 0.8)
             }
-            .buttonStyle(.plain)
-            .opacity(showAllowButton ? 1 : 0)
-            .scaleEffect(showAllowButton ? 1 : 0.8)
         }
-        .frame(minHeight: 44)  // Consistent height with other bars
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.black.opacity(0.2))

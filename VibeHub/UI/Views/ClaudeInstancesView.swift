@@ -146,9 +146,9 @@ struct InstanceRow: View {
         return toolName == "AskUserQuestion"
     }
 
-    /// Whether the approval UI should show an "Always" option (OpenCode only)
+    /// Whether the approval UI should show an "Always" option
     private var allowAlways: Bool {
-        session.opencodeRawSessionId != nil
+        true
     }
 
     /// Display name of the remote host, if this is a remote session
@@ -406,24 +406,24 @@ struct InlineApprovalButtons: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .fixedSize()
             .opacity(showDenyButton ? 1 : 0)
             .scaleEffect(showDenyButton ? 1 : 0.8)
 
-                if allowAlways {
-                    Button {
-                        onAlways?()
-                    } label: {
-                        Text(L10n.always)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.75))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.white.opacity(0.14))
-                            .clipShape(Capsule())
-                    }
+            if allowAlways {
+                Button {
+                    onAlways?()
+                } label: {
+                    Text(L10n.always)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.75))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.14))
+                        .clipShape(Capsule())
+                }
                 .buttonStyle(.plain)
+                .fixedSize()
                 .opacity(showAlwaysButton ? 1 : 0)
                 .scaleEffect(showAlwaysButton ? 1 : 0.8)
             }
@@ -440,6 +440,7 @@ struct InlineApprovalButtons: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .fixedSize()
             .opacity(showAllowButton ? 1 : 0)
             .scaleEffect(showAllowButton ? 1 : 0.8)
         }
