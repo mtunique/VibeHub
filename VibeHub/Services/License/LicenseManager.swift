@@ -201,7 +201,7 @@ final class LicenseManager: ObservableObject {
     }
 
     private func updateActivationInfo(from response: PolarValidateResponse) {
-        activationCount = response.activations?.count ?? 0
+        activationCount = response.activation != nil ? 1 : 0
         activationLimit = response.limit_activations ?? 3
     }
 }
