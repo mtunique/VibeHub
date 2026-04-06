@@ -129,19 +129,15 @@ final class SubagentStateTests: XCTestCase {
         XCTAssertTrue(state.activeTasks["task-1"]?.subagentTools.isEmpty == true)
     }
 
-    // MARK: - addSubagentTool (to most recent task)
+    // MARK: - addSubagentTool (to active task)
 
-    func testAddSubagentTool_addedToMostRecentTask() {
+    func testAddSubagentTool_addedToActiveTask() {
         var state = SubagentState()
-        state.startTask(taskToolId: "task-old")
-        // Sleep briefly to ensure different start times
-        Thread.sleep(forTimeInterval: 0.01)
-        state.startTask(taskToolId: "task-new")
+        state.startTask(taskToolId: "task-1")
         let tool = makeSubagentToolCall(id: "stool-1")
         state.addSubagentTool(tool)
-        // Should be added to the most recent task
-        XCTAssertEqual(state.activeTasks["task-new"]?.subagentTools.count, 1)
-        XCTAssertTrue(state.activeTasks["task-old"]?.subagentTools.isEmpty == true)
+        XCTAssertEqual(state.activeTasks["task-1"]?.subagentTools.count, 1)
+        XCTAssertEqual(state.activeTasks["task-1"]?.subagentTools.first?.id, "stool-1")
     }
 
     func testAddSubagentTool_noActiveTasks_isNoOp() {
