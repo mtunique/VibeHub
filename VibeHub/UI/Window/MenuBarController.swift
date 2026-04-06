@@ -69,13 +69,18 @@ class MenuBarController {
     private func setupPopover() {
         popover.behavior = .transient
         popover.animates = true
+        popover.contentSize = NSSize(width: 400, height: 520)
+    }
+
+    /// Lazily create the popover content on first show
+    private func ensurePopoverContent() {
+        guard popover.contentViewController == nil else { return }
         let hostingController = NSHostingController(
             rootView: MenuBarContentView(viewModel: viewModel)
                 .environmentObject(ClaudeSessionMonitor.shared)
         )
         hostingController.view.frame = NSRect(x: 0, y: 0, width: 400, height: 520)
         popover.contentViewController = hostingController
-        popover.contentSize = NSSize(width: 400, height: 520)
     }
 
     private func setupEventMonitor() {
@@ -243,6 +248,7 @@ class MenuBarController {
 
     func showPopoverForOnboarding() {
         viewModel.contentType = .onboarding
+        ensurePopoverContent()
         guard let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -251,6 +257,7 @@ class MenuBarController {
     private func showPopover() {
         guard let button = statusItem?.button else { return }
         viewModel.contentType = .instances
+        ensurePopoverContent()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
