@@ -191,13 +191,25 @@ actor SessionStore {
 
         let newPhase = event.determinePhase()
 
-        if session.phase.canTransition(to: newPhase) {
+        // Guard: if Claude Code fires PermissionRequest after approving internally (new behavior),
+        // the tool may have already completed via PostToolUse. Don't revert to waitingForApproval.
+        let toolAlreadyCompleted: Bool = {
+            guard case .waitingForApproval(let ctx) = newPhase, !ctx.toolUseId.isEmpty else { return false }
+            return session.chatItems.contains {
+                guard $0.id == ctx.toolUseId, case .toolCall(let tool) = $0.type else { return false }
+                return tool.status == .success || tool.status == .error || tool.status == .interrupted
+            }
+        }()
+
+        if !toolAlreadyCompleted && session.phase.canTransition(to: newPhase) {
             session.phase = newPhase
-        } else {
+        } else if !toolAlreadyCompleted {
             Self.logger.debug("Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring")
+        } else {
+            Self.logger.debug("Ignoring late PermissionRequest for already-completed tool")
         }
 
-        if event.event == "PermissionRequest", let toolUseId = event.toolUseId {
+        if event.event == "PermissionRequest", let toolUseId = event.toolUseId, !toolAlreadyCompleted {
             Self.logger.debug("Setting tool \(toolUseId.prefix(12), privacy: .public) status to waitingForApproval")
             updateToolStatus(in: &session, toolId: toolUseId, status: .waitingForApproval)
         }
