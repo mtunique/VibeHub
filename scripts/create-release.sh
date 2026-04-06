@@ -9,7 +9,7 @@ ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
-SITE_DIR="$PROJECT_DIR/releases"
+APPCAST_PATH="$PROJECT_DIR/docs/appcast.xml"
 
 APP_NAME="VibeHub"
 GITHUB_REPO="mtunique/VibeHub"
@@ -226,7 +226,7 @@ fi
 echo ""
 
 # ============================================
-# Step 8: Update appcast in releases
+# Step 8: Update appcast in docs/ (served via GitHub Pages)
 # ============================================
 echo "=== Step 8: Updating appcast ==="
 
@@ -238,16 +238,12 @@ else
     DMG_LENGTH=$(echo "$SPARKLE_SIGNATURE" | grep -o 'length="[^"]*"' | cut -d'"' -f2)
     PUB_DATE=$(date -R)
 
-    if [ ! -d "$SITE_DIR" ]; then
-        echo "WARNING: releases dir not found at $SITE_DIR, creating..."
-        mkdir -p "$SITE_DIR"
-    else
-        APPCAST="$SITE_DIR/appcast.xml"
+    mkdir -p "$(dirname "$APPCAST_PATH")"
 
-        # If appcast exists, insert new item after <channel> (before first <item>)
-        if [ -f "$APPCAST" ]; then
-            # Build new item XML
-            NEW_ITEM="        <item>
+    # If appcast exists, insert new item after <channel> (before first <item>)
+    if [ -f "$APPCAST_PATH" ]; then
+        # Build new item XML
+        NEW_ITEM="        <item>
             <title>$VERSION</title>
             <pubDate>$PUB_DATE</pubDate>
             <sparkle:version>$BUILD</sparkle:version>
@@ -256,20 +252,17 @@ else
             <enclosure url=\"$GITHUB_DOWNLOAD_URL\" length=\"$DMG_LENGTH\" type=\"application/octet-stream\" sparkle:edSignature=\"$ED_SIG\"/>
         </item>"
 
-            # Insert after <channel> line, before first <item>
-            sed -i '' "/<channel>/a\\
+        # Insert after <channel> line, before first <item>
+        sed -i '' "/<channel>/a\\
 \\
-$NEW_ITEM" "$APPCAST"
-
-            # Update title
-            sed -i '' 's|<title>.*</title>|<title>VibeHub</title>|' "$APPCAST"
-        else
-            # Create fresh appcast
-            cat > "$APPCAST" << XMLEOF
+$NEW_ITEM" "$APPCAST_PATH"
+    else
+        # Create fresh appcast
+        cat > "$APPCAST_PATH" << XMLEOF
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>VibeHub</title>
+        <title>Vibe Hub</title>
         <item>
             <title>$VERSION</title>
             <pubDate>$PUB_DATE</pubDate>
@@ -281,21 +274,19 @@ $NEW_ITEM" "$APPCAST"
     </channel>
 </rss>
 XMLEOF
-        fi
+    fi
 
-        echo "Appcast updated: $APPCAST"
+    echo "Appcast updated: $APPCAST_PATH"
 
-        # Commit and push
-        cd "$SITE_DIR"
-        git add appcast.xml
-        if git diff --cached --quiet; then
-            echo "No changes to appcast."
-        else
-            git commit -m "update appcast for v$VERSION"
-            git push
-            echo "Appcast saved to releases directory."
-        fi
-        cd "$PROJECT_DIR"
+    # Commit and push from project root
+    cd "$PROJECT_DIR"
+    git add docs/appcast.xml
+    if git diff --cached --quiet; then
+        echo "No changes to appcast."
+    else
+        git commit -m "update appcast for v$VERSION"
+        git push
+        echo "Appcast pushed to GitHub Pages."
     fi
 fi
 
@@ -310,4 +301,4 @@ echo "  Version:  $VERSION (build $BUILD)"
 echo "  DMG:      $DMG_PATH"
 echo "  Release:  https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
 echo "  Download: $GITHUB_DOWNLOAD_URL"
-echo "  Appcast:  https://mtunique.github.io/vibehub-site/appcast.xml"
+echo "  Appcast:  https://mtunique.github.io/VibeHub/appcast.xml"
