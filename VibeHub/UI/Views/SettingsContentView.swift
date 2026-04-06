@@ -371,10 +371,9 @@ private struct LicenseSection: View {
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-                    LabeledContent {
+                    LabeledContent(L10n.licenseDevices) {
                         Text(L10n.licenseDeviceCount(licenseManager.activationCount, licenseManager.activationLimit))
-                    } label: {
-                        EmptyView()
+                            .foregroundColor(.secondary)
                     }
                 }
             }
@@ -404,7 +403,7 @@ private struct LicenseSection: View {
                         Text(err).foregroundColor(.red).font(.caption)
                     }
 
-                    Link(destination: URL(string: PolarAPIClient.checkoutURL)!) {
+                    Link(destination: URL(string: LemonSqueezyAPIClient.checkoutURL)!) {
                         Label(L10n.licensePurchase, systemImage: "cart")
                     }
                 }
