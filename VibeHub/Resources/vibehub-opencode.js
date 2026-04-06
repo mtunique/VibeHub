@@ -755,11 +755,13 @@ export default async ({ client, serverUrl }) => {
       const mapped = mapEvent(event);
       if (!mapped) return;
       if (mapped._kind === "permission") {
-        await handlePermission(mapped);
+        // Run in background so permission.replied events aren't blocked waiting for VibeHub's response.
+        handlePermission(mapped).catch(() => {});
         return;
       }
       if (mapped._kind === "question") {
-        await handleQuestion(mapped);
+        // Same: don't block the event queue while waiting for VibeHub.
+        handleQuestion(mapped).catch(() => {});
         return;
       }
       await sendToSocket(mapped);

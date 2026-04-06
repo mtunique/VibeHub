@@ -14,7 +14,7 @@ SOCKET_PATH = os.environ.get(
     "CLAUDE_ISLAND_SOCKET_PATH",
     os.path.expanduser("~/.vibehub/ci.sock"),
 )
-TIMEOUT_SECONDS = 300  # 5 minutes for permission decisions
+TIMEOUT_SECONDS = 60  # 60s for VibeHub to respond; after timeout Claude shows its own prompt
 
 
 def _ensure_dir(path):
