@@ -23,7 +23,7 @@ enum LicenseStatus: String, Codable {
 struct TrialData: Codable {
     let startDate: Date
 
-    static let trialDays = 7
+    static let trialDays = 30
 
     var hoursRemaining: Int {
         let totalSeconds = TimeInterval(Self.trialDays * 24 * 3600)
