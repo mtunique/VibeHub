@@ -253,7 +253,7 @@ final class SessionStateTests: XCTestCase {
 
     // MARK: - needsAttention / canInteract
 
-    func testNeedsAttentionDelegatestoPhase() {
+    func testNeedsAttentionDelegatesToPhase() {
         let ctxState = makeState(phase: .waitingForApproval(
             PermissionContext(toolUseId: "t", toolName: "Bash", toolInput: nil, receivedAt: Date())
         ))
