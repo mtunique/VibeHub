@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Claude Island for release
+# Build VibeHub for release
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 
-echo "=== Building Claude Island ==="
+echo "=== Building VibeHub ==="
 echo ""
 
 # Clean previous builds
@@ -78,6 +78,6 @@ xcodebuild -exportArchive \
 
 echo ""
 echo "=== Build Complete ==="
-echo "App exported to: $EXPORT_PATH/Claude Island.app"
+echo "App exported to: $EXPORT_PATH/VibeHub.app"
 echo ""
 echo "Next: Run ./scripts/create-release.sh to notarize and create DMG"

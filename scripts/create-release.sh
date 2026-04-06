@@ -17,11 +17,11 @@ GITHUB_REPO="mtunique/vibehub"
 # Configure in GitHub Settings -> Pages: Deploy from branch = main, folder = /docs
 PAGES_DIR="$PROJECT_DIR/docs"
 
-APP_PATH="$EXPORT_PATH/Claude Island.app"
+APP_PATH="$EXPORT_PATH/VibeHub.app"
 
 # Fallback: if export failed (eg missing Developer ID), use archived app.
-if [ ! -d "$APP_PATH" ] && [ -d "$ARCHIVE_PATH/Products/Applications/Claude Island.app" ]; then
-    APP_PATH="$ARCHIVE_PATH/Products/Applications/Claude Island.app"
+if [ ! -d "$APP_PATH" ] && [ -d "$ARCHIVE_PATH/Products/Applications/VibeHub.app" ]; then
+    APP_PATH="$ARCHIVE_PATH/Products/Applications/VibeHub.app"
     echo "NOTE: Using archived app (export not found): $APP_PATH"
 fi
 APP_NAME="VibeHub"
@@ -110,9 +110,9 @@ if command -v create-dmg &> /dev/null; then
         --volname "Claude Island" \
         --window-size 600 400 \
         --icon-size 100 \
-        --icon "Claude Island.app" 150 200 \
+        --icon "VibeHub.app" 150 200 \
         --app-drop-link 450 200 \
-        --hide-extension "Claude Island.app" \
+        --hide-extension "VibeHub.app" \
         "$DMG_PATH" \
         "$APP_PATH"
 else

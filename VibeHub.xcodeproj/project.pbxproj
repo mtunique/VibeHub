@@ -335,10 +335,11 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/vibehub/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/vibehub-site/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -375,10 +376,11 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/vibehub/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/vibehub-site/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -414,6 +416,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
