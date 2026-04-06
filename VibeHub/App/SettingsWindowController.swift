@@ -53,17 +53,12 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
             w.center()
         }
 
-        // Show window first, then load SwiftUI content on next run loop
-        // to avoid blocking the UI while the view tree initializes
+        let contentView = SettingsContentView()
+            .frame(width: 680, height: 520)
+        w.contentViewController = NSHostingController(rootView: contentView)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = w
-
-        DispatchQueue.main.async {
-            let contentView = SettingsContentView()
-                .frame(width: 680, height: 520)
-            w.contentViewController = NSHostingController(rootView: contentView)
-        }
     }
 
     // MARK: - NSToolbarDelegate
