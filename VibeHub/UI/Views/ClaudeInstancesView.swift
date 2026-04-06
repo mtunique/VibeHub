@@ -318,8 +318,7 @@ struct InstanceRow: View {
                 }
             }
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 14)
+        .padding(.horizontal, 6)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
@@ -328,7 +327,7 @@ struct InstanceRow: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
+                .fill(isHovered ? Color.white.opacity(0.15) : Color.clear)
         )
         .onHover { isHovered = $0 }
     }
