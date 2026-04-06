@@ -15,7 +15,7 @@ class OnboardingWindowController {
 
         let hostingController = NSHostingController(rootView: view)
         let w = NSWindow(contentViewController: hostingController)
-        w.title = "VibeHub"
+        w.title = "Vibe Hub"
         w.styleMask = [.titled, .closable]
         w.setContentSize(NSSize(width: 480, height: 520))
         w.center()

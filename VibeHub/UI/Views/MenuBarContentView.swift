@@ -24,7 +24,7 @@ struct MenuBarContentView: View {
     private var header: some View {
         HStack {
             ClaudeCrabIcon(size: 14)
-            Text("VibeHub")
+            Text("Vibe Hub")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
             Spacer()
@@ -63,6 +63,8 @@ struct MenuBarContentView: View {
             normalContent
             #endif
         }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
