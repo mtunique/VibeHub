@@ -270,4 +270,91 @@ final class SSHConfigParserTests: XCTestCase {
         let e2 = SSHConfigEntry(alias: "host", hostName: "h.com", user: "u", port: 22, identityFile: nil, useGSSAPI: false)
         XCTAssertEqual(e1, e2)
     }
+
+    // MARK: - IdentityFile tilde expansion
+
+    func testIdentityFile_tildeExpandedToHome() {
+        let config = """
+        Host tildehost
+            HostName tilde.example.com
+            IdentityFile ~/.ssh/id_ed25519
+        """
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertEqual(entries.count, 1)
+        // Tilde should be expanded; result must not start with "~"
+        XCTAssertFalse(entries[0].identityFile?.hasPrefix("~") == true)
+        XCTAssertTrue(entries[0].identityFile?.contains("id_ed25519") == true)
+    }
+
+    func testIdentityFile_absolutePath_unchanged() {
+        let config = """
+        Host abshost
+            HostName abs.example.com
+            IdentityFile /etc/ssh/mykey
+        """
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertEqual(entries[0].identityFile, "/etc/ssh/mykey")
+    }
+
+    // MARK: - Optional HostName
+
+    func testHostEntry_withoutHostName_hasNilHostName() {
+        let config = """
+        Host alias-only
+            User someuser
+        """
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].alias, "alias-only")
+        XCTAssertNil(entries[0].hostName)
+        XCTAssertEqual(entries[0].user, "someuser")
+    }
+
+    // MARK: - Tab-separated key/value
+
+    func testTabSeparatedKeyValue() {
+        // SSH config allows tab as separator between key and value
+        let config = "Host\ttabhost\n\tHostName\ttab.example.com\n"
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].alias, "tabhost")
+        XCTAssertEqual(entries[0].hostName, "tab.example.com")
+    }
+
+    // MARK: - GSSAPI value case-insensitivity
+
+    func testGSSAPIAuthentication_YES_uppercase_setsFlag() {
+        let config = """
+        Host gssapi-upper
+            HostName gss.example.com
+            GSSAPIAuthentication YES
+        """
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertTrue(entries[0].useGSSAPI)
+    }
+
+    func testGSSAPIAuthentication_Yes_mixed_setsFlag() {
+        let config = """
+        Host gssapi-mixed
+            HostName gss2.example.com
+            GSSAPIAuthentication Yes
+        """
+        let entries = SSHConfigParser.parse(config)
+        XCTAssertTrue(entries[0].useGSSAPI)
+    }
+
+    // MARK: - Multi-alias Host with wildcards mixed in
+
+    func testHostLineWithMixedAliasAndWildcard_onlyConcreteAliasCreated() {
+        let config = """
+        Host realserver *.wildcard.com
+            HostName shared.example.com
+            User shared
+        """
+        let entries = SSHConfigParser.parse(config)
+        // Only the concrete alias should appear; the wildcard pattern must be skipped
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].alias, "realserver")
+        XCTAssertEqual(entries[0].user, "shared")
+    }
 }

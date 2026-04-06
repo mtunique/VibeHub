@@ -263,6 +263,39 @@ final class SessionStateTests: XCTestCase {
         XCTAssertFalse(makeState(phase: .processing).needsAttention)
     }
 
+    // MARK: - openCodeControlSocketPath
+
+    func testOpenCodeControlSocketPath_nilForNonOpenCodeSession() {
+        let state = SessionState(sessionId: "claude-abc123", cwd: "/tmp", pid: 999)
+        XCTAssertNil(state.openCodeControlSocketPath)
+    }
+
+    func testOpenCodeControlSocketPath_nilWhenPidAbsent() {
+        let state = SessionState(sessionId: "opencode-abc123", cwd: "/tmp")
+        XCTAssertNil(state.openCodeControlSocketPath)
+    }
+
+    func testOpenCodeControlSocketPath_nonNilWhenOpenCodeAndPidSet() {
+        let state = SessionState(sessionId: "opencode-abc123", cwd: "/tmp", pid: 42)
+        XCTAssertNotNil(state.openCodeControlSocketPath)
+    }
+
+    func testOpenCodeControlSocketPath_containsPid() {
+        let state = SessionState(sessionId: "opencode-abc123", cwd: "/tmp", pid: 12345)
+        XCTAssertTrue(state.openCodeControlSocketPath?.contains("12345") == true)
+    }
+
+    func testOpenCodeControlSocketPath_endsWith_sockExtension() {
+        let state = SessionState(sessionId: "opencode-abc123", cwd: "/tmp", pid: 1)
+        XCTAssertTrue(state.openCodeControlSocketPath?.hasSuffix(".sock") == true)
+    }
+
+    func testOpenCodeControlSocketPath_differentPerPid() {
+        let s1 = SessionState(sessionId: "opencode-x", cwd: "/tmp", pid: 100)
+        let s2 = SessionState(sessionId: "opencode-x", cwd: "/tmp", pid: 200)
+        XCTAssertNotEqual(s1.openCodeControlSocketPath, s2.openCodeControlSocketPath)
+    }
+
     // MARK: - Equatable
 
     func testEqualStates() {
