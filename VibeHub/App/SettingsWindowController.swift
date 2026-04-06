@@ -27,7 +27,7 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
             backing: .buffered,
             defer: false
         )
-        w.title = L10n.isChinese ? "VibeHub 设置" : "VibeHub Settings"
+        w.title = L10n.isChinese ? "Vibe Hub 设置" : "Vibe Hub Settings"
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
         w.toolbarStyle = .unified
