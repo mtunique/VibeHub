@@ -15,15 +15,31 @@
 		FE0000012EDF32D8002A6548 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD33FD722EDF32D7002A6548 /* Markdown */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AB0000072EDF32D8AABB0007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FD33FD552EDF32D7002A6548 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FD33FD5C2EDF32D7002A6548;
+			remoteInfo = VibeHub;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		FD33FD5D2EDF32D7002A6548 /* VibeHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE0000022EDF32D8002A6548 /* VibeHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0000022EDF32D8AABB0002 /* VibeHubTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VibeHubTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FD33FD5F2EDF32D7002A6548 /* VibeHub */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VibeHub;
+			sourceTree = "<group>";
+		};
+		AB0000032EDF32D8AABB0003 /* VibeHubTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VibeHubTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +65,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AB0000042EDF32D8AABB0004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,6 +88,7 @@
 			children = (
 				FD33FD5D2EDF32D7002A6548 /* VibeHub.app */,
 				FE0000022EDF32D8002A6548 /* VibeHub.app */,
+				AB0000022EDF32D8AABB0002 /* VibeHubTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -122,6 +146,26 @@
 			productReference = FE0000022EDF32D8002A6548 /* VibeHub.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AB0000012EDF32D8AABB0001 /* VibeHubTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB00000A2EDF32D8AABB000A /* Build configuration list for PBXNativeTarget "VibeHubTests" */;
+			buildPhases = (
+				AB0000052EDF32D8AABB0005 /* Sources */,
+				AB0000042EDF32D8AABB0004 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AB0000062EDF32D8AABB0006 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AB0000032EDF32D8AABB0003 /* VibeHubTests */,
+			);
+			name = VibeHubTests;
+			productName = VibeHubTests;
+			productReference = AB0000022EDF32D8AABB0002 /* VibeHubTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -159,6 +203,7 @@
 			targets = (
 				FD33FD5C2EDF32D7002A6548 /* VibeHub */,
 				FE0000052EDF32D8002A6548 /* VibeHubAppStore */,
+				AB0000012EDF32D8AABB0001 /* VibeHubTests */,
 			);
 		};
 /* End PBXProject section */
@@ -195,7 +240,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AB0000052EDF32D8AABB0005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AB0000062EDF32D8AABB0006 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FD33FD5C2EDF32D7002A6548 /* VibeHub */;
+			targetProxy = AB0000072EDF32D8AABB0007 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		FD33FD662EDF32D8002A6548 /* Debug */ = {
@@ -604,6 +664,44 @@
 			};
 			name = AppStore;
 		};
+		AB0000082EDF32D8AABB0008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtunique.vibehub.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VibeHub.app/Contents/MacOS/VibeHub";
+			};
+			name = Debug;
+		};
+		AB0000092EDF32D8AABB0009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtunique.vibehub.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VibeHub.app/Contents/MacOS/VibeHub";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -636,6 +734,15 @@
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = AppStore;
+		};
+		AB00000A2EDF32D8AABB000A /* Build configuration list for PBXNativeTarget "VibeHubTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB0000082EDF32D8AABB0008 /* Debug */,
+				AB0000092EDF32D8AABB0009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 
