@@ -242,20 +242,28 @@ else
 
     # If appcast exists, insert new item after <channel> (before first <item>)
     if [ -f "$APPCAST_PATH" ]; then
-        # Build new item XML
-        NEW_ITEM="        <item>
-            <title>$VERSION</title>
-            <pubDate>$PUB_DATE</pubDate>
-            <sparkle:version>$BUILD</sparkle:version>
-            <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+        # Use Python to insert new item after <channel>, before first <item>
+        python3 - "$APPCAST_PATH" "$VERSION" "$BUILD" "$PUB_DATE" "$GITHUB_DOWNLOAD_URL" "$DMG_LENGTH" "$ED_SIG" <<'PYEOF'
+import sys
+path, version, build, pub_date, url, length, sig = sys.argv[1:]
+new_item = f"""        <item>
+            <title>{version}</title>
+            <pubDate>{pub_date}</pubDate>
+            <sparkle:version>{build}</sparkle:version>
+            <sparkle:shortVersionString>{version}</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url=\"$GITHUB_DOWNLOAD_URL\" length=\"$DMG_LENGTH\" type=\"application/octet-stream\" sparkle:edSignature=\"$ED_SIG\"/>
-        </item>"
-
-        # Insert after <channel> line, before first <item>
-        sed -i '' "/<channel>/a\\
-\\
-$NEW_ITEM" "$APPCAST_PATH"
+            <enclosure url="{url}" length="{length}" type="application/octet-stream" sparkle:edSignature="{sig}"/>
+        </item>"""
+lines = open(path).readlines()
+out = []
+inserted = False
+for line in lines:
+    if not inserted and '<item>' in line:
+        out.append(new_item + '\n')
+        inserted = True
+    out.append(line)
+open(path, 'w').write(''.join(out))
+PYEOF
     else
         # Create fresh appcast
         cat > "$APPCAST_PATH" << XMLEOF
