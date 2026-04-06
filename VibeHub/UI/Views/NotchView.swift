@@ -273,7 +273,7 @@ struct NotchView: View {
 
     @ViewBuilder
     private var notchLayout: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
             // Header row - always present, contains crab and spinner that persist across states
             headerRow
                 .frame(height: max(24, closedNotchSize.height))
@@ -281,7 +281,7 @@ struct NotchView: View {
             // Main content only when opened
             if viewModel.status == .opened {
                 contentView
-                    .frame(width: notchSize.width - 24) // Fixed width to prevent reflow
+                    .frame(width: notchSize.width - 14) // Fixed width to prevent reflow
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.8, anchor: .top)
@@ -485,7 +485,7 @@ struct NotchView: View {
             normalContent
             #endif
         }
-        .frame(width: notchSize.width - 24) // Fixed width to prevent text reflow
+        .frame(width: notchSize.width - 14) // Fixed width to prevent text reflow
         // Removed .id() - was causing view recreation and performance issues
     }
 
@@ -583,9 +583,11 @@ struct NotchView: View {
             // Prefer jumping directly into chat for interactive tools (eg OpenCode AskUserQuestion),
             // since the instances list only shows a "Needs your input" hint.
             if let interactive = newlyPendingSessions.first(where: { $0.pendingToolName == "AskUserQuestion" }) {
+                NotchLog.log("handlePending: opening for interactive tool, session=\(interactive.sessionId.prefix(12)) tool=\(interactive.pendingToolName ?? "?")")
                 viewModel.notchOpen(reason: .interaction)
                 viewModel.showChat(for: interactive)
             } else {
+                NotchLog.log("handlePending: opening for approval, sessions=\(newlyPendingSessions.map { String($0.sessionId.prefix(12)) })")
                 viewModel.notchOpen(reason: .interaction)
             }
         }
@@ -629,7 +631,7 @@ struct NotchView: View {
                 pendingCompletionOpenWork?.cancel()
 
                 let stableId = focusSession.stableId
-                let work = DispatchWorkItem {
+                let work = DispatchWorkItem { [self] in
                     // Re-fetch the latest snapshot.
                     guard let latest = sessionMonitor.instances.first(where: { $0.stableId == stableId }) else { return }
                     guard latest.phase == .waitingForInput else { return }
@@ -641,10 +643,28 @@ struct NotchView: View {
                     if let lastShown = lastCompletionShownAt[stableId], latest.lastActivity <= lastShown {
                         return
                     }
-                    lastCompletionShownAt[stableId] = Date()
 
-                    viewModel.notchOpen(reason: .notification)
-                    viewModel.showChat(for: latest)
+                    // Don't expand if the session's terminal is in the foreground
+                    NotchLog.log("handleWaiting: debounce fired for session=\(stableId.prefix(16)) phase=\(latest.phase) msg=\(lastMsg.prefix(40))")
+                    Task {
+                        let isFocused = await TerminalActivator.shared.isSessionTerminalFocused(for: latest)
+                        NotchLog.log("handleWaiting: isFocused=\(isFocused) for session=\(stableId.prefix(16))")
+                        guard !isFocused else { return }
+
+                        await MainActor.run { [self] in
+                            // Re-verify session still exists and is waiting
+                            guard let current = sessionMonitor.instances.first(where: { $0.stableId == stableId }),
+                                  current.phase == .waitingForInput else {
+                                NotchLog.log("handleWaiting: session gone or phase changed, skipping open")
+                                return
+                            }
+
+                            NotchLog.log("handleWaiting: opening notch for session=\(stableId.prefix(16))")
+                            lastCompletionShownAt[stableId] = Date()
+                            viewModel.notchOpen(reason: .notification)
+                            viewModel.showChat(for: current)
+                        }
+                    }
                 }
 
                 pendingCompletionOpenWork = work
