@@ -146,10 +146,9 @@ Start here when license validation, activation, trial logic, or checkout integra
 Start here when update prompts, release feed behavior, or the release pipeline changes.
 
 - `VibeHub/Services/Update/NotchUserDriver.swift`
-- `docs/appcast.xml` — local copy (canonical copy lives in vibehub-site repo)
+- `releases/appcast.xml` — local copy (canonical copy lives in VibeHub repo)
 - `scripts/create-release.sh` — full release pipeline
 - `scripts/build.sh` — archive + export
-- `vibehub-site/` — public GitHub Pages repo (releases, appcast, landing page)
 
 ## Quick Triage Rule
 
