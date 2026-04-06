@@ -32,13 +32,7 @@ xcodebuild archive \
     -destination "generic/platform=macOS" \
     ENABLE_HARDENED_RUNTIME=YES \
     CODE_SIGN_STYLE=Automatic \
-    | xcpretty || xcodebuild archive \
-    -scheme VibeHub \
-    -configuration Release \
-    -archivePath "$ARCHIVE_PATH" \
-    -destination "generic/platform=macOS" \
-    ENABLE_HARDENED_RUNTIME=YES \
-    CODE_SIGN_STYLE=Automatic
+    -allowProvisioningUpdates
 
 echo ""
 
@@ -70,7 +64,8 @@ APP_PATH="$EXPORT_PATH/$APP_NAME.app"
 if xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportPath "$EXPORT_PATH" \
-    -exportOptionsPlist "$EXPORT_OPTIONS" 2>&1 | tail -5; then
+    -exportOptionsPlist "$EXPORT_OPTIONS" \
+    -allowProvisioningUpdates 2>&1 | tail -5; then
     echo "Export succeeded."
 else
     echo "Export failed, using archived app as fallback."
