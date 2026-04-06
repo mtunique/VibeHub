@@ -2,14 +2,14 @@
   <img src="VibeHub/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="Logo" width="100" height="100">
   <h3 align="center">Vibe Hub</h3>
   <p align="center">
-    A macOS menu bar app that brings Dynamic Island-style notifications to Claude Code CLI sessions.
+    A macOS app that brings a Dynamic Island-style overlay for monitoring Claude Code and OpenCode CLI sessions.
     <br />
     <br />
-    <a href="https://github.com/farouqaldori/vibehub/releases/latest" target="_blank" rel="noopener noreferrer">
-      <img src="https://img.shields.io/github/v/release/farouqaldori/vibehub?style=rounded&color=white&labelColor=000000&label=release" alt="Release Version" />
+    <a href="https://github.com/mtunique/VibeHub/releases/latest" target="_blank" rel="noopener noreferrer">
+      <img src="https://img.shields.io/github/v/release/mtunique/VibeHub?style=rounded&color=white&labelColor=000000&label=release" alt="Release Version" />
     </a>
-    <a href="#" target="_blank" rel="noopener noreferrer">
-      <img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/farouqaldori/vibehub/total?style=rounded&color=white&labelColor=000000">
+    <a href="https://github.com/mtunique/VibeHub/releases" target="_blank" rel="noopener noreferrer">
+      <img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/mtunique/VibeHub/total?style=rounded&color=white&labelColor=000000">
     </a>
     <a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener noreferrer">
       <img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=rounded&color=white&labelColor=000000" alt="License" />
@@ -20,16 +20,19 @@
 ## Features
 
 - **Dynamic Island UI** — Animated overlay that expands from the MacBook notch with smooth transitions
-- **Live Session Monitoring** — Track multiple Claude Code sessions in real-time
-- **Permission Approvals** — Approve or deny tool executions directly from the notch without switching to terminal
+- **Menu Bar Mode** — Works on any Mac without a notch; animated icon shows live session status
+- **Auto Mode** — Automatically picks Dynamic Island or menu bar based on your screen
+- **Live Session Monitoring** — Track multiple Claude Code and OpenCode sessions in real-time
+- **Permission Approvals** — Approve or deny tool executions directly from the overlay without switching to terminal
 - **Chat History** — View full conversation history with markdown rendering
 - **Auto-Setup** — Hooks install automatically on first launch
-- **Remote SSH Support** — Monitor Claude sessions running on remote servers via SSH tunneling
+- **Remote SSH Support** — Monitor sessions on remote servers via native SSH tunneling (no extra processes)
+- **Smart Terminal Tab Switching** — Jump to the exact SSH tab for a session, even with multiple connections to the same host
 - **OpenCode Support** — Works with OpenCode CLI alongside Claude Code
 - **Multi-Screen Support** — Detects and works with multiple monitors, including physical notch detection
 - **Auto-Update** — Built-in update mechanism via Sparkle
 - **Notification Sounds** — Customizable sounds when Claude finishes processing
-- **Smart Terminal Detection** — Only shows notch when terminal is not visible
+- **Smart Terminal Detection** — Only expands when terminal is not in focus
 
 ## Requirements
 
@@ -41,7 +44,7 @@
 
 ### Download
 
-Download the latest release from the [Releases](https://github.com/farouqaldori/vibehub/releases/latest) page.
+Download the latest release from the [Releases](https://github.com/mtunique/VibeHub/releases/latest) page.
 
 ### Build from Source
 
@@ -57,9 +60,7 @@ Vibe Hub monitors your Claude Code sessions by:
 
 1. **Hook Installation** — On first launch, installs a Python hook to `~/.claude/hooks/` and registers it in Claude Code's `settings.json`
 
-2. **Socket Communication** — The hook sends session events to the app via a Unix socket (`~/.vibehub/ci.sock`)
-
-3. **Real-time Updates** — Events like `SessionStart`, `PreToolUse`, `PermissionRequest`, and `Stop` are processed and displayed in the notch UI
+2. **Real-time Updates** — Events like `SessionStart`, `PreToolUse`, `PermissionRequest`, and `Stop` are processed and displayed in the notch UI
 
 4. **Permission Control** — When a tool needs approval, the notch expands with approve/deny buttons. The decision is sent back to Claude Code instantly.
 
@@ -102,15 +103,6 @@ Access settings by clicking the notch to expand it, then click the gear icon.
 | **Screen** | Choose which monitor shows the notch |
 | **Notification Sound** | Pick from 14 system sounds (or none) |
 | **Remote Hosts** | Configure SSH connections to remote servers |
-
-## Analytics
-
-Vibe Hub uses Mixpanel to collect anonymous usage data:
-
-- **App Launched** — App version, build number, macOS version
-- **Session Started** — When a new Claude Code session is detected
-
-No personal data or conversation content is collected. Analytics can be disabled by building from source with Mixpanel removed.
 
 ## Architecture
 
