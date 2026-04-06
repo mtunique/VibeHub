@@ -14,9 +14,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenObserver: ScreenObserver?
     private var updateCheckTimer: Timer?
     private var onboardingWindow: OnboardingWindowController?
-    #if !APP_STORE
-    private var licenseCancellables = Set<AnyCancellable>()
-    #endif
 
     static var shared: AppDelegate?
 
@@ -103,48 +100,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if AppSettings.hasCompletedOnboarding {
             startDisplayMode()
-            #if !APP_STORE
-            validateLicenseOnStartup()
-            #endif
         } else {
             // Show standalone onboarding window before any display mode
             onboardingWindow = OnboardingWindowController()
             onboardingWindow?.show { [weak self] in
                 self?.onboardingWindow = nil
-                self?.startDisplayMode()
-                #if !APP_STORE
-                self?.validateLicenseOnStartup()
-                #endif
-            }
+            self?.startDisplayMode()
+        }
         }
 
         RemoteManager.shared.startup()
-
-        #if !APP_STORE
-        // Watch for license status changes to lock/unlock UI
-        LicenseManager.shared.$status
-            .dropFirst()  // skip initial .locked value before validateOnStartup runs
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] newStatus in
-                guard let vm = self?.windowController?.viewModel else { return }
-                switch newStatus {
-                case .locked:
-                    // Just open the notch — the view gate shows activation screen
-                    vm.notchOpen(reason: .boot)
-                case .activated, .trial:
-                    // View gate automatically shows normal content
-                    if vm.status == .opened {
-                        vm.notchClose()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            vm.performBootAnimation()
-                        }
-                    }
-                case .validating:
-                    break
-                }
-            }
-            .store(in: &licenseCancellables)
-        #endif
 
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()
@@ -167,18 +132,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager()
         windowManager?.setup()
     }
-
-    #if !APP_STORE
-    private func validateLicenseOnStartup() {
-        Task { @MainActor in
-            let isValid = await LicenseManager.shared.validateOnStartup()
-            if !isValid {
-                // Just open notch — the view gate shows activation screen
-                windowController?.viewModel.notchOpen(reason: .boot)
-            }
-        }
-    }
-    #endif
 
     private func handleScreenChange() {
         _ = windowManager?.setupNotchWindow()

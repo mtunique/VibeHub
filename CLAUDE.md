@@ -38,7 +38,7 @@ The app uses XcodeGen with file system synchronization (no .xcodeproj editing ne
 ./scripts/create-release.sh
 ```
 
-Requires: Developer ID Application certificate, `xcrun notarytool` keychain profile "VibeHub", Sparkle EdDSA key in `.sparkle-keys/`. Releases go to `mtunique/vibehub-site` (public repo). Appcast served via GitHub Pages at `https://mtunique.github.io/vibehub-site/appcast.xml`.
+Requires: Developer ID Application certificate, `xcrun notarytool` keychain profile "VibeHub", Sparkle EdDSA key in `.sparkle-keys/`. Releases go to `mtunique/VibeHub` (public repo). Appcast served via GitHub Pages.
 
 ## Architecture Overview
 

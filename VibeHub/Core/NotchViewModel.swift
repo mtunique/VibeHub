@@ -93,15 +93,6 @@ class NotchViewModel: ObservableObject {
 
     /// Dynamic opened size based on content type
     var openedSize: CGSize {
-        #if !APP_STORE
-        // License lock screen overrides size regardless of contentType
-        if LicenseManager.shared.status == .locked && contentType != .menu {
-            return CGSize(
-                width: min(screenRect.width * 0.4, 480),
-                height: 420
-            )
-        }
-        #endif
         switch contentType {
         case .chat:
             // Large size for chat view

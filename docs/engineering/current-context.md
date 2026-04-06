@@ -22,8 +22,8 @@ This file is intentionally short-lived and should be updated after meaningful fe
 - `NativeSSHForwarder` gained an exec queue (`enqueueExec` / `drainPendingExecs`) for running one-shot commands on the SSH thread.
 - Notch auto-expansion checks `TerminalActivator.isSessionTerminalFocused` before opening.
 - `NotchWindowController.hasBooted` prevents repeated boot animations on screen changes.
-- Release pipeline: `scripts/create-release.sh` handles build → notarize → DMG → Sparkle → GitHub Release → appcast push to vibehub-site.
-- SUFeedURL now points to `https://mtunique.github.io/vibehub-site/appcast.xml`.
+- Release pipeline: `scripts/create-release.sh` handles build → notarize → DMG → Sparkle → GitHub Release → appcast push to releases dir.
+- SUFeedURL points to `https://github.com/mtunique/VibeHub/releases/download/v1.3.1/appcast.xml` (served via GitHub Pages).
 
 ## Current Priorities
 

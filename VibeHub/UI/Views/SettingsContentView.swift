@@ -16,9 +16,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case notifications
     case remote
     case system
-    #if !APP_STORE
-    case license
-    #endif
     case about
 
     var id: String { rawValue }
@@ -29,9 +26,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .notifications: return L10n.settingsNotifications
         case .remote: return L10n.remote
         case .system: return L10n.settingsSystem
-        #if !APP_STORE
-        case .license: return L10n.license
-        #endif
         case .about: return L10n.settingsAbout
         }
     }
@@ -42,9 +36,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .notifications: return "bell.badge.fill"
         case .remote: return "network"
         case .system: return "gearshape.fill"
-        #if !APP_STORE
-        case .license: return "key.fill"
-        #endif
         case .about: return "info.circle.fill"
         }
     }
@@ -55,9 +46,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .notifications: return .red
         case .remote: return .blue
         case .system: return .gray
-        #if !APP_STORE
-        case .license: return .orange
-        #endif
         case .about: return .blue
         }
     }
@@ -90,12 +78,7 @@ struct SettingsContentView: View {
     }
 
     private var bottomSections: [SettingsSection] {
-        var sections: [SettingsSection] = []
-        #if !APP_STORE
-        sections.append(.license)
-        #endif
-        sections.append(.about)
-        return sections
+        [.about]
     }
 
     var body: some View {
@@ -142,11 +125,6 @@ struct SettingsContentView: View {
         }
         .navigationSplitViewColumnWidth(730)
         .navigationSplitViewStyle(.balanced)
-        .onReceive(NotificationCenter.default.publisher(for: .settingsNavigateToLicense)) { _ in
-            #if !APP_STORE
-            selectedSection = .license
-            #endif
-        }
     }
 
     private func sidebarRow(_ section: SettingsSection) -> some View {
@@ -186,10 +164,6 @@ struct SettingsContentView: View {
             RemoteSection()
         case .system:
             SystemSection()
-        #if !APP_STORE
-        case .license:
-            LicenseSection()
-        #endif
         case .about:
             AboutSection()
         }
@@ -347,123 +321,6 @@ private struct SystemSection: View {
     }
 }
 
-// MARK: - License Section
-
-#if !APP_STORE
-private struct LicenseSection: View {
-    @ObservedObject private var licenseManager = LicenseManager.shared
-    @State private var licenseKeyInput = ""
-    @State private var isActivating = false
-    @State private var showConfirmDeactivate = false
-
-    var body: some View {
-        Form {
-            Section {
-                HStack {
-                    Text(L10n.license)
-                    Spacer()
-                    statusBadge
-                }
-
-                if licenseManager.status == .activated {
-                    LabeledContent(L10n.licenseKeyPlaceholder) {
-                        Text(licenseManager.maskedKey)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    LabeledContent(L10n.licenseDevices) {
-                        Text(L10n.licenseDeviceCount(licenseManager.activationCount, licenseManager.activationLimit))
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            if licenseManager.status != .activated {
-                Section(L10n.licenseActivate) {
-                    HStack(spacing: 8) {
-                        TextField(L10n.licenseKeyPlaceholder, text: $licenseKeyInput)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
-                            .disabled(isActivating)
-                            .onSubmit { doActivate() }
-
-                        Button {
-                            doActivate()
-                        } label: {
-                            if isActivating {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text(L10n.licenseActivate)
-                            }
-                        }
-                        .disabled(licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isActivating)
-                    }
-
-                    if let err = licenseManager.errorMessage {
-                        Text(err).foregroundColor(.red).font(.caption)
-                    }
-
-                    Link(destination: URL(string: LemonSqueezyAPIClient.checkoutURL)!) {
-                        Label(L10n.licensePurchase, systemImage: "cart")
-                    }
-                }
-            }
-
-            if licenseManager.status == .activated {
-                Section {
-                    if showConfirmDeactivate {
-                        HStack {
-                            Text(L10n.licenseDeactivateDevice)
-                                .foregroundColor(.red)
-                            Spacer()
-                            Button(role: .destructive) {
-                                Task {
-                                    await licenseManager.deactivateThisDevice()
-                                    showConfirmDeactivate = false
-                                }
-                            } label: {
-                                Text(L10n.licenseDeactivateDevice)
-                            }
-                        }
-                    } else {
-                        Button(L10n.licenseDeactivateDevice) {
-                            showConfirmDeactivate = true
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-    }
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch licenseManager.status {
-        case .activated:
-            Label(L10n.licenseActivated, systemImage: "checkmark.circle.fill").foregroundColor(.green)
-        case .trial:
-            Label(L10n.trialTimeRemaining(hours: licenseManager.trialHoursRemaining), systemImage: "clock").foregroundColor(.orange)
-        case .locked:
-            Label(L10n.trialExpiredTitle, systemImage: "exclamationmark.triangle.fill").foregroundColor(.red)
-        case .validating:
-            ProgressView().controlSize(.small)
-        }
-    }
-
-    private func doActivate() {
-        let trimmed = licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isActivating else { return }
-        isActivating = true
-        Task {
-            await licenseManager.activate(key: trimmed)
-            isActivating = false
-            if licenseManager.status == .activated { licenseKeyInput = "" }
-        }
-    }
-}
-#endif
-
 // MARK: - About Section
 
 private struct AboutSection: View {
@@ -497,7 +354,7 @@ private struct AboutSection: View {
                 }
                 #endif
 
-                Link(destination: URL(string: "https://github.com/mtunique/vibehub")!) {
+                Link(destination: URL(string: "https://github.com/mtunique/VibeHub")!) {
                     Label(L10n.starOnGitHub, systemImage: "star")
                 }
             }
