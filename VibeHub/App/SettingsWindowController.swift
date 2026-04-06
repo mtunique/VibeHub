@@ -20,10 +20,7 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
             return
         }
 
-        let contentView = SettingsContentView()
-            .frame(width: 680, height: 520)
-        let hostingController = NSHostingController(rootView: contentView)
-
+        // Create window shell immediately (fast)
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
@@ -35,20 +32,38 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
         w.titleVisibility = .hidden
         w.toolbarStyle = .unified
 
-        // Add an empty toolbar to enable the unified titlebar+toolbar area
         let toolbar = NSToolbar(identifier: "SettingsToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.showsBaselineSeparator = false
         w.toolbar = toolbar
 
-        w.contentViewController = hostingController
-        w.center()
         w.isReleasedWhenClosed = false
+
+        // Center on the screen where the mouse cursor is
+        let mouseScreen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+            ?? NSScreen.main
+        if let screen = mouseScreen {
+            let screenFrame = screen.visibleFrame
+            let windowSize = w.frame.size
+            let x = screenFrame.midX - windowSize.width / 2
+            let y = screenFrame.midY - windowSize.height / 2
+            w.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            w.center()
+        }
+
+        // Show window first, then load SwiftUI content on next run loop
+        // to avoid blocking the UI while the view tree initializes
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
         self.window = w
+
+        DispatchQueue.main.async {
+            let contentView = SettingsContentView()
+                .frame(width: 680, height: 520)
+            w.contentViewController = NSHostingController(rootView: contentView)
+        }
     }
 
     // MARK: - NSToolbarDelegate
