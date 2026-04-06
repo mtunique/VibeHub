@@ -25,9 +25,6 @@ struct NotchView: View {
     @ObservedObject private var sessionMonitor = ClaudeSessionMonitor.shared
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
-    #if !APP_STORE
-    @ObservedObject private var licenseManager = LicenseManager.shared
-    #endif
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
@@ -256,19 +253,10 @@ struct NotchView: View {
         activityCoordinator.expandingActivity.show && activityCoordinator.expandingActivity.type == .claude
     }
 
-    #if !APP_STORE
-    private var isLicenseLocked: Bool {
-        licenseManager.status == .locked
-    }
-    #endif
-
     /// Whether to show something in the closed notch.
     /// We keep a minimal indicator (crab + session count) whenever there are tracked sessions.
     private var showClosedActivity: Bool {
-        #if !APP_STORE
-        if isLicenseLocked { return true }
-        #endif
-        return sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
+        sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
     }
 
     @ViewBuilder
@@ -387,33 +375,18 @@ struct NotchView: View {
 
             // Right side - spinner when processing/pending, checkmark when waiting for input
             if showClosedActivity {
-                #if !APP_STORE
-                if isLicenseLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.8))
-                        .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-                }
-                #endif
-                let licenseBlocking: Bool = {
-                    #if !APP_STORE
-                    return isLicenseLocked
-                    #else
-                    return false
-                    #endif
-                }()
-                if !licenseBlocking && (isProcessing || hasPendingPermission) {
+                if isProcessing || hasPendingPermission {
                     ProcessingSpinner()
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-                } else if !licenseBlocking && hasWaitingForInput {
+                } else if hasWaitingForInput {
                     ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
                         .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
                         .frame(width: viewModel.status == .opened ? 20 : sideWidth)
                 }
 
-                // Session count badge — far right (hidden when locked)
-                if viewModel.status != .opened && sessionCount > 0 && !licenseBlocking {
+                // Session count badge — far right
+                if viewModel.status != .opened && sessionCount > 0 {
                     Text("\(sessionCount)")
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.45))
@@ -473,20 +446,7 @@ struct NotchView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        Group {
-            #if !APP_STORE
-            // Single license gate: locked + not in settings → show activation view
-            if isLicenseLocked && viewModel.contentType != .menu {
-                LicenseActivationView(licenseManager: licenseManager)
-            } else {
-                normalContent
-            }
-            #else
-            normalContent
-            #endif
-        }
-        .frame(width: notchSize.width - 14) // Fixed width to prevent text reflow
-        // Removed .id() - was causing view recreation and performance issues
+        normalContent
     }
 
     @ViewBuilder

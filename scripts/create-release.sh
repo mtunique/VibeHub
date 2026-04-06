@@ -9,10 +9,10 @@ ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
-SITE_DIR="$PROJECT_DIR/vibehub-site"
+SITE_DIR="$PROJECT_DIR/releases"
 
 APP_NAME="VibeHub"
-GITHUB_REPO="mtunique/vibehub-site"
+GITHUB_REPO="mtunique/VibeHub"
 KEYCHAIN_PROFILE="VibeHub"
 
 # ============================================
@@ -193,7 +193,7 @@ fi
 echo ""
 
 # ============================================
-# Step 7: GitHub Release on vibehub-site
+# Step 7: GitHub Release
 # ============================================
 echo "=== Step 7: GitHub Release ==="
 
@@ -226,7 +226,7 @@ fi
 echo ""
 
 # ============================================
-# Step 8: Update appcast in vibehub-site
+# Step 8: Update appcast in releases
 # ============================================
 echo "=== Step 8: Updating appcast ==="
 
@@ -239,8 +239,8 @@ else
     PUB_DATE=$(date -R)
 
     if [ ! -d "$SITE_DIR" ]; then
-        echo "ERROR: vibehub-site not found at $SITE_DIR"
-        echo "Clone it: git clone git@github.com:$GITHUB_REPO.git vibehub-site"
+        echo "WARNING: releases dir not found at $SITE_DIR, creating..."
+        mkdir -p "$SITE_DIR"
     else
         APPCAST="$SITE_DIR/appcast.xml"
 
@@ -293,7 +293,7 @@ XMLEOF
         else
             git commit -m "update appcast for v$VERSION"
             git push
-            echo "Pushed appcast to vibehub-site."
+            echo "Appcast saved to releases directory."
         fi
         cd "$PROJECT_DIR"
     fi

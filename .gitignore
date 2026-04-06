@@ -50,17 +50,18 @@ log/
 CLAUDE.md
 !CLAUDE.md
 
-# GitHub Pages (separate repo: vibehub-site)
+# GitHub Pages
 docs/*
 !docs/engineering/
 !docs/engineering/*.md
 !docs/superpowers/
 !docs/superpowers/specs/
 !docs/superpowers/specs/*.md
-vibehub-site/
+releases/
 
 # Screenshot assets
 appstore_*.png
 raw_*.jpg
 raw_*.png
 thumbnail_*.png
+.claude/

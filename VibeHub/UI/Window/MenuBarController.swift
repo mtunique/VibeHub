@@ -29,9 +29,6 @@ class MenuBarController {
         setupPopover()
         setupEventMonitor()
         observeSessions()
-        #if !APP_STORE
-        observeLicenseStatus()
-        #endif
     }
 
     nonisolated deinit {
@@ -94,29 +91,6 @@ class MenuBarController {
 
     // MARK: - Session observation (update icon badge)
 
-    #if !APP_STORE
-    private func observeLicenseStatus() {
-        LicenseManager.shared.$status
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
-                guard let self else { return }
-                switch status {
-                case .locked:
-                    // Just show popover — the view gate shows activation screen
-                    if !self.popover.isShown { self.showPopover() }
-                case .activated, .trial:
-                    // Dismiss popover; next open auto-shows normal content via view gate
-                    if self.popover.isShown { self.popover.performClose(nil) }
-                case .validating:
-                    break
-                }
-                self.updateIcon(instances: self.sessionMonitor.instances)
-            }
-            .store(in: &cancellables)
-    }
-    #endif
-
     private func observeSessions() {
         sessionMonitor.$instances
             .receive(on: DispatchQueue.main)
@@ -128,18 +102,6 @@ class MenuBarController {
 
     private func updateIcon(instances: [SessionState]) {
         guard let button = statusItem?.button else { return }
-
-        #if !APP_STORE
-        // When license is locked, show static red icon — don't reflect session activity
-        if LicenseManager.shared.status == .locked {
-            stopLegAnimation()
-            currentIconColor = NSColor.systemRed
-            button.image = renderCrabIcon(color: .systemRed, legPhase: 1)
-            button.image?.isTemplate = false
-            button.title = ""
-            return
-        }
-        #endif
 
         let hasActive = instances.contains(where: { $0.phase == .processing || $0.phase == .compacting })
         let hasPending = instances.contains(where: {
