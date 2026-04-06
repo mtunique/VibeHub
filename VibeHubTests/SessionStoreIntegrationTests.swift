@@ -855,4 +855,83 @@ final class SessionStoreIntegrationTests: XCTestCase {
         let e = hookEvent(sessionId: "x", event: "PreToolUse", status: "running_tool", tool: "Bash", toolUseId: "t")
         XCTAssertFalse(e.expectsResponse)
     }
+
+    // MARK: - SessionStart / SubagentStop via SessionStore
+
+    func testSessionStart_createsSession_inWaitingForInputPhase() async {
+        let id = sid()
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "SessionStart", status: "waiting_for_input")))
+        let session = await store.session(for: id)
+        XCTAssertNotNil(session)
+        XCTAssertEqual(session?.phase, .waitingForInput)
+    }
+
+    func testSubagentStop_transitionsToWaitingForInput() async {
+        let id = sid()
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "UserPromptSubmit", status: "processing")))
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "SubagentStop", status: "waiting_for_input")))
+        let session = await store.session(for: id)
+        XCTAssertEqual(session?.phase, .waitingForInput)
+    }
+
+    // MARK: - Notification events via SessionStore
+
+    func testNotification_idlePrompt_transitionsToIdle() async {
+        let id = sid()
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "UserPromptSubmit", status: "processing")))
+        await store.process(.hookReceived(hookEvent(
+            sessionId: id,
+            event: "Notification",
+            status: "waiting_for_input",
+            notificationType: "idle_prompt"
+        )))
+        let session = await store.session(for: id)
+        XCTAssertEqual(session?.phase, .idle)
+    }
+
+    // MARK: - OpenCode AskUserQuestion PermissionRequest
+
+    func testOpenCode_askUserQuestion_permissionRequest_setsWaitingForApproval() async {
+        let id = "opencode-\(UUID().uuidString)"
+        testSessionIds.append(id)
+        let questionId = "q-\(UUID().uuidString)"
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "UserPromptSubmit", status: "processing")))
+        await store.process(.hookReceived(hookEvent(
+            sessionId: id,
+            event: "PermissionRequest",
+            status: "waiting_for_approval",
+            tool: "AskUserQuestion",
+            toolUseId: questionId,
+            toolInput: ["questions": AnyCodable([["question": "Which API?", "header": "API choice", "options": [], "multiSelect": false]])]
+        )))
+        let session = await store.session(for: id)
+        if case .waitingForApproval(let ctx) = session?.phase {
+            XCTAssertEqual(ctx.toolName, "AskUserQuestion")
+            XCTAssertEqual(ctx.toolUseId, questionId)
+        } else {
+            XCTFail("Expected .waitingForApproval for AskUserQuestion, got \(String(describing: session?.phase))")
+        }
+    }
+
+    // MARK: - OpenCode Stop with last_assistant_message and codex_title
+
+    func testOpenCode_stop_withLastAssistantMessage_andCodexTitle() async {
+        let id = "opencode-\(UUID().uuidString)"
+        testSessionIds.append(id)
+        await store.process(.hookReceived(hookEvent(sessionId: id, event: "UserPromptSubmit", status: "processing", prompt: "Describe login")))
+        await store.process(.hookReceived(hookEvent(
+            sessionId: id,
+            event: "Stop",
+            status: "waiting_for_input",
+            codexTitle: "Login Flow Analysis",
+            lastAssistantMessage: "The login function validates credentials then issues a JWT."
+        )))
+        let session = await store.session(for: id)
+        XCTAssertEqual(session?.phase, .waitingForInput)
+        XCTAssertEqual(session?.conversationInfo.summary, "Login Flow Analysis")
+        XCTAssertEqual(
+            session?.conversationInfo.lastMessage,
+            "The login function validates credentials then issues a JWT."
+        )
+    }
 }
