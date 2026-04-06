@@ -17,8 +17,9 @@ struct OpenCodePluginInstaller {
             .appendingPathComponent(".config")
             .appendingPathComponent("opencode")
 
-        let configFile = opencodeDir.appendingPathComponent("opencode.json")
-        guard FileManager.default.fileExists(atPath: configFile.path) else {
+        // Only install if the user has OpenCode config dir (i.e. has run opencode before).
+        // Plugins in ~/.config/opencode/plugins/ are auto-discovered — no opencode.json registration needed.
+        guard FileManager.default.fileExists(atPath: opencodeDir.path) else {
             return
         }
 
@@ -40,47 +41,15 @@ struct OpenCodePluginInstaller {
                     ofItemAtPath: pluginFile.path
                 )
             } catch {
-                // Best effort; don't fail app launch
                 return
             }
         } else {
-            // If the resource isn't bundled, skip silently.
             return
         }
 
         // Write sidecar socket path so the plugin knows where to connect.
-        // Always overwrite: the path differs between dev and App Store builds.
         let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
         let socketPath = HookSocketPaths.socketPath + "\n"
         try? socketPath.data(using: .utf8)?.write(to: socketFile, options: [.atomic])
-
-        updateOpenCodeConfig(configFile: configFile, pluginFile: pluginFile)
-    }
-
-    private static func updateOpenCodeConfig(configFile: URL, pluginFile: URL) {
-        guard let data = try? Data(contentsOf: configFile),
-              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return
-        }
-
-        let pluginURL = URL(fileURLWithPath: pluginFile.path).absoluteString
-
-        var plugins: [String] = []
-        if let existing = json["plugin"] as? [String] {
-            plugins = existing
-        } else if let existing = json["plugin"] as? String {
-            plugins = [existing]
-        }
-
-        if !plugins.contains(pluginURL) {
-            plugins.append(pluginURL)
-        }
-        json["plugin"] = plugins
-
-        guard let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
-            return
-        }
-
-        try? out.write(to: configFile)
     }
 }
