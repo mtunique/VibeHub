@@ -28,7 +28,7 @@ struct HookInstaller {
                 _ = installAppStore(claudeDir: claudeDir)
 
                 let opencodeDir = homeDir.appendingPathComponent(".config").appendingPathComponent("opencode")
-                if FileManager.default.fileExists(atPath: opencodeDir.appendingPathComponent("opencode.json").path) {
+                if FileManager.default.fileExists(atPath: opencodeDir.path) {
                     _ = installOpenCodeAppStore(opencodeDir: opencodeDir)
                 }
             }
@@ -265,13 +265,8 @@ struct HookInstaller {
 
     /// Installs OpenCode plugin into the provided OpenCode config dir (usually ~/.config/opencode).
     /// Caller must have an active security scope for opencodeDir.
+    /// Plugins in ~/.config/opencode/plugins/ are auto-discovered — no opencode.json registration needed.
     static func installOpenCodeAppStore(opencodeDir: URL) -> Bool {
-        let configFile = opencodeDir.appendingPathComponent("opencode.json")
-        guard FileManager.default.fileExists(atPath: configFile.path) else {
-            // Treat missing OpenCode config as a no-op; user may not use OpenCode.
-            return true
-        }
-
         let pluginsDir = opencodeDir.appendingPathComponent("plugins", isDirectory: true)
         let pluginFile = pluginsDir.appendingPathComponent("vibehub.js")
         let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
@@ -291,14 +286,14 @@ struct HookInstaller {
             try FileManager.default.copyItem(at: bundled, to: pluginFile)
             try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pluginFile.path)
 
-            // Sidecar socket path for strict OpenCode configs (no env key support).
+            // Sidecar socket path so the plugin knows where to connect.
             let p = HookSocketServer.socketPath + "\n"
             try p.data(using: .utf8)?.write(to: socketFile, options: [.atomic])
         } catch {
             return false
         }
 
-        return updateOpenCodeConfig(configFile: configFile, pluginFile: pluginFile)
+        return true
     }
 
     /// Returns the real user home directory URL resolved from the stored bookmark, or nil if unavailable.
@@ -418,56 +413,7 @@ struct HookInstaller {
         let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
         try? FileManager.default.removeItem(at: pluginFile)
         try? FileManager.default.removeItem(at: socketFile)
-
-        let configFile = opencodeDir.appendingPathComponent("opencode.json")
-        guard let data = try? Data(contentsOf: configFile),
-              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return true
-        }
-
-        let pluginURL = URL(fileURLWithPath: pluginFile.path).absoluteString
-        if var plugins = json["plugin"] as? [String] {
-            plugins.removeAll { $0 == pluginURL }
-            json["plugin"] = plugins
-        } else if let p = json["plugin"] as? String, p == pluginURL {
-            json.removeValue(forKey: "plugin")
-        }
-
-        if let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
-            try? out.write(to: configFile)
-        }
         return true
-    }
-
-    private static func updateOpenCodeConfig(configFile: URL, pluginFile: URL) -> Bool {
-        guard let data = try? Data(contentsOf: configFile),
-              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return false
-        }
-
-        let pluginURL = URL(fileURLWithPath: pluginFile.path).absoluteString
-
-        var plugins: [String] = []
-        if let existing = json["plugin"] as? [String] {
-            plugins = existing
-        } else if let existing = json["plugin"] as? String {
-            plugins = [existing]
-        }
-
-        if !plugins.contains(pluginURL) {
-            plugins.append(pluginURL)
-        }
-        json["plugin"] = plugins
-
-        guard let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
-            return false
-        }
-        do {
-            try out.write(to: configFile)
-            return true
-        } catch {
-            return false
-        }
     }
 
     private static func storeBookmark(for url: URL, key: String) -> Bool {

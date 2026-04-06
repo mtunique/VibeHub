@@ -167,13 +167,13 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
         // Only install if OpenCode is available on the remote.
         // Use exit code (not stdout parsing) to avoid false negatives from MOTD/banner noise.
         // Also check for the opencode binary as a fallback when no config file exists yet.
-        let checkResult = await runSSHResult(host: host, command: "test -f ~/.config/opencode/opencode.json || test -d ~/.config/opencode || which opencode >/dev/null 2>&1", timeoutSeconds: 12)
+        let checkResult = await runSSHResult(host: host, command: "test -d ~/.config/opencode || which opencode >/dev/null 2>&1", timeoutSeconds: 12)
         let opencodeFound = checkResult.exitCode == 0
         // Build step manually so the name clearly reflects whether opencode is installed.
         // ok=true in both cases: not having opencode on the remote is not a failure.
         steps.append(RemoteInstallStep(
-            name: opencodeFound ? "check opencode config" : "opencode not installed on remote",
-            command: "test -f ~/.config/opencode/opencode.json",
+            name: opencodeFound ? "check opencode" : "opencode not installed on remote",
+            command: "test -d ~/.config/opencode || which opencode",
             ok: true,
             exitCode: 0,
             stdout: opencodeFound ? "found" : "not found (skipped)",
@@ -193,44 +193,6 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
             name: "upload opencode plugin",
             command: "ssh \(host.sshTarget) 'base64 -d > ~/.config/opencode/plugins/vibehub.js'",
             result: await uploadFileViaSSH(host: host, localURL: plugin, remotePath: "~/.config/opencode/plugins/vibehub.js", timeoutSeconds: 20)
-        ))
-
-        let py = """
-import json, pathlib
-
-home = pathlib.Path.home()
-cfg = home / '.config' / 'opencode' / 'opencode.json'
-plugins = home / '.config' / 'opencode' / 'plugins'
-plugin_file = plugins / 'vibehub.js'
-
-cfg.parent.mkdir(parents=True, exist_ok=True)
-data = {}
-if cfg.exists():
-    try:
-        data = json.loads(cfg.read_text())
-    except Exception:
-        data = {}
-
-uri = plugin_file.absolute().as_uri()
-
-existing = data.get('plugin')
-arr = []
-if isinstance(existing, list):
-    arr = existing
-elif isinstance(existing, str):
-    arr = [existing]
-
-if uri not in arr:
-    arr.append(uri)
-
-data['plugin'] = arr
-cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
-"""
-
-        steps.append(await step(
-            name: "update opencode.json plugins",
-            command: "python3 - <<'PY' ... PY",
-            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY", timeoutSeconds: 20)
         ))
 
         return steps
