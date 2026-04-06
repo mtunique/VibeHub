@@ -10,6 +10,8 @@ import Combine
 import SwiftUI
 
 class NotchWindowController: NSWindowController {
+    static var hasBooted = false
+
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
@@ -90,9 +92,12 @@ class NotchWindowController: NSWindowController {
         // Start with ignoring mouse events (closed state)
         notchWindow.ignoresMouseEvents = true
 
-        // Perform boot animation after a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.viewModel.performBootAnimation()
+        // Perform boot animation after a brief delay (only on first launch)
+        if !Self.hasBooted {
+            Self.hasBooted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.viewModel.performBootAnimation()
+            }
         }
     }
 
