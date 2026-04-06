@@ -339,7 +339,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://github.com/mtunique/VibeHub/releases/download/v1.3.1/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/VibeHub/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -380,7 +380,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
-				INFOPLIST_KEY_SUFeedURL = "https://github.com/mtunique/VibeHub/releases/download/v1.3.1/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/VibeHub/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
