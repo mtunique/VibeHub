@@ -32,7 +32,7 @@ final class SubagentStateTests: XCTestCase {
     func testStartTask_setsDescription() {
         var state = SubagentState()
         state.startTask(taskToolId: "task-1", description: "Analyze files")
-        XCTAssertEqual(state.activeTasks["task-1"]?.description, "Analyse files")
+        XCTAssertEqual(state.activeTasks["task-1"]?.description, "Analyze files")
     }
 
     func testStartTask_noDescription_isNil() {
