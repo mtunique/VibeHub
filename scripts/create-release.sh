@@ -1,123 +1,153 @@
 #!/bin/bash
-# Create a release: notarize, create DMG, sign for Sparkle, upload to GitHub, update website
+# Full release pipeline: build → notarize → DMG → Sparkle → GitHub Release → update appcast
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-EXPORT_PATH="$BUILD_DIR/export"
 ARCHIVE_PATH="$BUILD_DIR/VibeHub.xcarchive"
+EXPORT_PATH="$BUILD_DIR/export"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
+SITE_DIR="$PROJECT_DIR/vibehub-site"
 
-# GitHub repository (owner/repo format)
-GITHUB_REPO="mtunique/vibehub"
-
-# GitHub Pages output directory (served as site root)
-# Configure in GitHub Settings -> Pages: Deploy from branch = main, folder = /docs
-PAGES_DIR="$PROJECT_DIR/docs"
-
-APP_PATH="$EXPORT_PATH/VibeHub.app"
-
-# Fallback: if export failed (eg missing Developer ID), use archived app.
-if [ ! -d "$APP_PATH" ] && [ -d "$ARCHIVE_PATH/Products/Applications/VibeHub.app" ]; then
-    APP_PATH="$ARCHIVE_PATH/Products/Applications/VibeHub.app"
-    echo "NOTE: Using archived app (export not found): $APP_PATH"
-fi
 APP_NAME="VibeHub"
+GITHUB_REPO="mtunique/vibehub-site"
 KEYCHAIN_PROFILE="VibeHub"
 
-echo "=== Creating Release ==="
+# ============================================
+# Step 1: Build & Archive
+# ============================================
+echo "=== Step 1: Building ==="
+
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+
+cd "$PROJECT_DIR"
+
+xcodebuild archive \
+    -scheme VibeHub \
+    -configuration Release \
+    -archivePath "$ARCHIVE_PATH" \
+    -destination "generic/platform=macOS" \
+    ENABLE_HARDENED_RUNTIME=YES \
+    CODE_SIGN_STYLE=Automatic \
+    | xcpretty || xcodebuild archive \
+    -scheme VibeHub \
+    -configuration Release \
+    -archivePath "$ARCHIVE_PATH" \
+    -destination "generic/platform=macOS" \
+    ENABLE_HARDENED_RUNTIME=YES \
+    CODE_SIGN_STYLE=Automatic
+
 echo ""
 
-# Check if app exists
+# ============================================
+# Step 2: Export (Developer ID)
+# ============================================
+echo "=== Step 2: Exporting ==="
+
+EXPORT_OPTIONS="$BUILD_DIR/ExportOptions.plist"
+cat > "$EXPORT_OPTIONS" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>developer-id</string>
+    <key>teamID</key>
+    <string>894KCRH96Q</string>
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+</dict>
+</plist>
+EOF
+
+APP_PATH="$EXPORT_PATH/$APP_NAME.app"
+
+if xcodebuild -exportArchive \
+    -archivePath "$ARCHIVE_PATH" \
+    -exportPath "$EXPORT_PATH" \
+    -exportOptionsPlist "$EXPORT_OPTIONS" 2>&1 | tail -5; then
+    echo "Export succeeded."
+else
+    echo "Export failed, using archived app as fallback."
+    APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME.app"
+fi
+
 if [ ! -d "$APP_PATH" ]; then
     echo "ERROR: App not found at $APP_PATH"
-    echo "Run ./scripts/build.sh first"
     exit 1
 fi
 
-# Get version from app
+# Get version
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
-
+echo ""
 echo "Version: $VERSION (build $BUILD)"
 echo ""
 
 mkdir -p "$RELEASE_DIR"
 
 # ============================================
-# Step 1: Notarize the app
+# Step 3: Notarize the app
 # ============================================
-echo "=== Step 1: Notarizing ==="
+echo "=== Step 3: Notarizing app ==="
 
-# Check if keychain profile exists
+SKIP_NOTARIZATION=""
 if ! xcrun notarytool history --keychain-profile "$KEYCHAIN_PROFILE" &>/dev/null; then
     echo ""
     echo "No keychain profile found. Set up credentials with:"
     echo ""
     echo "  xcrun notarytool store-credentials \"$KEYCHAIN_PROFILE\" \\"
     echo "      --apple-id \"your@email.com\" \\"
-    echo "      --team-id \"<YOUR_TEAM_ID>\" \\"
+    echo "      --team-id \"894KCRH96Q\" \\"
     echo "      --password \"xxxx-xxxx-xxxx-xxxx\""
     echo ""
-    echo "Create an app-specific password at: https://appleid.apple.com"
-    echo ""
-    read -p "Skip notarization for now? (y/N) " -n 1 -r
+    read -p "Skip notarization? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
     fi
     SKIP_NOTARIZATION=true
-    echo "WARNING: Skipping notarization. Users will see Gatekeeper warnings!"
+    echo "WARNING: Skipping notarization."
 else
-    # Create zip for notarization
     ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
-    echo "Creating zip for notarization..."
     ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
-    echo "Submitting for notarization..."
     xcrun notarytool submit "$ZIP_PATH" \
         --keychain-profile "$KEYCHAIN_PROFILE" \
         --wait
 
-    echo "Stapling notarization ticket..."
     xcrun stapler staple "$APP_PATH"
-
     rm "$ZIP_PATH"
-    echo "Notarization complete!"
+    echo "App notarized!"
 fi
 
 echo ""
 
 # ============================================
-# Step 2: Create DMG
+# Step 4: Create DMG
 # ============================================
-echo "=== Step 2: Creating DMG ==="
+echo "=== Step 4: Creating DMG ==="
 
 DMG_PATH="$RELEASE_DIR/$APP_NAME-$VERSION.dmg"
+rm -f "$DMG_PATH"
 
-# Remove existing DMG if present
-if [ -f "$DMG_PATH" ]; then
-    echo "Removing existing DMG..."
-    rm -f "$DMG_PATH"
-fi
-
-# Check if create-dmg is available (prettier DMG)
 if command -v create-dmg &> /dev/null; then
-    echo "Using create-dmg for prettier output..."
     create-dmg \
-        --volname "Claude Island" \
+        --volname "$APP_NAME" \
         --window-size 600 400 \
         --icon-size 100 \
-        --icon "VibeHub.app" 150 200 \
+        --icon "$APP_NAME.app" 150 200 \
         --app-drop-link 450 200 \
-        --hide-extension "VibeHub.app" \
+        --hide-extension "$APP_NAME.app" \
         "$DMG_PATH" \
         "$APP_PATH"
 else
-    echo "Using hdiutil (install create-dmg for prettier DMG: brew install create-dmg)"
-    hdiutil create -volname "Claude Island" \
+    hdiutil create -volname "$APP_NAME" \
         -srcfolder "$APP_PATH" \
         -ov -format UDZO \
         "$DMG_PATH"
@@ -127,10 +157,10 @@ echo "DMG created: $DMG_PATH"
 echo ""
 
 # ============================================
-# Step 3: Notarize the DMG
+# Step 5: Notarize the DMG
 # ============================================
 if [ -z "$SKIP_NOTARIZATION" ]; then
-    echo "=== Step 3: Notarizing DMG ==="
+    echo "=== Step 5: Notarizing DMG ==="
 
     xcrun notarytool submit "$DMG_PATH" \
         --keychain-profile "$KEYCHAIN_PROFILE" \
@@ -142,139 +172,147 @@ if [ -z "$SKIP_NOTARIZATION" ]; then
 fi
 
 # ============================================
-# Step 4: Sign for Sparkle and generate appcast
+# Step 6: Sign for Sparkle
 # ============================================
-echo "=== Step 4: Signing for Sparkle ==="
+echo "=== Step 6: Sparkle signing ==="
 
-# Find Sparkle tools
 SPARKLE_SIGN=""
-GENERATE_APPCAST=""
-
-POSSIBLE_PATHS=(
-    "$HOME/Library/Developer/Xcode/DerivedData/VibeHub-*/SourcePackages/artifacts/sparkle/Sparkle/bin"
-)
-
-for path_pattern in "${POSSIBLE_PATHS[@]}"; do
-    for path in $path_pattern; do
-        if [ -x "$path/sign_update" ]; then
-            SPARKLE_SIGN="$path/sign_update"
-            GENERATE_APPCAST="$path/generate_appcast"
-            break 2
-        fi
-    done
+for path in "$HOME/Library/Developer/Xcode/DerivedData/VibeHub-"*/SourcePackages/artifacts/sparkle/Sparkle/bin; do
+    if [ -x "$path/sign_update" ]; then
+        SPARKLE_SIGN="$path/sign_update"
+        GENERATE_APPCAST="$path/generate_appcast"
+        break
+    fi
 done
 
+SPARKLE_SIGNATURE=""
 if [ -z "$SPARKLE_SIGN" ]; then
-    echo "WARNING: Could not find Sparkle tools."
-    echo "Build the project in Xcode first to download Sparkle package."
-    echo ""
-    echo "Skipping Sparkle signing. You'll need to manually:"
-    echo "1. Sign the DMG with sign_update"
-    echo "2. Generate appcast with generate_appcast"
+    echo "WARNING: Sparkle tools not found. Build in Xcode first."
+elif [ ! -f "$KEYS_DIR/eddsa_private_key" ]; then
+    echo "WARNING: No Sparkle private key. Run ./scripts/generate-keys.sh"
 else
-    # Check for private key
-    if [ ! -f "$KEYS_DIR/eddsa_private_key" ]; then
-        echo "WARNING: No private key found at $KEYS_DIR/eddsa_private_key"
-        echo "Run ./scripts/generate-keys.sh first"
-        echo ""
-        echo "Skipping Sparkle signing."
-    else
-        # Generate signature
-        echo "Signing DMG for Sparkle..."
-        SIGNATURE=$("$SPARKLE_SIGN" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$DMG_PATH")
-
-        echo ""
-        echo "Sparkle signature:"
-        echo "$SIGNATURE"
-        echo ""
-
-        # Generate/update appcast
-        echo "Generating appcast..."
-        APPCAST_DIR="$RELEASE_DIR/appcast"
-        mkdir -p "$APPCAST_DIR"
-
-        # Copy DMG to appcast directory
-        cp "$DMG_PATH" "$APPCAST_DIR/"
-
-        # Generate appcast.xml
-        "$GENERATE_APPCAST" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$APPCAST_DIR"
-
-        echo "Appcast generated at: $APPCAST_DIR/appcast.xml"
-    fi
+    SPARKLE_SIGNATURE=$("$SPARKLE_SIGN" --ed-key-file "$KEYS_DIR/eddsa_private_key" "$DMG_PATH")
+    echo "$SPARKLE_SIGNATURE"
 fi
 
 echo ""
 
 # ============================================
-# Step 5: Create GitHub Release
+# Step 7: GitHub Release on vibehub-site
 # ============================================
-echo "=== Step 5: Creating GitHub Release ==="
+echo "=== Step 7: GitHub Release ==="
+
+GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"
 
 if ! command -v gh &> /dev/null; then
     echo "WARNING: gh CLI not found. Install with: brew install gh"
-    echo "Skipping GitHub release."
 else
-    # Check if release already exists
     if gh release view "v$VERSION" --repo "$GITHUB_REPO" &>/dev/null; then
-        echo "Release v$VERSION already exists. Updating..."
+        echo "Release v$VERSION exists. Updating..."
         gh release upload "v$VERSION" "$DMG_PATH" --repo "$GITHUB_REPO" --clobber
     else
         echo "Creating release v$VERSION..."
         gh release create "v$VERSION" "$DMG_PATH" \
             --repo "$GITHUB_REPO" \
-            --title "Claude Island v$VERSION" \
-            --notes "## Claude Island v$VERSION
+            --title "$APP_NAME v$VERSION" \
+            --notes "## $APP_NAME v$VERSION
 
 ### Installation
 1. Download \`$APP_NAME-$VERSION.dmg\`
-2. Open the DMG and drag Claude Island to Applications
-3. Launch Claude Island from Applications
+2. Open the DMG and drag $APP_NAME to Applications
+3. Launch $APP_NAME from Applications
 
 ### Auto-updates
-After installation, Claude Island will automatically check for updates."
+$APP_NAME will automatically check for updates after installation."
     fi
-
-    GITHUB_DOWNLOAD_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/$APP_NAME-$VERSION.dmg"
-    echo "GitHub release created: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
-    echo "Download URL: $GITHUB_DOWNLOAD_URL"
+    echo "Release: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
 fi
 
 echo ""
 
 # ============================================
-# Step 6: Update GitHub Pages appcast
+# Step 8: Update appcast in vibehub-site
 # ============================================
-echo "=== Step 6: Updating GitHub Pages ==="
+echo "=== Step 8: Updating appcast ==="
 
-if [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
-    mkdir -p "$PAGES_DIR"
-    cp "$RELEASE_DIR/appcast/appcast.xml" "$PAGES_DIR/appcast.xml"
-
-    # Update the download URL in appcast to point to GitHub releases
-    if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-        sed -i '' "s|url=\"[^\"]*$APP_NAME-$VERSION.dmg\"|url=\"$GITHUB_DOWNLOAD_URL\"|g" "$PAGES_DIR/appcast.xml"
-        echo "Updated docs/appcast.xml with GitHub download URL"
-    fi
-
-    echo "Updated GitHub Pages appcast at: $PAGES_DIR/appcast.xml"
-    echo "NOTE: Commit and push docs/appcast.xml on main to publish via GitHub Pages."
+if [ -z "$SPARKLE_SIGNATURE" ]; then
+    echo "No Sparkle signature — skipping appcast update."
 else
-    echo "Appcast not generated."
-    echo "Skipping GitHub Pages update."
+    # Parse signature components
+    ED_SIG=$(echo "$SPARKLE_SIGNATURE" | grep -o 'edSignature="[^"]*"' | cut -d'"' -f2)
+    DMG_LENGTH=$(echo "$SPARKLE_SIGNATURE" | grep -o 'length="[^"]*"' | cut -d'"' -f2)
+    PUB_DATE=$(date -R)
+
+    if [ ! -d "$SITE_DIR" ]; then
+        echo "ERROR: vibehub-site not found at $SITE_DIR"
+        echo "Clone it: git clone git@github.com:$GITHUB_REPO.git vibehub-site"
+    else
+        APPCAST="$SITE_DIR/appcast.xml"
+
+        # If appcast exists, insert new item after <channel> (before first <item>)
+        if [ -f "$APPCAST" ]; then
+            # Build new item XML
+            NEW_ITEM="        <item>
+            <title>$VERSION</title>
+            <pubDate>$PUB_DATE</pubDate>
+            <sparkle:version>$BUILD</sparkle:version>
+            <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <enclosure url=\"$GITHUB_DOWNLOAD_URL\" length=\"$DMG_LENGTH\" type=\"application/octet-stream\" sparkle:edSignature=\"$ED_SIG\"/>
+        </item>"
+
+            # Insert after <channel> line, before first <item>
+            sed -i '' "/<channel>/a\\
+\\
+$NEW_ITEM" "$APPCAST"
+
+            # Update title
+            sed -i '' 's|<title>.*</title>|<title>VibeHub</title>|' "$APPCAST"
+        else
+            # Create fresh appcast
+            cat > "$APPCAST" << XMLEOF
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>VibeHub</title>
+        <item>
+            <title>$VERSION</title>
+            <pubDate>$PUB_DATE</pubDate>
+            <sparkle:version>$BUILD</sparkle:version>
+            <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <enclosure url="$GITHUB_DOWNLOAD_URL" length="$DMG_LENGTH" type="application/octet-stream" sparkle:edSignature="$ED_SIG"/>
+        </item>
+    </channel>
+</rss>
+XMLEOF
+        fi
+
+        echo "Appcast updated: $APPCAST"
+
+        # Commit and push
+        cd "$SITE_DIR"
+        git add appcast.xml
+        if git diff --cached --quiet; then
+            echo "No changes to appcast."
+        else
+            git commit -m "update appcast for v$VERSION"
+            git push
+            echo "Pushed appcast to vibehub-site."
+        fi
+        cd "$PROJECT_DIR"
+    fi
 fi
 
 echo ""
 
+# ============================================
+# Done
+# ============================================
 echo "=== Release Complete ==="
 echo ""
-echo "Files created:"
-echo "  - DMG: $DMG_PATH"
-if [ -f "$RELEASE_DIR/appcast/appcast.xml" ]; then
-    echo "  - Appcast: $RELEASE_DIR/appcast/appcast.xml"
-fi
-if [ -n "$GITHUB_DOWNLOAD_URL" ]; then
-    echo "  - GitHub: https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
-fi
-if [ -f "$PAGES_DIR/appcast.xml" ]; then
-    echo "  - Website: $PAGES_DIR/appcast.xml"
-fi
+echo "  Version:  $VERSION (build $BUILD)"
+echo "  DMG:      $DMG_PATH"
+echo "  Release:  https://github.com/$GITHUB_REPO/releases/tag/v$VERSION"
+echo "  Download: $GITHUB_DOWNLOAD_URL"
+echo "  Appcast:  https://mtunique.github.io/vibehub-site/appcast.xml"
