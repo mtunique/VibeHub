@@ -69,7 +69,7 @@ struct LicenseSettingsView: View {
                     Spacer().frame(width: 16)
 
                     Button {
-                        if let url = URL(string: PolarAPIClient.checkoutURL) {
+                        if let url = URL(string: LemonSqueezyAPIClient.checkoutURL) {
                             NSWorkspace.shared.open(url)
                         }
                     } label: {

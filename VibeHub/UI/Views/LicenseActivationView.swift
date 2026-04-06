@@ -100,7 +100,7 @@ struct LicenseActivationView: View {
             // Bottom actions
             HStack {
                 Button {
-                    if let url = URL(string: PolarAPIClient.checkoutURL) {
+                    if let url = URL(string: LemonSqueezyAPIClient.checkoutURL) {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
