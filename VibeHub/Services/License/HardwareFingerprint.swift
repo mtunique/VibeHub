@@ -20,7 +20,7 @@ enum HardwareFingerprint {
         return hash.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Human-readable device label for Polar activation (e.g. "MacBook Pro")
+    /// Human-readable device label for license activation (e.g. "MacBook Pro")
     static var deviceLabel: String {
         Host.current().localizedName ?? "Mac"
     }

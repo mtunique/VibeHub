@@ -220,13 +220,14 @@ enum L10n {
     static var licensePurchase: String { isChinese ? "购买" : "Purchase" }
     static var licenseActivating: String { isChinese ? "激活中…" : "Activating..." }
     static var licenseManage: String { isChinese ? "管理许可证" : "Manage License" }
+    static var licenseDevices: String { isChinese ? "设备" : "Devices" }
     static var licenseDeactivateDevice: String { isChinese ? "取消激活此设备" : "Deactivate This Device" }
     static var licenseKeyInvalid: String { isChinese ? "许可证密钥无效，请检查后重试" : "Invalid license key. Please check and try again." }
     static var licenseDeviceLimit: String { isChinese ? "已达到设备数量上限，请在其他设备上取消激活" : "Device limit reached. Deactivate another device first." }
     static var licenseKeyRevoked: String { isChinese ? "此许可证已被撤销，请联系支持" : "This license has been revoked. Contact support." }
     static var licenseNetworkError: String { isChinese ? "无法连接验证服务器，请检查网络" : "Cannot reach license server. Check your network." }
     static func licenseDeviceCount(_ current: Int, _ limit: Int) -> String {
-        isChinese ? "已激活（最多 \(limit) 台）" : "Activated (up to \(limit) devices)"
+        isChinese ? "已激活 \(current)/\(limit) 台设备" : "\(current)/\(limit) devices activated"
     }
     static var trialActive: String { isChinese ? "试用中" : "Trial" }
     static var trialExpiredTitle: String { isChinese ? "试用期已结束" : "Trial Expired" }

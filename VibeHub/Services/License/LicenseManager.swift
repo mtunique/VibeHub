@@ -38,18 +38,18 @@ final class LicenseManager: ObservableObject {
         status = .validating
 
         do {
-            let response = try await PolarAPIClient.validate(
+            let response = try await LemonSqueezyAPIClient.validate(
                 key: cache.licenseKey,
-                activationId: cache.activationId
+                instanceId: cache.activationId
             )
 
-            if response.status == "granted" {
+            if response.valid, let lk = response.license_key, lk.status == "active" {
                 updateCache(from: cache, validationDate: Date())
-                updateActivationInfo(from: response)
+                updateActivationInfo(from: lk)
                 status = .activated
                 return true
             } else {
-                // Key was revoked or disabled
+                // Key was revoked, expired, or disabled
                 KeychainStore.delete(forKey: cacheKey)
                 status = .locked
                 return false
@@ -78,38 +78,33 @@ final class LicenseManager: ObservableObject {
 
         do {
             // Step 1: Activate device
-            let activation = try await PolarAPIClient.activate(
+            let instanceName = "\(label) (\(hardwareId.prefix(8)))"
+            let activation = try await LemonSqueezyAPIClient.activate(
                 key: key,
-                hardwareId: hardwareId,
-                label: label
+                instanceName: instanceName
             )
+
+            guard let instance = activation.instance else {
+                throw LSAPIError.apiError("no instance returned")
+            }
 
             // Step 2: Save activation immediately (prevents slot leak if validate fails)
             let cache = LicenseCache(
                 licenseKey: key,
-                activationId: activation.id,
+                activationId: instance.id,
                 lastValidationDate: Date(),
                 hardwareId: hardwareId
             )
             _ = KeychainStore.save(cache, forKey: cacheKey)
 
-            // Step 3: Validate to confirm status (best-effort, Keychain already saved)
-            do {
-                let validation = try await PolarAPIClient.validate(
-                    key: key,
-                    activationId: activation.id
-                )
-                if validation.status == "granted" {
-                    updateActivationInfo(from: validation)
-                }
-            } catch {
-                // Validate failed but activation is saved — treat as offline-activated
+            // Step 3: Update activation info from response
+            if let lk = activation.license_key {
+                updateActivationInfo(from: lk)
             }
 
-            activationCount = 1
-            // activationLimit already set by updateActivationInfo if validate succeeded
+            activationCount = activation.license_key?.activation_usage ?? 1
             status = .activated
-        } catch let error as PolarAPIError {
+        } catch let error as LSAPIError {
             status = trialStatus()
             switch error {
             case .invalidKey:
@@ -120,6 +115,8 @@ final class LicenseManager: ObservableObject {
                 errorMessage = L10n.licenseKeyRevoked
             case .networkError:
                 errorMessage = L10n.licenseNetworkError
+            case .apiError(let msg):
+                errorMessage = msg
             case .unexpectedResponse:
                 errorMessage = L10n.licenseNetworkError
             }
@@ -135,9 +132,9 @@ final class LicenseManager: ObservableObject {
         guard let cache = KeychainStore.load(LicenseCache.self, forKey: cacheKey) else { return }
 
         do {
-            try await PolarAPIClient.deactivate(
+            try await LemonSqueezyAPIClient.deactivate(
                 key: cache.licenseKey,
-                activationId: cache.activationId
+                instanceId: cache.activationId
             )
         } catch {
             // Best-effort: still remove local data even if API fails
@@ -202,8 +199,9 @@ final class LicenseManager: ObservableObject {
         _ = KeychainStore.save(updated, forKey: cacheKey)
     }
 
-    private func updateActivationInfo(from response: PolarValidateResponse) {
-        activationLimit = response.limit_activations ?? 3
+    private func updateActivationInfo(from licenseKey: LSLicenseKey) {
+        activationLimit = licenseKey.activation_limit
+        activationCount = licenseKey.activation_usage
     }
 }
 
