@@ -484,7 +484,7 @@ private struct AboutSection: View {
                             .clipShape(RoundedRectangle(cornerRadius: 11))
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("VibeHub").font(.headline)
+                        Text("Vibe Hub").font(.headline)
                         Text(appVersion).font(.subheadline).foregroundColor(.secondary)
                     }
                 }

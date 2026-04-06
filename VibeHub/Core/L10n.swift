@@ -213,7 +213,7 @@ enum L10n {
     static var license: String { isChinese ? "许可证" : "License" }
     static var licenseActivated: String { isChinese ? "已激活" : "Activated" }
     static var licenseLocked: String { isChinese ? "需要激活" : "Activation Required" }
-    static var licenseLockedTitle: String { isChinese ? "VibeHub 需要许可证" : "VibeHub Requires a License" }
+    static var licenseLockedTitle: String { isChinese ? "Vibe Hub 需要许可证" : "Vibe Hub Requires a License" }
     static var licenseLockedSubtitle: String { isChinese ? "请输入许可证密钥以继续使用" : "Enter your license key to continue" }
     static var licenseKeyPlaceholder: String { isChinese ? "许可证密钥" : "License key" }
     static var licenseActivate: String { isChinese ? "激活" : "Activate" }
