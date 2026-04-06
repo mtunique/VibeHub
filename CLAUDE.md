@@ -27,12 +27,22 @@ xcodebuild -scheme VibeHub -configuration Debug build
 
 The app uses XcodeGen with file system synchronization (no .xcodeproj editing needed). The project uses Swift Package Manager dependencies:
 - swift-markdown (0.5.0+) - Markdown rendering
-- Sparkle (2.0.0+) - Auto-update
-- mixpanel-swift (master) - Analytics
+- Sparkle (2.0.0+) - Auto-update (non-App Store builds)
+- mixpanel-swift (master) - Analytics (non-App Store builds)
+- Clibssh (local package) - Native SSH via libssh + mbedTLS
+
+### Release (non-App Store)
+
+```bash
+# Full pipeline: build → notarize → DMG → Sparkle → GitHub Release → appcast
+./scripts/create-release.sh
+```
+
+Requires: Developer ID Application certificate, `xcrun notarytool` keychain profile "VibeHub", Sparkle EdDSA key in `.sparkle-keys/`. Releases go to `mtunique/vibehub-site` (public repo). Appcast served via GitHub Pages at `https://mtunique.github.io/vibehub-site/appcast.xml`.
 
 ## Architecture Overview
 
-Claude Island is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Claude Code and OpenCode CLI sessions. It communicates with the CLI via hooks installed to `~/.claude/hooks/` (Claude Code) or `~/.opencode/hooks/` (OpenCode).
+VibeHub is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Claude Code and OpenCode CLI sessions. It communicates with the CLI via hooks installed to `~/.claude/hooks/` (Claude Code) or `~/.opencode/hooks/` (OpenCode).
 
 ### Core Data Flow
 
@@ -105,6 +115,22 @@ When Claude finishes, the notch:
 3. User clicks button → app sends response over socket
 4. Hook receives response and proceeds or denies
 
+### Remote SSH Monitoring
+
+- **RemoteManager** (`Services/Remote/RemoteManager.swift`) - Manages remote host connections, reconnection, install tasks. Exposes `exec(hostId:command:)` for running commands via native SSH.
+- **NativeSSHForwarder** (`Services/Remote/NativeSSH/NativeSSHForwarder.swift`) - libssh-based SSH tunnel. Runs on a dedicated thread. Supports reverse TCP forwarding and command execution via an exec queue (commands enqueued from any thread, drained in the forward loop).
+- **RemoteInstaller** (`Services/Remote/RemoteInstaller.swift`) - Installs hooks on remote hosts via SSH. Also provides `runSSH`/`runSSHResult` for process-based SSH fallback.
+- **TerminalActivator** (`Services/Window/TerminalActivator.swift`) - Activates terminal windows for sessions. For remote sessions with multiple SSH connections to the same host, queries the remote via `RemoteManager.exec` to match the correct local SSH tab by TCP source port.
+
+### Licensing (non-App Store only)
+
+All licensing code is behind `#if !APP_STORE`. Uses LemonSqueezy API.
+
+- **LemonSqueezyAPIClient** (`Services/License/LemonSqueezyAPIClient.swift`) - Validate/activate/deactivate via `api.lemonsqueezy.com`. Form-encoded requests, JSON responses.
+- **LicenseManager** (`Services/License/LicenseManager.swift`) - Orchestrates validation at startup, activation, deactivation. 7-day trial via Keychain. 7-day offline grace period.
+- **KeychainStore** (`Services/License/KeychainStore.swift`) - Persists license cache and trial data in macOS Keychain.
+- Checkout URL in `LemonSqueezyAPIClient.checkoutURL`.
+
 ### File Watching
 
 - **AgentFileWatcher** - Monitors `.claude/projects/*/agent/*.jsonl` for subagent conversation updates
@@ -112,8 +138,12 @@ When Claude finishes, the notch:
 
 ## Code Patterns
 
-- `@MainActor` for all UI-bound classes (ClaudeSessionMonitor, NotchViewModel)
-- Swift **actor** for thread-safe SessionStore (no actor isolation issues since UI uses MainActor)
+- `@MainActor` for all UI-bound classes (ClaudeSessionMonitor, NotchViewModel, RemoteManager, LicenseManager)
+- Swift **actor** for thread-safe SessionStore and TerminalActivator
 - `CurrentValueSubject` with `receive(on: DispatchQueue.main)` for UI binding
 - `matchedGeometryEffect` for smooth notch animations
 - SwiftUI + AppKit interop via `NSApplicationDelegateAdaptor`
+- NativeSSHForwarder runs libssh on a dedicated `Thread` — all `ssh_*` calls stay on that thread; cross-thread communication via `NSLock`-guarded exec queue with `withCheckedContinuation`
+- Conditional compilation: `#if !APP_STORE` guards licensing, Sparkle updates, and Mixpanel analytics
+- `NotchWindowController.hasBooted` static flag prevents boot animation on screen-change window recreation
+- Notch auto-expansion checks `TerminalActivator.isSessionTerminalFocused` before opening (avoids popping when terminal is in foreground)

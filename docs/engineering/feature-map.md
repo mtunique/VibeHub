@@ -87,22 +87,27 @@ Start here when approve or deny controls, request banners, or tmux handoff break
 
 Start here when remote hosts, SSH tunnel setup, or remote event forwarding break.
 
-- `VibeHub/Services/Remote/RemoteManager.swift`
-- `VibeHub/Services/Remote/RemoteInstaller.swift`
-- `VibeHub/Services/Remote/SSHForwarder.swift`
+- `VibeHub/Services/Remote/RemoteManager.swift` — connection lifecycle, exec(hostId:command:)
+- `VibeHub/Services/Remote/NativeSSH/NativeSSHForwarder.swift` — libssh tunnel + exec queue
+- `VibeHub/Services/Remote/RemoteInstaller.swift` — remote hook installation via SSH
+- `VibeHub/Services/Remote/SSHForwarder.swift` — legacy process-based SSH (fallback)
 - `VibeHub/Services/Remote/SSHConfigParser.swift`
-- `VibeHub/Services/Remote/RemoteActions.swift`
+- `VibeHub/Services/Remote/RemoteActions.swift` — send messages to remote Claude/OpenCode
+- `VibeHub/Services/Remote/RemoteHost.swift` — host model with sshTarget, localSocketPath
 - `VibeHub/UI/Views/RemoteHostsView.swift`
 
 ## Terminal and Focus Awareness
 
 Start here when the app should or should not surface itself based on terminal visibility or focus.
 
+- `VibeHub/Services/Window/TerminalActivator.swift` — unified terminal activation (local, tmux, remote SSH tab matching)
+- `VibeHub/Services/Window/TerminalTabSwitcher.swift` — AppleScript tab switching (Terminal.app, iTerm2, Ghostty)
 - `VibeHub/Utilities/TerminalVisibilityDetector.swift`
 - `VibeHub/Services/Window/WindowFinder.swift`
 - `VibeHub/Services/Window/WindowFocuser.swift`
 - `VibeHub/Services/Window/YabaiController.swift`
 - `VibeHub/Services/Shared/TerminalAppRegistry.swift`
+- `VibeHub/Services/Shared/ProcessTreeBuilder.swift` — builds process tree for terminal ancestry lookup
 
 ## Sound, Settings, and Preferences
 
@@ -124,12 +129,27 @@ Start here when launch-time behavior, onboarding, or menu bar affordances are wr
 - `VibeHub/UI/Window/MenuBarController.swift`
 - `VibeHub/UI/Views/MenuBarContentView.swift`
 
+## Licensing (non-App Store)
+
+Start here when license validation, activation, trial logic, or checkout integration breaks.
+
+- `VibeHub/Services/License/LemonSqueezyAPIClient.swift` — API client (validate/activate/deactivate)
+- `VibeHub/Services/License/LicenseManager.swift` — orchestration, trial, offline grace
+- `VibeHub/Services/License/KeychainStore.swift` — secure credential storage
+- `VibeHub/Services/License/HardwareFingerprint.swift` — device identification
+- `VibeHub/Models/LicenseModels.swift` — LS* response types, LicenseStatus, TrialData
+- `VibeHub/UI/Views/LicenseActivationView.swift` — lock screen overlay
+- `VibeHub/UI/Views/LicenseSettingsView.swift` — settings panel for license management
+
 ## Updates and Release Plumbing
 
-Start here when update prompts or release feed behavior changes.
+Start here when update prompts, release feed behavior, or the release pipeline changes.
 
 - `VibeHub/Services/Update/NotchUserDriver.swift`
-- `docs/appcast.xml`
+- `docs/appcast.xml` — local copy (canonical copy lives in vibehub-site repo)
+- `scripts/create-release.sh` — full release pipeline
+- `scripts/build.sh` — archive + export
+- `vibehub-site/` — public GitHub Pages repo (releases, appcast, landing page)
 
 ## Quick Triage Rule
 
