@@ -9,6 +9,20 @@ import AppKit
 import Combine
 import SwiftUI
 
+enum NotchLog {
+    private static let path = "/tmp/vibehub-notch.log"
+    static func log(_ msg: String) {
+        let line = "\(Date()): \(msg)\n"
+        if let fh = FileHandle(forWritingAtPath: path) {
+            fh.seekToEndOfFile()
+            fh.write(line.data(using: .utf8)!)
+            fh.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+        }
+    }
+}
+
 enum NotchStatus: Equatable {
     case closed
     case opened
@@ -207,6 +221,7 @@ class NotchViewModel: ObservableObject {
         if isHovering && (status == .closed || status == .popping) {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self = self, self.isHovering else { return }
+                NotchLog.log("hover timer fired, opening")
                 self.notchOpen(reason: .hover)
             }
             hoverTimer = workItem
@@ -269,7 +284,9 @@ class NotchViewModel: ObservableObject {
 
     // MARK: - Actions
 
-    func notchOpen(reason: NotchOpenReason = .unknown) {
+    func notchOpen(reason: NotchOpenReason = .unknown, file: String = #file, line: Int = #line) {
+        let caller = (file as NSString).lastPathComponent
+        NotchLog.log("notchOpen reason=\(reason) from \(caller):\(line)")
         openReason = reason
         status = .opened
 
