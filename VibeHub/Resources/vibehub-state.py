@@ -49,15 +49,6 @@ def _install_claude_hook(socket_path):
     settings_path = os.path.join(claude_dir, "settings.json")
     dst_script = os.path.join(hooks_dir, "vibehub-state.py")
 
-    # Persist socket path for other helpers (e.g. OpenCode plugin).
-    state_dir = os.path.join(home, ".vibehub")
-    _ensure_dir(state_dir)
-    try:
-        with open(os.path.join(state_dir, "socket-path"), "w", encoding="utf-8") as f:
-            f.write(str(socket_path).strip() + "\n")
-    except Exception:
-        pass
-
     _ensure_dir(hooks_dir)
 
     # Copy this script into ~/.claude/hooks
@@ -121,59 +112,10 @@ def _install_claude_hook(socket_path):
     return _write_json(settings_path, data)
 
 
-def _install_opencode_plugin(socket_path):
-    home = os.path.expanduser("~")
-    opencode_dir = os.path.join(home, ".config", "opencode")
-    config_path = os.path.join(opencode_dir, "opencode.json")
-    if not os.path.exists(config_path):
-        return True
-
-    plugins_dir = os.path.join(opencode_dir, "plugins")
-    dst_plugin = os.path.join(plugins_dir, "vibehub.js")
-    _ensure_dir(plugins_dir)
-
-    resource_dir = os.path.dirname(os.path.abspath(__file__))
-    src_plugin = os.path.join(resource_dir, "vibehub-opencode.js")
-    if not os.path.exists(src_plugin):
-        return False
-
-    try:
-        shutil.copy2(src_plugin, dst_plugin)
-        os.chmod(dst_plugin, 0o644)
-    except Exception:
-        return False
-
-    data = _read_json(config_path)
-    plugin_url = "file://" + dst_plugin
-
-    plugins = data.get("plugin")
-    if isinstance(plugins, str):
-        plugins = [plugins]
-    if not isinstance(plugins, list):
-        plugins = []
-    if plugin_url not in plugins:
-        plugins.append(plugin_url)
-    data["plugin"] = plugins
-
-    # OpenCode's config schema is strict; do not add unknown keys.
-    # Persist the socket path separately for the plugin to read.
-    state_dir = os.path.expanduser("~/.vibehub")
-    _ensure_dir(state_dir)
-    try:
-        with open(os.path.join(state_dir, "socket-path"), "w", encoding="utf-8") as f:
-            f.write(str(socket_path).strip() + "\n")
-    except Exception:
-        pass
-
-    return _write_json(config_path, data)
-
-
 def install_all():
     # Installer mode: targets standard locations (no directory picker).
     socket_path = os.environ.get("CLAUDE_ISLAND_SOCKET_PATH") or SOCKET_PATH
-    ok1 = _install_claude_hook(socket_path)
-    ok2 = _install_opencode_plugin(socket_path)
-    return ok1 and ok2
+    return _install_claude_hook(socket_path)
 
 
 def uninstall_all():
@@ -214,14 +156,6 @@ def uninstall_all():
         else:
             data.pop("hooks", None)
         _write_json(settings_path, data)
-
-    # OpenCode: remove plugin file only (config cleanup is best-effort).
-    opencode_plugin = os.path.join(home, ".config", "opencode", "plugins", "vibehub.js")
-    try:
-        if os.path.exists(opencode_plugin):
-            os.remove(opencode_plugin)
-    except Exception:
-        pass
 
     return True
 
@@ -270,33 +204,9 @@ def _do_send(sock, state):
 
 
 def send_event(state):
-    """Send event to app, return response if any.
-
-    Tries native-SSH TCP mode first (when /tmp/vibehub.port exists),
-    then falls back to the Unix socket.
-    """
+    """Send event to app via Unix socket, return response if any."""
     sock = None
     try:
-        # Native SSH mode: Vibe Hub writes the reverse-TCP port here.
-        tcp_port_file = "/tmp/vibehub.port"
-        if os.path.exists(tcp_port_file):
-            try:
-                port = int(open(tcp_port_file).read().strip())
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(TIMEOUT_SECONDS)
-                sock.connect(("127.0.0.1", port))
-                return _do_send(sock, state)
-            except (socket.error, OSError, ValueError, json.JSONDecodeError):
-                pass
-            finally:
-                try:
-                    if sock:
-                        sock.close()
-                except Exception:
-                    pass
-            sock = None
-
-        # Unix socket fallback (local or legacy SSH tunnel mode).
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT_SECONDS)
         sock.connect(SOCKET_PATH)
