@@ -11,6 +11,8 @@ import AppKit
 
 // Use NSPanel subclass for non-activating behavior
 class NotchPanel: NSPanel {
+    var allowsKeyFocus: Bool = false
+
     override init(
         contentRect: NSRect,
         styleMask style: NSWindow.StyleMask,
@@ -61,7 +63,7 @@ class NotchPanel: NSPanel {
         acceptsMouseMovedEvents = false
     }
 
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { allowsKeyFocus }
     override var canBecomeMain: Bool { false }
 
     // MARK: - Click-through for areas outside the panel content

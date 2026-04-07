@@ -1,6 +1,6 @@
 # Session Start Prompt
 
-Use or adapt this prompt when opening a fresh Claude Code or Codex session for implementation work in this repository.
+Use or adapt this prompt when opening a fresh Claude Code or Claude Code session for implementation work in this repository.
 
 ```text
 Before coding, do not re-explore the entire repository.

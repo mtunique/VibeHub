@@ -68,7 +68,7 @@ This is the canonical state pipeline. If behavior looks wrong in the UI, check w
 - `VibeHub/Services/Hooks/HookSocketRouter.swift`
 - `VibeHub/Resources/`
 
-Handles installation of local integrations and receipt of runtime events from Claude Code or Codex-style hooks.
+Handles installation of local integrations and receipt of runtime events from Claude Code or Claude Code-style hooks.
 
 ### OpenCode Integration
 

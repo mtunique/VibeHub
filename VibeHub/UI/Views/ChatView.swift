@@ -191,6 +191,9 @@ struct ChatView: View {
                 }
             }
         }
+        .onDisappear {
+            viewModel.exitKeyboardMode()
+        }
     }
 
     // MARK: - Header
@@ -429,6 +432,18 @@ struct ChatView: View {
                 .font(.system(size: 13))
                 .foregroundColor(canSendMessages ? .white : .white.opacity(0.4))
                 .focused($isInputFocused)
+                .onChange(of: isInputFocused) { _, isFocused in
+                    if isFocused {
+                        viewModel.enterKeyboardMode()
+                    }
+                }
+                .simultaneousGesture(TapGesture().onEnded {
+                    viewModel.enterKeyboardMode()
+                    // Give the window a tiny moment to become key before forcing focus
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        isInputFocused = true
+                    }
+                })
                 .disabled(!canSendMessages)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)

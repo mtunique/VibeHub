@@ -227,14 +227,59 @@ actor SessionStore {
         sessions[sessionId] = session
         publishState()
 
+        if let newLines = event.newJsonlLines, !newLines.isEmpty {
+            Self.logger.debug("Received \(newLines.count) new JSONL lines from remote hook")
+            let result = await ConversationParser.shared.parseLines(
+                sessionId: sessionId,
+                lines: newLines
+            )
+            
+            // Extract remote conversation info (title/summary) from new lines
+            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
+            let summary = newInfo.summary ?? session.conversationInfo.summary
+            let lastMessage = newInfo.lastMessage ?? session.conversationInfo.lastMessage
+            let lastMessageRole = newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
+            let lastToolName = newInfo.lastToolName ?? session.conversationInfo.lastToolName
+            let firstUserMessage = newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
+            let lastUserMessageDate = newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
+
+            session.conversationInfo = ConversationInfo(
+                summary: summary,
+                lastMessage: lastMessage,
+                lastMessageRole: lastMessageRole,
+                lastToolName: lastToolName,
+                firstUserMessage: firstUserMessage,
+                lastUserMessageDate: lastUserMessageDate
+            )
+            sessions[sessionId] = session
+            publishState()
+            
+            if result.clearDetected {
+                await processClearDetected(sessionId: sessionId)
+            }
+            
+            if !result.newMessages.isEmpty || result.clearDetected {
+                let payload = FileUpdatePayload(
+                    sessionId: sessionId,
+                    cwd: event.cwd,
+                    messages: result.newMessages,
+                    isIncremental: !result.clearDetected,
+                    completedToolIds: result.completedToolIds,
+                    toolResults: result.toolResults,
+                    structuredResults: result.structuredResults
+                )
+                await processFileUpdate(payload)
+            }
+        }
+
         if event.shouldSyncFile {
             scheduleFileSync(sessionId: sessionId, cwd: event.cwd)
         }
     }
 
     private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
-        // OpenCode doesn't have Claude JSONL; use forwarded metadata for titles/messages.
-        guard session.opencodeRawSessionId != nil else { return }
+        // Use forwarded metadata for OpenCode or as fallback for Claude
+        let isOpenCode = session.opencodeRawSessionId != nil
 
         var summary = session.conversationInfo.summary
         var lastMessage = session.conversationInfo.lastMessage
@@ -243,7 +288,7 @@ actor SessionStore {
         var firstUserMessage = session.conversationInfo.firstUserMessage
         var lastUserMessageDate = session.conversationInfo.lastUserMessageDate
 
-        if let title = event.codexTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let title = event.sessionTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             summary = truncateInline(title, maxLength: 80)
         }
 
@@ -268,14 +313,17 @@ actor SessionStore {
             lastMessageRole = "assistant"
         }
 
-        session.conversationInfo = ConversationInfo(
-            summary: summary,
-            lastMessage: lastMessage,
-            lastMessageRole: lastMessageRole,
-            lastToolName: lastToolName,
-            firstUserMessage: firstUserMessage,
-            lastUserMessageDate: lastUserMessageDate
-        )
+        // Apply only if something changed
+        if isOpenCode || event.sessionTitle != nil || event.prompt != nil || event.event == "PreToolUse" || event.lastAssistantMessage != nil {
+            session.conversationInfo = ConversationInfo(
+                summary: summary,
+                lastMessage: lastMessage,
+                lastMessageRole: lastMessageRole,
+                lastToolName: lastToolName,
+                firstUserMessage: firstUserMessage,
+                lastUserMessageDate: lastUserMessageDate
+            )
+        }
     }
 
     private func applyOpenCodeChatItems(event: HookEvent, session: inout SessionState) {
@@ -691,7 +739,22 @@ actor SessionStore {
             sessionId: payload.sessionId,
             cwd: session.cwd
         )
-        session.conversationInfo = conversationInfo
+        
+        let summary = conversationInfo.summary ?? session.conversationInfo.summary
+        let lastMessage = conversationInfo.lastMessage ?? session.conversationInfo.lastMessage
+        let lastMessageRole = conversationInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
+        let lastToolName = conversationInfo.lastToolName ?? session.conversationInfo.lastToolName
+        let firstUserMessage = conversationInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
+        let lastUserMessageDate = conversationInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
+
+        session.conversationInfo = ConversationInfo(
+            summary: summary,
+            lastMessage: lastMessage,
+            lastMessageRole: lastMessageRole,
+            lastToolName: lastToolName,
+            firstUserMessage: firstUserMessage,
+            lastUserMessageDate: lastUserMessageDate
+        )
 
         // Handle /clear reconciliation - remove items that no longer exist in parser state
         if session.needsClearReconciliation {
@@ -1096,7 +1159,21 @@ actor SessionStore {
         guard var session = sessions[sessionId] else { return }
 
         // Update conversationInfo (summary, lastMessage, etc.)
-        session.conversationInfo = conversationInfo
+        let summary = conversationInfo.summary ?? session.conversationInfo.summary
+        let lastMessage = conversationInfo.lastMessage ?? session.conversationInfo.lastMessage
+        let lastMessageRole = conversationInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
+        let lastToolName = conversationInfo.lastToolName ?? session.conversationInfo.lastToolName
+        let firstUserMessage = conversationInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
+        let lastUserMessageDate = conversationInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
+
+        session.conversationInfo = ConversationInfo(
+            summary: summary,
+            lastMessage: lastMessage,
+            lastMessageRole: lastMessageRole,
+            lastToolName: lastToolName,
+            firstUserMessage: firstUserMessage,
+            lastUserMessageDate: lastUserMessageDate
+        )
 
         // For OpenCode sessions, clear real-time items before loading from SQLite.
         // The SQLite DB has the complete history; real-time items (with "opencode-" IDs)

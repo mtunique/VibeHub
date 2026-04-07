@@ -312,7 +312,91 @@ def send_event(state):
             pass
 
 
+def get_session_title(session_id, cwd):
+    try:
+        home = os.path.expanduser("~")
+        project_dir = cwd.replace("/", "-").replace(".", "-")
+        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
+        if not os.path.exists(jsonl_path):
+            return None
+        
+        first_user_message = None
+        summary = None
+        
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    data = json.loads(line)
+                    msg_type = data.get("type")
+                    role = data.get("role")
+                    content = data.get("content")
+                    
+                    if isinstance(content, str):
+                        if msg_type == "summary":
+                            summary = content
+                        if role == "user" and not first_user_message:
+                            first_user_message = content
+                except Exception:
+                    pass
+                    
+        return summary or first_user_message
+    except Exception:
+        return None
+
+def get_new_jsonl_lines(session_id, cwd):
+    try:
+        home = os.path.expanduser("~")
+        project_dir = cwd.replace("/", "-").replace(".", "-")
+        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
+        if not os.path.exists(jsonl_path):
+            return None
+        
+        cursor_dir = os.path.join(home, ".vibehub", "cursors")
+        _ensure_dir(cursor_dir)
+        cursor_path = os.path.join(cursor_dir, f"{session_id}.cursor")
+        
+        last_pos = 0
+        if os.path.exists(cursor_path):
+            try:
+                with open(cursor_path, "r", encoding="utf-8") as f:
+                    last_pos = int(f.read().strip())
+            except Exception:
+                pass
+                
+        new_lines = []
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            f.seek(0, 2)
+            file_size = f.tell()
+            
+            if file_size < last_pos:
+                # File got truncated or rewritten
+                last_pos = 0
+                
+            if file_size == last_pos:
+                return []
+                
+            f.seek(last_pos)
+            new_lines = f.readlines()
+            new_pos = f.tell()
+            
+        with open(cursor_path, "w", encoding="utf-8") as f:
+            f.write(str(new_pos))
+            
+        # Strip newlines from the right
+        return [line.rstrip("\n") for line in new_lines if line.strip()]
+    except Exception:
+        return None
+
+
+
+VERSION = "1.0.1"
+
 def main():
+    if "--version" in sys.argv:
+        print(VERSION)
+        sys.exit(0)
+
     if "--install" in sys.argv:
         ok = install_all()
         print("ok" if ok else "failed")
@@ -346,10 +430,18 @@ def main():
         "tty": tty,
     }
 
+    # Fetch any new lines from the JSONL file to stream to the app
+    new_lines = get_new_jsonl_lines(session_id, cwd)
+    if new_lines:
+        state["new_jsonl_lines"] = new_lines
+
     # Map events to status
     if event == "UserPromptSubmit":
         # User just sent a message - Claude is now processing
         state["status"] = "processing"
+        title = get_session_title(session_id, cwd)
+        if title:
+            state["session_title"] = title
 
     elif event == "PreToolUse":
         tool_name = data.get("tool_name")

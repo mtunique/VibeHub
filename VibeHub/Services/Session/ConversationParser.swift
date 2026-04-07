@@ -140,7 +140,7 @@ actor ConversationParser {
     }
 
     /// Parse JSONL content
-    private func parseContent(_ content: String) -> ConversationInfo {
+    func parseContent(_ content: String) -> ConversationInfo {
         let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         var summary: String?
@@ -371,6 +371,38 @@ actor ConversationParser {
         )
     }
 
+    /// Parse an array of lines directly (useful for remote sessions where hook sends lines)
+    func parseLines(sessionId: String, lines: [String]) -> IncrementalParseResult {
+        var state = incrementalState[sessionId] ?? IncrementalParseState()
+        
+        let newContent = lines.joined(separator: "\n")
+        let isIncrementalRead = state.lastFileOffset > 0 // We're faking this
+        let newMessages = parseContentString(newContent, state: &state, isIncrementalRead: isIncrementalRead)
+        
+        let clearDetected = state.clearPending
+        if clearDetected {
+            state.clearPending = false
+        }
+        
+        // We don't advance lastFileOffset here because we don't know file sizes from remote lines.
+        // Instead, the remote hook keeps track of the file cursor.
+        // But wait, if we also get local files, how does this interact?
+        // Usually it's either local OR remote. 
+        // For remote, lastFileOffset doesn't matter since we won't call `parseIncremental` on file updates.
+        state.lastFileOffset = 1 // Just to mark it as incremental for next time
+        
+        incrementalState[sessionId] = state
+
+        return IncrementalParseResult(
+            newMessages: newMessages,
+            allMessages: state.messages,
+            completedToolIds: state.completedToolIds,
+            toolResults: state.toolResults,
+            structuredResults: state.structuredResults,
+            clearDetected: clearDetected
+        )
+    }
+
     /// Parse only new lines since last read (incremental)
     private func parseNewLines(filePath: String, state: inout IncrementalParseState) -> [ChatMessage] {
         guard let fileHandle = FileHandle(forReadingAtPath: filePath) else {
@@ -404,8 +436,15 @@ actor ConversationParser {
             return state.messages
         }
 
-        state.clearPending = false
         let isIncrementalRead = state.lastFileOffset > 0
+        let newMessages = parseContentString(newContent, state: &state, isIncrementalRead: isIncrementalRead)
+        
+        state.lastFileOffset = fileSize
+        return newMessages
+    }
+    
+    private func parseContentString(_ newContent: String, state: inout IncrementalParseState, isIncrementalRead: Bool) -> [ChatMessage] {
+        state.clearPending = false
         let lines = newContent.components(separatedBy: "\n")
         var newMessages: [ChatMessage] = []
 
@@ -473,8 +512,7 @@ actor ConversationParser {
                 }
             }
         }
-
-        state.lastFileOffset = fileSize
+        
         return newMessages
     }
 
