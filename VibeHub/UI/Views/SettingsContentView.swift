@@ -6,6 +6,7 @@
 //
 
 import ApplicationServices
+import Combine
 import ServiceManagement
 import SwiftUI
 
@@ -266,7 +267,7 @@ private struct RemoteSection: View {
 
 private struct SystemSection: View {
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
-    @State private var hooksInstalled: Bool = HookInstaller.isInstalled()
+    @State private var hooksInstalled: Bool = HookInstaller.installedSubject.value
     @State private var accessibilityEnabled: Bool = AXIsProcessTrusted()
 
     var body: some View {
@@ -292,7 +293,9 @@ private struct SystemSection: View {
                         } else {
                             HookInstaller.uninstall()
                         }
-                        hooksInstalled = HookInstaller.isInstalled()
+                    }
+                    .onReceive(HookInstaller.installedSubject.receive(on: DispatchQueue.main)) {
+                        hooksInstalled = $0
                     }
             }
 

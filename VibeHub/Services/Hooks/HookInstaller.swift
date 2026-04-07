@@ -5,9 +5,67 @@
 //  Auto-installs Claude Code hooks on app launch
 //
 
+import Combine
 import Foundation
+import os.log
 
 struct HookInstaller {
+
+    // MARK: - Settings file watcher
+
+    private static let watchLogger = Logger(subsystem: "com.vibehub", category: "HookInstaller")
+    private static var settingsSource: DispatchSourceFileSystemObject?
+    private static var settingsFd: Int32 = -1
+
+    /// Observable hook-installed state. UI binds to this instead of polling `isInstalled()`.
+    static let installedSubject = CurrentValueSubject<Bool, Never>(isInstalled())
+
+    /// Start watching ~/.claude/settings.json and update `installedSubject` on changes.
+    static func startWatchingSettings() {
+    #if APP_STORE
+        return
+    #else
+        stopWatchingSettings()
+
+        let settingsPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json").path
+
+        let fd = open(settingsPath, O_EVTONLY)
+        guard fd >= 0 else {
+            watchLogger.warning("Cannot open settings.json for watching")
+            return
+        }
+        settingsFd = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+
+        source.setEventHandler {
+            let installed = isInstalled()
+            installedSubject.send(installed)
+            if !installed {
+                watchLogger.info("Hooks removed from settings.json by external process")
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        settingsSource = source
+        source.resume()
+        watchLogger.info("Watching settings.json for hook changes")
+    #endif
+    }
+
+    static func stopWatchingSettings() {
+        settingsSource?.cancel()
+        settingsSource = nil
+        settingsFd = -1
+    }
 
 #if APP_STORE
     private enum Defaults {
@@ -121,6 +179,7 @@ struct HookInstaller {
             options: [.prettyPrinted, .sortedKeys]
         ) {
             try? data.write(to: settingsURL)
+            installedSubject.send(true)
         }
     }
 
@@ -217,6 +276,7 @@ struct HookInstaller {
         ) {
             try? data.write(to: settings)
         }
+        installedSubject.send(false)
 #endif
     }
 
