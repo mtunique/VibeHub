@@ -37,6 +37,9 @@ Pods/
 *.app/
 *.app.zip
 
+# Native libs
+Clibssh/libs/
+
 # Sparkle signing keys (NEVER commit these!)
 .sparkle-keys/
 
