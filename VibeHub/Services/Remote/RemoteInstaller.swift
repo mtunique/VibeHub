@@ -46,6 +46,21 @@ enum RemoteInstaller {
 
         var steps: [RemoteInstallStep] = []
 
+        let checkVersionCommand = "python3 ~/.claude/hooks/vibehub-state.py --version"
+        let checkResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
+        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.1") {
+            if let progress { await progress("claude hook up to date") }
+            steps.append(RemoteInstallStep(
+                name: "check claude hook version",
+                command: checkVersionCommand,
+                ok: true,
+                exitCode: 0,
+                stdout: "Up to date (1.0.1)",
+                stderr: ""
+            ))
+            return steps
+        }
+
         // Write socket-path override so both the Python hook and OpenCode plugin
         // know to connect to the SSH tunnel socket instead of the default local path.
         steps.append(await step(
@@ -180,6 +195,21 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
             stderr: ""
         ))
         guard opencodeFound else {
+            return steps
+        }
+
+        let checkVersionCommand = "grep 'VERSION = \"1.0.1\"' ~/.config/opencode/plugins/vibehub.js"
+        let versionCheckResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
+        if versionCheckResult.exitCode == 0 {
+            if let progress { await progress("opencode plugin up to date") }
+            steps.append(RemoteInstallStep(
+                name: "check opencode plugin version",
+                command: checkVersionCommand,
+                ok: true,
+                exitCode: 0,
+                stdout: "Up to date (1.0.1)",
+                stderr: ""
+            ))
             return steps
         }
 

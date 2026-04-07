@@ -56,7 +56,7 @@ struct HookEvent: Codable, Sendable {
     let message: String?
     // Extra metadata used by non-Claude sources (eg OpenCode)
     let prompt: String?
-    let codexTitle: String?
+    let sessionTitle: String?
     let lastAssistantMessage: String?
     // OpenCode server address for programmatic control
     let serverPort: Int?
@@ -64,6 +64,9 @@ struct HookEvent: Codable, Sendable {
 
     // Remote session metadata (set by Claude Island when ingesting via SSH)
     let remoteHostId: String?
+
+    // Streaming updates from the remote hook
+    let newJsonlLines: [String]?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -74,11 +77,12 @@ struct HookEvent: Codable, Sendable {
         case notificationType = "notification_type"
         case message
         case prompt
-        case codexTitle = "codex_title"
+        case sessionTitle = "session_title"
         case lastAssistantMessage = "last_assistant_message"
         case serverPort = "_server_port"
         case serverHostname = "_server_hostname"
         case remoteHostId = "_remote_host_id"
+        case newJsonlLines = "new_jsonl_lines"
     }
 
     /// Create a copy with updated toolUseId
@@ -96,11 +100,12 @@ struct HookEvent: Codable, Sendable {
         notificationType: String?,
         message: String?,
         prompt: String? = nil,
-        codexTitle: String? = nil,
+        sessionTitle: String? = nil,
         lastAssistantMessage: String? = nil,
         serverPort: Int? = nil,
         serverHostname: String? = nil,
-        remoteHostId: String? = nil
+        remoteHostId: String? = nil,
+        newJsonlLines: [String]? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
@@ -115,11 +120,12 @@ struct HookEvent: Codable, Sendable {
         self.notificationType = notificationType
         self.message = message
         self.prompt = prompt
-        self.codexTitle = codexTitle
+        self.sessionTitle = sessionTitle
         self.lastAssistantMessage = lastAssistantMessage
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
+        self.newJsonlLines = newJsonlLines
     }
 
     var sessionPhase: SessionPhase {
@@ -331,11 +337,12 @@ class HookSocketServer {
             notificationType: event.notificationType,
             message: event.message,
             prompt: event.prompt,
-            codexTitle: event.codexTitle,
+            sessionTitle: event.sessionTitle,
             lastAssistantMessage: event.lastAssistantMessage,
             serverPort: event.serverPort,
             serverHostname: event.serverHostname,
-            remoteHostId: remoteHostId
+            remoteHostId: remoteHostId,
+            newJsonlLines: event.newJsonlLines
         )
     }
 
@@ -503,7 +510,7 @@ class HookSocketServer {
         var pollFd = pollfd(fd: clientSocket, events: Int16(POLLIN), revents: 0)
 
         let startTime = Date()
-        while Date().timeIntervalSince(startTime) < 0.5 {
+        while Date().timeIntervalSince(startTime) < 5.0 {
             let pollResult = poll(&pollFd, 1, 50)
 
             if pollResult > 0 && (pollFd.revents & Int16(POLLIN)) != 0 {
@@ -579,11 +586,12 @@ class HookSocketServer {
                 notificationType: event.notificationType,
                 message: event.message,
                 prompt: event.prompt,
-                codexTitle: event.codexTitle,
+                sessionTitle: event.sessionTitle,
                 lastAssistantMessage: event.lastAssistantMessage,
                 serverPort: event.serverPort,
                 serverHostname: event.serverHostname,
-                remoteHostId: event.remoteHostId
+                remoteHostId: event.remoteHostId,
+                newJsonlLines: event.newJsonlLines
             )
 
             let pending = PendingPermission(

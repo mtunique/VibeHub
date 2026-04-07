@@ -71,6 +71,7 @@ class NotchViewModel: ObservableObject {
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
+    @Published var keyboardMode: Bool = false
 
     /// Actual closed-state content width reported by NotchView (notch width + expansion).
     /// Used for accurate hit-testing so clicks on badges, labels, etc. register correctly.
@@ -304,7 +305,11 @@ class NotchViewModel: ObservableObject {
         }
     }
 
+    func enterKeyboardMode() { keyboardMode = true }
+    func exitKeyboardMode() { keyboardMode = false }
+
     func notchClose() {
+        exitKeyboardMode()
         // Save chat session before closing if in chat mode
         if case .chat(let session) = contentType {
             currentChatSession = session

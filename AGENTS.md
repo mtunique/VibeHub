@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (Claude Code.ai/code) when working with code in this repository.
 
 ## Session Startup
 
@@ -32,11 +32,11 @@ The app uses XcodeGen with file system synchronization (no .xcodeproj editing ne
 
 ## Architecture Overview
 
-Codex Island is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Codex and OpenCode CLI sessions. It communicates with the CLI via hooks installed to `~/.Codex/hooks/` (Codex) or `~/.opencode/hooks/` (OpenCode).
+Vibe Hub is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Claude Code and OpenCode CLI sessions. It communicates with the CLI via hooks installed to `~/.Claude Code/hooks/` (Claude Code) or `~/.opencode/hooks/` (OpenCode).
 
 ### Core Data Flow
 
-1. **HookInstaller** (`Services/Hooks/HookInstaller.swift`) - On first launch, installs `vibehub-state.py` to both `~/.Codex/hooks/` and `~/.opencode/hooks/` (if they exist), and registers hook events in their respective `settings.json` files. Uses `SupportedCLI` enum to manage both.
+1. **HookInstaller** (`Services/Hooks/HookInstaller.swift`) - On first launch, installs `vibehub-state.py` to both `~/.Claude Code/hooks/` and `~/.opencode/hooks/` (if they exist), and registers hook events in their respective `settings.json` files. Uses `SupportedCLI` enum to manage both.
 
 2. **HookSocketServer** (`Services/Hooks/HookSocketServer.swift`) - Listens on Unix socket `/tmp/vibehub.sock` for events from the Python hook. Handles permission approval/denial responses.
 
@@ -50,7 +50,7 @@ Codex Island is a macOS menu bar app (LSUIElement) that provides a Dynamic Islan
 
 ### Key Models
 
-- **SessionState** (`Models/SessionState.swift`) - Unified state for a Codex session (phase, chatItems, toolTracker, subagentState)
+- **SessionState** (`Models/SessionState.swift`) - Unified state for a Claude Code session (phase, chatItems, toolTracker, subagentState)
 - **SessionPhase** (`Models/SessionPhase.swift`) - State machine: `idle`, `processing`, `compacting`, `waitingForInput`, `waitingForApproval`
 - **ChatHistoryItem** (`Models/ChatMessage.swift`) - Individual chat message or tool call
 
@@ -66,7 +66,7 @@ idle <-> processing <-> compacting
 
 - **NotchView** - Main Dynamic Island container with accurate MacBook notch shape
 - **NotchMenuView** - Settings menu (screen selection, sound picker)
-- **ClaudeInstancesView** - List of active Codex sessions when notch is expanded
+- **ClaudeInstancesView** - List of active Claude Code sessions when notch is expanded
 - **ChatView** - Full conversation history with markdown rendering
 
 ### Window Management
@@ -78,11 +78,11 @@ idle <-> processing <-> compacting
 ### Hook Events
 
 The Python hook (`Resources/vibehub-state.py`) sends these events via socket:
-- `UserPromptSubmit` - User sent a message (Codex now processing)
+- `UserPromptSubmit` - User sent a message (Claude Code now processing)
 - `PreToolUse` - Tool about to execute
 - `PostToolUse` - Tool completed
 - `PermissionRequest` - Tool needs approval (blocks until response)
-- `Notification` - Codex sent a notification
+- `Notification` - Claude Code sent a notification
 - `Stop`, `SessionStart`, `SessionEnd` - Session lifecycle
 - `PreCompact` - Before conversation compaction
 
@@ -90,9 +90,9 @@ The Python hook (`Resources/vibehub-state.py`) sends these events via socket:
 
 The notch proactively appears in these scenarios:
 - **New permission request** - When a tool needs approval (opens if terminal not visible)
-- **Codex finishes processing** - When Codex enters `waitingForInput` state with a result, the notch expands automatically to show the output
+- **Claude Code finishes processing** - When Claude Code enters `waitingForInput` state with a result, the notch expands automatically to show the output
 
-When Codex finishes, the notch:
+When Claude Code finishes, the notch:
 1. Expands to show the result
 2. Plays a notification sound (if configured in settings)
 3. Bounces briefly to draw attention
@@ -107,8 +107,8 @@ When Codex finishes, the notch:
 
 ### File Watching
 
-- **AgentFileWatcher** - Monitors `.Codex/projects/*/agent/*.jsonl` for subagent conversation updates
-- **JSONLInterruptWatcher** - Detects when Codex is interrupted mid-tool
+- **AgentFileWatcher** - Monitors `.Claude Code/projects/*/agent/*.jsonl` for subagent conversation updates
+- **JSONLInterruptWatcher** - Detects when Claude Code is interrupted mid-tool
 
 ## Code Patterns
 

@@ -15,7 +15,8 @@ class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
-
+    private var previouslyActiveApp: NSRunningApplication?
+    
     init(screen: NSScreen) {
         self.screen = screen
 
@@ -68,23 +69,42 @@ class NotchWindowController: NSWindowController {
         // - Opened: ignoresMouseEvents = false (buttons inside panel work)
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow, weak viewModel] status in
+            .sink { [weak notchWindow] status in
                 switch status {
                 case .opened:
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by passive notification (task finished)
-                    guard let reason = viewModel?.openReason, reason != .notification else {
-                        return
-                    }
-
-                    // For interaction-driven opens, bring the panel forward even if another app is active.
-                    let force = (reason == .interaction)
-                    NSApp.activate(ignoringOtherApps: force)
-                    notchWindow?.makeKey()
                 case .closed, .popping:
                     // Ignore mouse events when closed so clicks pass through
                     notchWindow?.ignoresMouseEvents = true
+                }
+            }
+            .store(in: &cancellables)
+
+        viewModel.$keyboardMode
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak notchWindow] wantsKeyboard in
+                guard let notchWindow = notchWindow as? NotchPanel else { return }
+                
+                if wantsKeyboard {
+                    // Entering keyboard mode: save previous app and activate
+                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier != Bundle.main.bundleIdentifier {
+                        self?.previouslyActiveApp = NSWorkspace.shared.frontmostApplication
+                    }
+                    notchWindow.allowsKeyFocus = true
+                    NSApp.activate(ignoringOtherApps: true)
+                    notchWindow.makeKeyAndOrderFront(nil)
+                } else {
+                    // Exiting keyboard mode: restore previous app if we are still active
+                    notchWindow.allowsKeyFocus = false
+                    
+                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
+                        if let previousApp = self?.previouslyActiveApp, !previousApp.isTerminated {
+                            previousApp.activate(options: .activateIgnoringOtherApps)
+                        }
+                    }
+                    self?.previouslyActiveApp = nil
                 }
             }
             .store(in: &cancellables)

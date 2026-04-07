@@ -154,6 +154,8 @@ function safeOneLine(s) {
   return (s || "").toString().replace(/\n/g, " ").trim();
 }
 
+export const VERSION = "1.0.1";
+
 export default async ({ client, serverUrl }) => {
   const pid = process.pid;
   const clientConfig = client?._client?.getConfig?.() || null;
@@ -479,7 +481,7 @@ export default async ({ client, serverUrl }) => {
           last_assistant_message: s.lastAssistantText || undefined,
         };
         if (s.pendingTitle) {
-          extra.codex_title = s.pendingTitle;
+          extra.session_title = s.pendingTitle;
           s.pendingTitle = null;
         }
         return base(sid, extra);

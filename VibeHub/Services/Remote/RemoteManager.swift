@@ -22,6 +22,8 @@ final class RemoteManager: ObservableObject {
     private var healthCheckTasks: [String: Task<Void, Never>] = [:]
     private var pendingHealthToken: [String: String] = [:]
     private var lastHealthSuccessAt: [String: Date] = [:]
+    private var healthCheckFailures: [String: Int] = [:]
+    private var healthCheckLoopTask: Task<Void, Never>?
 
     private var servers: [String: HookSocketServer] = [:]
     private var forwarders: [String: NativeSSHForwarder] = [:]
@@ -62,6 +64,15 @@ final class RemoteManager: ObservableObject {
             await RemoteLog.shared.log(.info, "startup connecting all \(hosts.count) hosts")
             for host in hosts {
                 connectWithCleanup(id: host.id)
+            }
+            
+            healthCheckLoopTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    if let self = self {
+                        await self.runPeriodicHealthchecks()
+                    }
+                }
             }
         }
     }
@@ -456,6 +467,17 @@ final class RemoteManager: ObservableObject {
 
     // MARK: - Tunnel healthcheck
 
+    private func runPeriodicHealthchecks() async {
+        for host in hosts {
+            guard desiredConnected.contains(host.id) else { continue }
+            if case .connected = connectionStatus[host.id] {
+                // Skip if currently installing
+                if installRunning[host.id] == true { continue }
+                startHealthcheck(host: host)
+            }
+        }
+    }
+
     private func startHealthcheck(host: RemoteHost) {
         let id = host.id
         cancelHealthcheck(hostId: id)
@@ -508,13 +530,22 @@ print(\"sent\", token)
                 if Task.isCancelled { return }
                 try? await Task.sleep(for: .milliseconds(100))
                 if self.pendingHealthToken[id] != String(token) {
+                    self.healthCheckFailures[id] = 0
                     return
                 }
             }
 
             // Timed out waiting for event to arrive on the local listener.
-            // The tunnel might still be alive — let ServerAliveInterval handle real disconnects.
-            await RemoteLog.shared.log(.warn, "healthcheck timeout token=\(token)", hostId: id)
+            let fails = (self.healthCheckFailures[id] ?? 0) + 1
+            self.healthCheckFailures[id] = fails
+            await RemoteLog.shared.log(.warn, "healthcheck timeout token=\(token) (fails=\(fails))", hostId: id)
+            
+            if fails >= 2 {
+                await RemoteLog.shared.log(.error, "healthcheck failed 2 times consecutively, tearing down tunnel", hostId: id)
+                self.forwarders[id]?.disconnect()
+                self.setStatus(id: id, status: .failed("healthcheck timeout"))
+                self.scheduleReconnectIfNeeded(id: id)
+            }
         }
     }
 

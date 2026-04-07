@@ -13,6 +13,10 @@ import SwiftUI
 class PassThroughHostingView<Content: View>: NSHostingView<Content> {
     var hitTestRect: () -> CGRect = { .zero }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Only accept hits within the panel rect
         guard hitTestRect().contains(point) else {
