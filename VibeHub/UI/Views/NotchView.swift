@@ -23,6 +23,9 @@ private let closedHorizontalPadding: CGFloat = cornerRadiusInsets.closed.top
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @ObservedObject private var sessionMonitor = ClaudeSessionMonitor.shared
+#if !APP_STORE
+    @ObservedObject private var nowPlayingMonitor = NowPlayingMonitor.shared
+#endif
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @State private var previousPendingIds: Set<String> = []
@@ -107,6 +110,24 @@ struct NotchView: View {
 
     private let countBadgeWidth: CGFloat = 16
 
+    /// Whether music is currently playing
+    private var hasNowPlaying: Bool {
+#if !APP_STORE
+        nowPlayingMonitor.state.hasMedia
+#else
+        false
+#endif
+    }
+
+    /// Width contribution from the now-playing media widget
+    private var mediaWidgetWidth: CGFloat {
+        guard hasNowPlaying else { return 0 }
+        // Compact: art(20) + gap(4) + title(70) + gap(4) + controls(3*16=48) = ~146
+        // But when Claude is also active, compress to just art + title
+        let hasClaudeActivity = isAnyProcessing || hasPendingPermission || hasWaitingForInput || sessionCount > 0
+        return hasClaudeActivity ? 80 : 120
+    }
+
     /// Extra width for expanding activities (like Dynamic Island)
     private var expansionWidth: CGFloat {
         let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 18 : 0
@@ -118,13 +139,18 @@ struct NotchView: View {
             return min(140, max(70, CGFloat(label.count) * 4))
         }()
 
+        // Music-only mode: just show the media widget, no Claude base width
+        if hasNowPlaying && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && sessionCount == 0 {
+            return mediaWidgetWidth
+        }
+
         // If we're only showing the idle indicator (crab + count badge), keep the default notch width.
-        if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput {
+        if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !hasNowPlaying {
             return 0
         }
 
         let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
-        return baseWidth + permissionIndicatorWidth + sessionBadgeWidth + titleExtra
+        return baseWidth + permissionIndicatorWidth + sessionBadgeWidth + titleExtra + mediaWidgetWidth
     }
 
     private var notchSize: CGSize {
@@ -226,6 +252,9 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             sessionMonitor.startMonitoring()
+#if !APP_STORE
+            NowPlayingMonitor.shared.start()
+#endif
             viewModel.closedContentWidth = closedContentWidth
             // On non-notched devices, keep visible so users have a target to interact with
             if !viewModel.hasPhysicalNotch {
@@ -256,7 +285,12 @@ struct NotchView: View {
     /// Whether to show something in the closed notch.
     /// We keep a minimal indicator (crab + session count) whenever there are tracked sessions.
     private var showClosedActivity: Bool {
-        sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput
+#if !APP_STORE
+        let hasMedia = nowPlayingMonitor.state.hasMedia
+#else
+        let hasMedia = false
+#endif
+        return sessionCount > 0 || isProcessing || hasPendingPermission || hasWaitingForInput || hasMedia
     }
 
     @ViewBuilder
@@ -287,6 +321,19 @@ struct NotchView: View {
     @ViewBuilder
     private var headerRow: some View {
         HStack(spacing: 0) {
+            // Now-playing media widget (left accent, before Claude indicators)
+#if !APP_STORE
+            if viewModel.status != .opened, nowPlayingMonitor.state.hasMedia {
+                let hasClaudeActivity = isAnyProcessing || hasPendingPermission || hasWaitingForInput || sessionCount > 0
+                NowPlayingWidget(
+                    monitor: nowPlayingMonitor,
+                    compact: hasClaudeActivity,
+                    height: closedNotchSize.height
+                )
+                .padding(.leading, 2)
+            }
+#endif
+
             // Left side - crab + optional permission indicator (visible when processing, pending, or waiting for input)
             if showClosedActivity {
                 HStack(spacing: 4) {
@@ -444,6 +491,13 @@ struct NotchView: View {
 
             Spacer()
 
+            // Now-playing mini controls in expanded header
+#if !APP_STORE
+            if nowPlayingMonitor.state.hasMedia {
+                NowPlayingMiniControls(monitor: nowPlayingMonitor)
+            }
+#endif
+
             // Settings button — opens standalone settings window
             Button {
                 SettingsWindowController.shared.show()
@@ -519,9 +573,10 @@ struct NotchView: View {
 
             // Delay hiding the notch until animation completes
             // Don't hide on non-notched devices - users need a visible target
+            // Don't hide when music is playing - it's the resting state
             if viewModel.status == .closed && viewModel.hasPhysicalNotch {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && viewModel.status == .closed {
+                    if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !hasNowPlaying && viewModel.status == .closed {
                         isVisible = false
                     }
                 }
@@ -541,7 +596,7 @@ struct NotchView: View {
             // Don't hide on non-notched devices - users need a visible target
             guard viewModel.hasPhysicalNotch else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !activityCoordinator.expandingActivity.show {
+                if viewModel.status == .closed && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !hasNowPlaying && !activityCoordinator.expandingActivity.show {
                     isVisible = false
                 }
             }
