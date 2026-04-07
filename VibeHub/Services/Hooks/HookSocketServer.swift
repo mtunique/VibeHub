@@ -428,15 +428,19 @@ class HookSocketServer {
         guard clientSocket >= 0 else { return }
 
         // Verify the connecting process belongs to the same user.
+        // Fail closed: reject if credentials cannot be verified.
         var cred = xucred()
         var credLen = socklen_t(MemoryLayout<xucred>.size)
         let credResult = getsockopt(clientSocket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
-        if credResult == 0 {
-            if cred.cr_uid != getuid() {
-                logger.warning("Rejected socket connection from uid \(cred.cr_uid)")
-                close(clientSocket)
-                return
-            }
+        guard credResult == 0 else {
+            logger.error("Failed to verify peer credentials (errno \(errno)), rejecting connection")
+            close(clientSocket)
+            return
+        }
+        guard cred.cr_uid == getuid() else {
+            logger.warning("Rejected socket connection from uid \(cred.cr_uid)")
+            close(clientSocket)
+            return
         }
 
         var nosigpipe: Int32 = 1
