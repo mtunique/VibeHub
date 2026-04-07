@@ -213,11 +213,13 @@ class HookSocketServer {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
+        let pathMaxLen = MemoryLayout.size(ofValue: addr.sun_path)
         socketPath.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBufferPtr = UnsafeMutableRawPointer(pathPtr)
+            withUnsafeMutablePointer(to: &addr) { addrPtr in
+                let base = UnsafeMutableRawPointer(addrPtr)
+                    .advanced(by: MemoryLayout.offset(of: \sockaddr_un.sun_path)!)
                     .assumingMemoryBound(to: CChar.self)
-                strcpy(pathBufferPtr, ptr)
+                strlcpy(base, ptr, pathMaxLen)
             }
         }
 
@@ -234,9 +236,9 @@ class HookSocketServer {
             return
         }
 
-        // Make the unix socket world-connectable.
+        // Restrict socket to current user only.
 #if !APP_STORE
-        chmod(socketPath, 0o777)
+        chmod(socketPath, 0o600)
 #endif
 
         guard listen(serverSocket, 10) == 0 else {
@@ -424,6 +426,18 @@ class HookSocketServer {
     private func acceptConnection() {
         let clientSocket = accept(serverSocket, nil, nil)
         guard clientSocket >= 0 else { return }
+
+        // Verify the connecting process belongs to the same user.
+        var cred = xucred()
+        var credLen = socklen_t(MemoryLayout<xucred>.size)
+        let credResult = getsockopt(clientSocket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
+        if credResult == 0 {
+            if cred.cr_uid != getuid() {
+                logger.warning("Rejected socket connection from uid \(cred.cr_uid)")
+                close(clientSocket)
+                return
+            }
+        }
 
         var nosigpipe: Int32 = 1
         setsockopt(clientSocket, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, socklen_t(MemoryLayout<Int32>.size))
