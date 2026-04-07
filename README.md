@@ -19,20 +19,14 @@
 
 ## Features
 
-- **Dynamic Island UI** — Animated overlay that expands from the MacBook notch with smooth transitions
-- **Menu Bar Mode** — Works on any Mac without a notch; animated icon shows live session status
-- **Auto Mode** — Automatically picks Dynamic Island or menu bar based on your screen
-- **Live Session Monitoring** — Track multiple Claude Code and OpenCode sessions in real-time
-- **Permission Approvals** — Approve or deny tool executions directly from the overlay without switching to terminal
-- **Chat History** — View full conversation history with markdown rendering
-- **Auto-Setup** — Hooks install automatically on first launch
-- **Remote SSH Support** — Monitor sessions on remote servers via native SSH tunneling (no extra processes)
-- **Smart Terminal Tab Switching** — Jump to the exact SSH tab for a session, even with multiple connections to the same host
-- **OpenCode Support** — Works with OpenCode CLI alongside Claude Code
-- **Multi-Screen Support** — Detects and works with multiple monitors, including physical notch detection
-- **Auto-Update** — Built-in update mechanism via Sparkle
-- **Notification Sounds** — Customizable sounds when Claude finishes processing
-- **Smart Terminal Detection** — Only expands when terminal is not in focus
+- **Dynamic Island-style overlay** — Expands from the MacBook notch with smooth transitions
+- **Menu bar mode** — Works on any Mac (with or without a notch)
+- **Live session monitoring** — Track Claude Code and OpenCode CLI sessions in real-time
+- **Permission approvals** — Approve/deny tool executions from the overlay
+- **Chat history** — View conversation history with markdown rendering
+- **Remote SSH support** — Monitor sessions running on remote servers
+- **Multi-screen support** — Choose which screen shows the overlay
+- **Auto-update & sounds** — Optional update checks and notification sounds
 
 ## Requirements
 
@@ -54,43 +48,17 @@ xcodebuild -scheme VibeHub -configuration Release build
 
 The app will be built to `build/Release/VibeHub.app`.
 
-## How It Works
-
-Vibe Hub monitors your Claude Code sessions by:
-
-1. **Hook Installation** — On first launch, installs a Python hook to `~/.claude/hooks/` and registers it in Claude Code's `settings.json`
-
-2. **Real-time Updates** — Events like `SessionStart`, `PreToolUse`, `PermissionRequest`, and `Stop` are processed and displayed in the notch UI
-
-4. **Permission Control** — When a tool needs approval, the notch expands with approve/deny buttons. The decision is sent back to Claude Code instantly.
-
-### Hook Events
-
-| Event | Description |
-|-------|-------------|
-| `UserPromptSubmit` | User sent a message |
-| `PreToolUse` | Tool about to execute |
-| `PostToolUse` | Tool completed |
-| `PermissionRequest` | Tool needs approval |
-| `Stop` | Claude finished processing |
-| `SessionStart/End` | Session lifecycle |
-| `PreCompact` | Context compaction |
-
 ## OpenCode Support
 
 Vibe Hub also monitors OpenCode sessions.
-
-On first launch, the app installs an OpenCode plugin at `~/.config/opencode/plugins/vibehub.js` and adds it to `~/.config/opencode/opencode.json`.
-
-The plugin forwards OpenCode events to the same Unix socket, enabling live session status and permission approvals from the notch.
 
 ## Remote SSH Support
 
 You can monitor Claude sessions running on remote servers:
 
 1. Open settings and add a remote host (SSH config supported)
-2. The app sets up SSH tunneling to forward the Unix socket
-3. Remote sessions appear alongside local ones in the notch UI
+2. Connect (optionally auto-connect on launch)
+3. Remote sessions appear alongside local ones in the overlay
 
 Configuration is stored in the app's settings and supports auto-connect on launch.
 
@@ -104,56 +72,14 @@ Access settings by clicking the notch to expand it, then click the gear icon.
 | **Notification Sound** | Pick from 14 system sounds (or none) |
 | **Remote Hosts** | Configure SSH connections to remote servers |
 
-## Architecture
-
-```
-VibeHub/
-├── App/              # App entry point, window management
-├── Core/             # Notch geometry, settings, screen selection
-├── Events/           # Event monitoring
-├── Models/           # Data models (SessionState, ChatMessage, etc.)
-├── Services/
-│   ├── Hooks/        # Hook installation, socket server
-│   ├── Session/      # Session monitoring, file watching
-│   ├── State/        # Session state management (actor)
-│   ├── Remote/       # SSH tunneling, remote host management
-│   ├── OpenCode/     # OpenCode plugin installer
-│   ├── Tmux/         # Tmux integration for tool approval
-│   └── Window/       # Window focus, yabai integration
-├── UI/               # SwiftUI views, components
-└── Utilities/        # Terminal detection, tool formatting
-```
-
-### Key Components
-
-- **SessionStore** — Swift actor that manages all session state
-- **HookSocketServer** — Listens for hook events on Unix socket
-- **NotchViewModel** — Controls notch open/close animations
-- **ClaudeSessionMonitor** — MainActor wrapper for SwiftUI bindings
-
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions are welcome! Feel free to open an issue or submit a Pull Request.
 
 ## Acknowledgments
 
 Vibe Hub is an evolution of [Claude Island](https://github.com/farouqaldori/claude-island).
-
-- [libssh](https://www.libssh.org/) — SSH library (LGPL-2.1)
-- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — TLS and cryptography (Apache-2.0)
-- [Sparkle](https://sparkle-project.org/) — Auto-update framework (MIT)
-- [swift-markdown](https://github.com/swiftlang/swift-markdown) — Markdown rendering (Apache-2.0)
-- [swift-cmark](https://github.com/swiftlang/swift-cmark) — CommonMark parser (BSD-2-Clause)
-- [Mixpanel](https://mixpanel.com/) — Analytics (Apache-2.0)
-- [json-logic-swift](https://github.com/nicoli/json-logic-swift) — JSON Logic (MIT)
-
-See [NOTICE](NOTICE) for full third-party license details.
+See [NOTICE](NOTICE) for third-party license details.
 
 ## License
 
