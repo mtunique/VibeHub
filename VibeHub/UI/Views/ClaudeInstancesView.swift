@@ -89,8 +89,7 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        let msg = "focusSession: pid=\(session.pid ?? -1)\n"
-        FileManager.default.createFile(atPath: "/tmp/vibehub-activator.log", contents: msg.data(using: .utf8))
+        DebugLog.write("focusSession: pid=\(session.pid ?? -1)", to: DebugLog.activatorPath)
         viewModel.notchClose()
         Task {
             await TerminalActivator.shared.activateTerminal(for: session)

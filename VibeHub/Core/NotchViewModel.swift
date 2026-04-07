@@ -9,17 +9,35 @@ import AppKit
 import Combine
 import SwiftUI
 
-enum NotchLog {
-    private static let path = "/tmp/vibehub-notch.log"
-    static func log(_ msg: String) {
+/// Safe debug log paths under ~/Library/Logs/VibeHub/ (not world-writable /tmp)
+enum DebugLog {
+    private static let dir: String = {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/VibeHub").path
+        try? FileManager.default.createDirectory(
+            atPath: path, withIntermediateDirectories: true)
+        return path
+    }()
+
+    static let notchPath = "\(dir)/notch.log"
+    static let activatorPath = "\(dir)/activator.log"
+
+    static func write(_ msg: String, to path: String) {
         let line = "\(Date()): \(msg)\n"
         if let fh = FileHandle(forWritingAtPath: path) {
             fh.seekToEndOfFile()
             fh.write(line.data(using: .utf8)!)
             fh.closeFile()
         } else {
-            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8),
+                                           attributes: [.posixPermissions: 0o600])
         }
+    }
+}
+
+enum NotchLog {
+    static func log(_ msg: String) {
+        DebugLog.write(msg, to: DebugLog.notchPath)
     }
 }
 

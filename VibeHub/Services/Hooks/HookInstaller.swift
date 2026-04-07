@@ -119,8 +119,8 @@ struct HookInstaller {
         }
 
         let python = detectPython()
-        let sock = HookSocketServer.socketPath.replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "CLAUDE_ISLAND_SOCKET_PATH=\"\(sock)\" \(python) ~/.claude/hooks/vibehub-state.py"
+        let sock = HookSocketServer.socketPath.replacingOccurrences(of: "'", with: "'\\''")
+        let command = "CLAUDE_ISLAND_SOCKET_PATH='\(sock)' \(python) ~/.claude/hooks/vibehub-state.py"
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
         let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
         let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]

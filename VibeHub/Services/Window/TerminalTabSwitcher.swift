@@ -40,12 +40,19 @@ struct TerminalTabSwitcher {
 
     // MARK: - AppleScript Templates
 
+    /// Escape a string for safe embedding in AppleScript double-quoted strings.
+    private static func escapeForAppleScript(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
     private static func terminalAppScript(tty: String) -> String {
-        """
+        let safeTTY = escapeForAppleScript(tty)
+        return """
         tell application "Terminal"
             repeat with w in windows
                 repeat with t in tabs of w
-                    if tty of t is "\(tty)" then
+                    if tty of t is "\(safeTTY)" then
                         set selected of t to true
                         set index of w to 1
                         return
@@ -57,12 +64,13 @@ struct TerminalTabSwitcher {
     }
 
     private static func iterm2Script(tty: String) -> String {
-        """
+        let safeTTY = escapeForAppleScript(tty)
+        return """
         tell application "iTerm2"
             repeat with w in windows
                 repeat with t in tabs of w
                     repeat with s in sessions of t
-                        if tty of s is "\(tty)" then
+                        if tty of s is "\(safeTTY)" then
                             select w
                             select t
                             select s
@@ -76,9 +84,10 @@ struct TerminalTabSwitcher {
     }
 
     private static func ghosttyScript(cwd: String) -> String {
-        """
+        let safeCWD = escapeForAppleScript(cwd)
+        return """
         tell application "Ghostty"
-            set matches to every terminal whose working directory contains "\(cwd)"
+            set matches to every terminal whose working directory contains "\(safeCWD)"
             if (count of matches) > 0 then
                 focus item 1 of matches
             end if
@@ -103,7 +112,7 @@ struct TerminalTabSwitcher {
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                 let errMsg = String(data: errData, encoding: .utf8) ?? ""
                 let msg = "osascript failed: \(errMsg)\n"
-                if let fh = FileHandle(forWritingAtPath: "/tmp/vibehub-activator.log") {
+                if let fh = FileHandle(forWritingAtPath: DebugLog.activatorPath) {
                     fh.seekToEndOfFile(); fh.write(msg.data(using: .utf8)!); fh.closeFile()
                 }
             }

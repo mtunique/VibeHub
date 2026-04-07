@@ -62,8 +62,8 @@ def _install_claude_hook(socket_path):
     data = _read_json(settings_path)
     hooks = data.get("hooks") or {}
 
-    quoted_sock = socket_path.replace('"', '\\"')
-    cmd = f'CLAUDE_ISLAND_SOCKET_PATH="{quoted_sock}" python3 ~/.claude/hooks/vibehub-state.py'
+    quoted_sock = socket_path.replace("'", "'\\''")
+    cmd = f"CLAUDE_ISLAND_SOCKET_PATH='{quoted_sock}' python3 ~/.claude/hooks/vibehub-state.py"
     hook_entry = [{"type": "command", "command": cmd}]
     hook_entry_with_timeout = [{"type": "command", "command": cmd, "timeout": 86400}]
 
@@ -224,6 +224,8 @@ def send_event(state):
 
 def get_session_title(session_id, cwd):
     try:
+        if not _is_safe_path_component(session_id):
+            return None
         home = os.path.expanduser("~")
         project_dir = cwd.replace("/", "-").replace(".", "-")
         jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
@@ -254,14 +256,20 @@ def get_session_title(session_id, cwd):
     except Exception:
         return None
 
+def _is_safe_path_component(s):
+    """Reject path traversal characters in session IDs and similar identifiers."""
+    return s and "/" not in s and "\\" not in s and "\0" not in s and s != ".." and s != "."
+
 def get_new_jsonl_lines(session_id, cwd):
     try:
+        if not _is_safe_path_component(session_id):
+            return None
         home = os.path.expanduser("~")
         project_dir = cwd.replace("/", "-").replace(".", "-")
         jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
         if not os.path.exists(jsonl_path):
             return None
-        
+
         cursor_dir = os.path.join(home, ".vibehub", "cursors")
         _ensure_dir(cursor_dir)
         cursor_path = os.path.join(cursor_dir, f"{session_id}.cursor")

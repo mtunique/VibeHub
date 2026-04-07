@@ -39,15 +39,7 @@ actor TerminalActivator {
     // MARK: - Local Non-Tmux Session
 
     private nonisolated func log(_ msg: String) {
-        let line = "\(Date()): \(msg)\n"
-        let path = "/tmp/vibehub-activator.log"
-        if let fh = FileHandle(forWritingAtPath: path) {
-            fh.seekToEndOfFile()
-            fh.write(line.data(using: .utf8)!)
-            fh.closeFile()
-        } else {
-            FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
-        }
+        DebugLog.write(msg, to: DebugLog.activatorPath)
     }
 
     private func activateLocalSession(_ session: SessionState) async -> Bool {
