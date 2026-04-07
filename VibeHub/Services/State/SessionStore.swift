@@ -179,8 +179,6 @@ actor SessionStore {
             updateToolStatus(in: &session, toolId: toolUseId, status: .waitingForApproval)
         }
 
-        applyNonClaudeMetadata(event: event, session: &session)
-
         processToolTracking(event: event, session: &session)
         processSubagentTracking(event: event, session: &session)
 
@@ -191,110 +189,9 @@ actor SessionStore {
         sessions[sessionId] = session
         publishState()
 
-        if let newLines = event.newJsonlLines, !newLines.isEmpty {
-            Self.logger.debug("Received \(newLines.count) new JSONL lines from remote hook")
-            let result = await ConversationParser.shared.parseLines(
-                sessionId: sessionId,
-                lines: newLines
-            )
-            
-            // Extract remote conversation info (title/summary) from new lines
-            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
-            let summary = newInfo.summary ?? session.conversationInfo.summary
-            let lastMessage = newInfo.lastMessage ?? session.conversationInfo.lastMessage
-            let lastMessageRole = newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
-            let lastToolName = newInfo.lastToolName ?? session.conversationInfo.lastToolName
-            let firstUserMessage = newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
-            let lastUserMessageDate = newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
-
-            session.conversationInfo = ConversationInfo(
-                summary: summary,
-                lastMessage: lastMessage,
-                lastMessageRole: lastMessageRole,
-                lastToolName: lastToolName,
-                firstUserMessage: firstUserMessage,
-                lastUserMessageDate: lastUserMessageDate
-            )
-            sessions[sessionId] = session
-            publishState()
-            
-            if result.clearDetected {
-                await processClearDetected(sessionId: sessionId)
-            }
-            
-            if !result.newMessages.isEmpty || result.clearDetected {
-                let payload = FileUpdatePayload(
-                    sessionId: sessionId,
-                    cwd: event.cwd,
-                    messages: result.newMessages,
-                    isIncremental: !result.clearDetected,
-                    completedToolIds: result.completedToolIds,
-                    toolResults: result.toolResults,
-                    structuredResults: result.structuredResults
-                )
-                await processFileUpdate(payload)
-            }
-        }
-
         if event.shouldSyncFile {
             scheduleFileSync(sessionId: sessionId, cwd: event.cwd)
         }
-    }
-
-    private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
-        var summary = session.conversationInfo.summary
-        var lastMessage = session.conversationInfo.lastMessage
-        var lastMessageRole = session.conversationInfo.lastMessageRole
-        var lastToolName = session.conversationInfo.lastToolName
-        var firstUserMessage = session.conversationInfo.firstUserMessage
-        var lastUserMessageDate = session.conversationInfo.lastUserMessageDate
-
-        if let title = event.sessionTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            summary = truncateInline(title, maxLength: 80)
-        }
-
-        if let prompt = event.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let clean = truncateInline(prompt, maxLength: 80)
-            lastMessage = clean
-            lastMessageRole = "user"
-            lastUserMessageDate = Date()
-            if firstUserMessage == nil {
-                firstUserMessage = truncateInline(prompt, maxLength: 50)
-            }
-        }
-
-        if event.event == "PreToolUse", let tool = event.tool {
-            lastMessageRole = "tool"
-            lastToolName = tool
-            // Keep lastMessage as-is; list row uses pendingToolInput for approvals.
-        }
-
-        if let assistant = event.lastAssistantMessage, !assistant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lastMessage = truncateInline(assistant, maxLength: 80)
-            lastMessageRole = "assistant"
-        }
-
-        // Apply only if something changed
-        if event.sessionTitle != nil || event.prompt != nil || event.event == "PreToolUse" || event.lastAssistantMessage != nil {
-            session.conversationInfo = ConversationInfo(
-                summary: summary,
-                lastMessage: lastMessage,
-                lastMessageRole: lastMessageRole,
-                lastToolName: lastToolName,
-                firstUserMessage: firstUserMessage,
-                lastUserMessageDate: lastUserMessageDate
-            )
-        }
-    }
-
-    private func truncateInline(_ s: String?, maxLength: Int) -> String? {
-        guard let s else { return nil }
-        let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
-        if cleaned.count > maxLength {
-            return String(cleaned.prefix(maxLength - 3)) + "..."
-        }
-        return cleaned
     }
 
     private func createSession(from event: HookEvent, sessionId: String? = nil) -> SessionState {

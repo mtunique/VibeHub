@@ -191,7 +191,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     /// Best hint for matching window title
     var windowHint: String {
-        // Prefer more context for window matching (eg OpenCode tabs).
+        // Prefer more context for window matching.
         conversationInfo.summary ?? conversationInfo.firstUserMessage ?? projectName
     }
 

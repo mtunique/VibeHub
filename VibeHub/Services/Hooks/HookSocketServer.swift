@@ -45,7 +45,7 @@ struct HookEvent: Codable, Sendable {
     let cwd: String
     let event: String
     let status: String
-    /// Source process PID (Claude Code hook uses `pid`, OpenCode plugin uses `_ppid`)
+    /// Source process PID
     let pid: Int?
     let sourcePid: Int?
     let tty: String?
@@ -128,10 +128,9 @@ struct HookEvent: Codable, Sendable {
 
 /// Response to send back to the hook
 ///
-/// For Claude Code hooks, only `decision` (+ optional `reason`) is used.
-/// For OpenCode plugin integration, we also support:
-/// - `decision == "always"` (maps to OpenCode permission reply "always")
-/// - `answers` for AskUserQuestion (maps to OpenCode /question/{id}/reply)
+/// For Claude Code hooks, `decision` (+ optional `reason`) is used.
+/// `decision == "always"` creates a permanent permission rule.
+/// `answers` provides responses for AskUserQuestion prompts.
 struct HookResponse: Codable {
     let decision: String // "allow", "deny", "ask", or "always"
     let reason: String?
