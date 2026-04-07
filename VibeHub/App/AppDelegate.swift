@@ -1,5 +1,4 @@
 import AppKit
-import Clibssh
 import Combine
 import IOKit
 import SwiftUI
@@ -49,9 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // libssh + mbedTLS must be initialized before any SSH session.
-        vibehub_ssh_global_init()
-
         if !ensureSingleInstance() {
             NSApplication.shared.terminate(nil)
             return
@@ -88,9 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         HookInstaller.installIfNeeded()
         HookInstaller.startWatchingSettings()
-#if !APP_STORE
-        OpenCodePluginInstaller.installIfNeeded()
-#endif
         NSApplication.shared.setActivationPolicy(.accessory)
 
         ClaudeSessionMonitor.shared.startMonitoring()
@@ -109,8 +102,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startDisplayMode()
         }
         }
-
-        RemoteManager.shared.startup()
 
         screenObserver = ScreenObserver { [weak self] in
             self?.handleScreenChange()

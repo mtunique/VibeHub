@@ -54,19 +54,6 @@ struct HookEvent: Codable, Sendable {
     let toolUseId: String?
     let notificationType: String?
     let message: String?
-    // Extra metadata used by non-Claude sources (eg OpenCode)
-    let prompt: String?
-    let sessionTitle: String?
-    let lastAssistantMessage: String?
-    // OpenCode server address for programmatic control
-    let serverPort: Int?
-    let serverHostname: String?
-
-    // Remote session metadata (set by Claude Island when ingesting via SSH)
-    let remoteHostId: String?
-
-    // Streaming updates from the remote hook
-    let newJsonlLines: [String]?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -76,13 +63,6 @@ struct HookEvent: Codable, Sendable {
         case toolUseId = "tool_use_id"
         case notificationType = "notification_type"
         case message
-        case prompt
-        case sessionTitle = "session_title"
-        case lastAssistantMessage = "last_assistant_message"
-        case serverPort = "_server_port"
-        case serverHostname = "_server_hostname"
-        case remoteHostId = "_remote_host_id"
-        case newJsonlLines = "new_jsonl_lines"
     }
 
     /// Create a copy with updated toolUseId
@@ -98,14 +78,7 @@ struct HookEvent: Codable, Sendable {
         toolInput: [String: AnyCodable]?,
         toolUseId: String?,
         notificationType: String?,
-        message: String?,
-        prompt: String? = nil,
-        sessionTitle: String? = nil,
-        lastAssistantMessage: String? = nil,
-        serverPort: Int? = nil,
-        serverHostname: String? = nil,
-        remoteHostId: String? = nil,
-        newJsonlLines: [String]? = nil
+        message: String?
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
@@ -119,13 +92,6 @@ struct HookEvent: Codable, Sendable {
         self.toolUseId = toolUseId
         self.notificationType = notificationType
         self.message = message
-        self.prompt = prompt
-        self.sessionTitle = sessionTitle
-        self.lastAssistantMessage = lastAssistantMessage
-        self.serverPort = serverPort
-        self.serverHostname = serverHostname
-        self.remoteHostId = remoteHostId
-        self.newJsonlLines = newJsonlLines
     }
 
     var sessionPhase: SessionPhase {
@@ -195,8 +161,6 @@ class HookSocketServer {
     static let shared = HookSocketServer(socketPath: HookSocketPaths.socketPath)
 
     private let socketPath: String
-    private let namespacePrefix: String?
-    private let remoteHostId: String?
 
     private var serverSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
@@ -214,10 +178,8 @@ class HookSocketServer {
     private var toolUseIdCache: [String: [String]] = [:]
     private let cacheLock = NSLock()
 
-    init(socketPath: String, namespacePrefix: String? = nil, remoteHostId: String? = nil) {
+    init(socketPath: String) {
         self.socketPath = socketPath
-        self.namespacePrefix = namespacePrefix
-        self.remoteHostId = remoteHostId
     }
 
     /// Start the socket server
@@ -313,37 +275,6 @@ class HookSocketServer {
         }
         pendingPermissions.removeAll()
         permissionsLock.unlock()
-    }
-
-    private func namespaced(_ event: HookEvent) -> HookEvent {
-        guard let prefix = namespacePrefix, !prefix.isEmpty else {
-            return event
-        }
-
-        let sid = prefix + event.sessionId
-        let toolUseId = event.toolUseId.map { prefix + $0 }
-
-        return HookEvent(
-            sessionId: sid,
-            cwd: event.cwd,
-            event: event.event,
-            status: event.status,
-            pid: event.pid,
-            sourcePid: event.sourcePid,
-            tty: event.tty,
-            tool: event.tool,
-            toolInput: event.toolInput,
-            toolUseId: toolUseId,
-            notificationType: event.notificationType,
-            message: event.message,
-            prompt: event.prompt,
-            sessionTitle: event.sessionTitle,
-            lastAssistantMessage: event.lastAssistantMessage,
-            serverPort: event.serverPort,
-            serverHostname: event.serverHostname,
-            remoteHostId: remoteHostId,
-            newJsonlLines: event.newJsonlLines
-        )
     }
 
     /// Respond to a pending permission request by toolUseId
@@ -545,7 +476,7 @@ class HookSocketServer {
             return
         }
 
-        let event = namespaced(decoded)
+        let event = decoded
 
         logger.debug("Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
 
@@ -584,14 +515,7 @@ class HookSocketServer {
                 toolInput: event.toolInput,
                 toolUseId: toolUseId,  // Use resolved toolUseId
                 notificationType: event.notificationType,
-                message: event.message,
-                prompt: event.prompt,
-                sessionTitle: event.sessionTitle,
-                lastAssistantMessage: event.lastAssistantMessage,
-                serverPort: event.serverPort,
-                serverHostname: event.serverHostname,
-                remoteHostId: event.remoteHostId,
-                newJsonlLines: event.newJsonlLines
+                message: event.message
             )
 
             let pending = PendingPermission(

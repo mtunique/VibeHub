@@ -55,7 +55,6 @@ enum AppSettings {
 
     private enum Keys {
         static let notificationSound = "notificationSound"
-        static let remoteHosts = "remoteHosts"
         static let expandOnCompletion = "expandOnCompletion"
         static let displayMode = "displayMode"
         static let menuBarShowDetail = "menuBarShowDetail"
@@ -162,15 +161,4 @@ enum AppSettings {
         }
     }
 
-    // MARK: - Remote Hosts
-
-    static func getRemoteHosts<T: Decodable>(_ type: T.Type) -> T? {
-        guard let data = defaults.data(forKey: Keys.remoteHosts) else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
-    }
-
-    static func setRemoteHosts<T: Encodable>(_ value: T) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        defaults.set(data, forKey: Keys.remoteHosts)
-    }
 }

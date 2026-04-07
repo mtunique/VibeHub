@@ -22,28 +22,6 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var isInTmux: Bool
-    /// OpenCode local server address (if available)
-    var serverPort: Int?
-    var serverHostname: String?
-
-    /// If non-nil, this session is coming from a remote host.
-    var remoteHostId: String?
-
-    nonisolated var isRemote: Bool { remoteHostId != nil }
-
-    nonisolated var opencodeRawSessionId: String? {
-        guard let range = sessionId.range(of: "opencode-") else { return nil }
-        return String(sessionId[range.upperBound...])
-    }
-
-    nonisolated var openCodeControlSocketPath: String? {
-        guard opencodeRawSessionId != nil else { return nil }
-        guard let pid else { return nil }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vibehub", isDirectory: true)
-            .appendingPathComponent("ci-opencode-\(pid).sock")
-            .path
-    }
 
     // MARK: - State Machine
 
@@ -93,9 +71,6 @@ struct SessionState: Equatable, Identifiable, Sendable {
         pid: Int? = nil,
         tty: String? = nil,
         isInTmux: Bool = false,
-        serverPort: Int? = nil,
-        serverHostname: String? = nil,
-        remoteHostId: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -114,9 +89,6 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.pid = pid
         self.tty = tty
         self.isInTmux = isInTmux
-        self.serverPort = serverPort
-        self.serverHostname = serverHostname
-        self.remoteHostId = remoteHostId
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker
