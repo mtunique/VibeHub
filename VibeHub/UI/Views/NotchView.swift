@@ -331,22 +331,30 @@ struct NotchView: View {
                 if viewModel.hasPhysicalNotch {
                     // Physical notch: empty center to avoid camera housing
                     Spacer(minLength: 0)
-                } else if let label = activeSessionLabel {
-                    // Non-notch: show project name + scrolling title
-                    let leftWidth = sideWidth + (hasPendingPermission ? 18 : 0)
-                    let rightWidth = sideWidth
-                    let badgeWidth = (viewModel.status != .opened && sessionCount > 0) ? countBadgeWidth : 0
-                    let labelWidth = max(0, closedContentWidth - leftWidth - rightWidth - badgeWidth)
+                 } else if let label = activeSessionLabel {
+                      // Non-notch: show project name + scrolling title
+                      let availableWidth = max(0, closedContentWidth - 2 * closedHeaderEdgeInset)
+                      let leftWidth = sideWidth + (hasPendingPermission ? 18 : 0)
+                      let showBadge = (viewModel.status != .opened && sessionCount > 0)
+                      let badgeWidth = showBadge ? countBadgeWidth : 0
+                      let rightWidth = sideWidth + badgeWidth
+                      let labelWidth = max(0, availableWidth - leftWidth - rightWidth)
 
-                    HStack(spacing: 6) {
-                        if let project = activeSessionProjectLabel {
-                            Text(project)
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.45))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(width: min(84, labelWidth * 0.38), alignment: .leading)
-                        }
+                     HStack(spacing: 4) {
+                         if let project = activeSessionProjectLabel {
+                             // Keep the project label tight for short names so the title doesn't start too far away.
+                             // We avoid a fixed width of 84pt for all projects because that creates a large gap.
+                             let maxProjectWidth = min(72, labelWidth * 0.34)
+                             let approxProjectWidth = max(24, CGFloat(project.count) * 5.6 + 8)
+                             let projectWidth = min(maxProjectWidth, approxProjectWidth)
+
+                             Text(project)
+                                 .font(.system(size: 10, weight: .semibold))
+                                 .foregroundColor(.white.opacity(0.45))
+                                 .lineLimit(1)
+                                 .truncationMode(.tail)
+                                 .frame(width: projectWidth, alignment: .leading)
+                         }
 
                         if let project = activeSessionProjectLabel, label != project {
                             Text("·")
@@ -373,33 +381,50 @@ struct NotchView: View {
                 }
             }
 
-            // Right side - spinner when processing/pending, checkmark when waiting for input
-            if showClosedActivity {
-                if isProcessing || hasPendingPermission {
-                    ProcessingSpinner()
-                        .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
-                        .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-                } else if hasWaitingForInput {
-                    ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
-                        .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
-                        .frame(width: viewModel.status == .opened ? 20 : sideWidth)
-                }
+             // Right side - spinner when processing/pending, checkmark when waiting for input
+             if showClosedActivity {
+                 let showBadge = (viewModel.status != .opened && sessionCount > 0)
 
-                // Session count badge — far right
-                if viewModel.status != .opened && sessionCount > 0 {
-                    Text("\(sessionCount)")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.45))
-                        .padding(.leading, -2)
-                        .padding(.trailing, viewModel.hasPhysicalNotch ? 6 : 0)
-                }
+                 HStack(spacing: 0) {
+                     // Activity area (always reserves the same width when closed)
+                     Group {
+                         if isProcessing || hasPendingPermission {
+                             ProcessingSpinner()
+                                 .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
+                         } else if hasWaitingForInput {
+                             ReadyForInputIndicatorIcon(size: 14, color: TerminalColors.green)
+                                 .matchedGeometryEffect(id: "spinner", in: activityNamespace, isSource: showClosedActivity)
+                         } else {
+                             Color.clear
+                         }
+                     }
+                     .frame(width: viewModel.status == .opened ? 20 : sideWidth)
+
+                     // Session count badge — fixed width so the right edge is stable
+                     if showBadge {
+                         Text("\(sessionCount)")
+                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                             .foregroundColor(.white.opacity(0.45))
+                             .frame(width: countBadgeWidth, alignment: .trailing)
+                              // Optical inset so it doesn't hug the edge
+                              .offset(x: -3)
+                     }
+                 }
             }
         }
+        // Add a bit more inset so the crab and count don't hug the edges.
+        .padding(.horizontal, closedHeaderEdgeInset)
         .frame(height: closedNotchSize.height)
     }
 
     private var sideWidth: CGFloat {
         max(0, closedNotchSize.height - 12) + 10
+    }
+
+    private var closedHeaderEdgeInset: CGFloat {
+        // Match the closed pill's horizontal padding so the feel is consistent
+        // across physical-notch and non-notch screens.
+        viewModel.status != .opened ? closedHorizontalPadding : 0
     }
 
     // MARK: - Opened Header Content
