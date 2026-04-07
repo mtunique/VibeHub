@@ -26,10 +26,6 @@ actor SessionStore {
     /// All sessions keyed by sessionId
     private var sessions: [String: SessionState] = [:]
 
-    /// OpenCode: ID of the currently streaming assistant message item (per session)
-    /// We update this item in-place as new partial text arrives.
-    private var opencodeActiveAssistantItemId: [String: String] = [:]
-
     /// Pending file syncs (debounced)
     private var pendingSyncs: [String: Task<Void, Never>] = [:]
 
@@ -122,24 +118,7 @@ actor SessionStore {
     // MARK: - Hook Event Processing
 
     private func processHookEvent(_ event: HookEvent) async {
-        // Resolve session ID: for OpenCode sessions, deduplicate by PID.
-        // If an event arrives with an unknown session ID but we already have
-        // an OpenCode session from the same process (same _ppid), redirect
-        // the event to the existing session to prevent phantom duplicates.
-        let sessionId: String = {
-            let rawId = event.sessionId
-            guard rawId.hasPrefix("opencode-"), sessions[rawId] == nil else {
-                return rawId
-            }
-            let effectivePid = event.pid ?? event.sourcePid
-            guard let pid = effectivePid else { return rawId }
-            if let existingId = findExistingOpenCodeSession(forPid: pid, excluding: rawId) {
-                Self.logger.info("OpenCode dedup: redirecting \(rawId.prefix(24), privacy: .public) → \(existingId.prefix(24), privacy: .public) (pid \(pid))")
-                return existingId
-            }
-            return rawId
-        }()
-
+        let sessionId = event.sessionId
         let isNewSession = sessions[sessionId] == nil
         var session = sessions[sessionId] ?? createSession(from: event, sessionId: sessionId)
 
@@ -151,10 +130,6 @@ actor SessionStore {
         #endif
 
         session.pid = event.pid
-        // OpenCode events provide `_ppid` instead of `pid`.
-        if session.pid == nil, let sourcePid = event.sourcePid {
-            session.pid = sourcePid
-        }
 
         if let pid = session.pid {
             let tree = ProcessTreeBuilder.shared.buildTree()
@@ -164,16 +139,6 @@ actor SessionStore {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }
 
-        if let serverPort = event.serverPort {
-            session.serverPort = serverPort
-        }
-        if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
-            session.serverHostname = serverHostname
-        }
-
-        if let remoteHostId = event.remoteHostId {
-            session.remoteHostId = remoteHostId
-        }
         session.lastActivity = Date()
 
         if event.status == "ended" {
@@ -215,7 +180,6 @@ actor SessionStore {
         }
 
         applyNonClaudeMetadata(event: event, session: &session)
-        applyOpenCodeChatItems(event: event, session: &session)
 
         processToolTracking(event: event, session: &session)
         processSubagentTracking(event: event, session: &session)
@@ -278,9 +242,6 @@ actor SessionStore {
     }
 
     private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
-        // Use forwarded metadata for OpenCode or as fallback for Claude
-        let isOpenCode = session.opencodeRawSessionId != nil
-
         var summary = session.conversationInfo.summary
         var lastMessage = session.conversationInfo.lastMessage
         var lastMessageRole = session.conversationInfo.lastMessageRole
@@ -314,7 +275,7 @@ actor SessionStore {
         }
 
         // Apply only if something changed
-        if isOpenCode || event.sessionTitle != nil || event.prompt != nil || event.event == "PreToolUse" || event.lastAssistantMessage != nil {
+        if event.sessionTitle != nil || event.prompt != nil || event.event == "PreToolUse" || event.lastAssistantMessage != nil {
             session.conversationInfo = ConversationInfo(
                 summary: summary,
                 lastMessage: lastMessage,
@@ -323,79 +284,6 @@ actor SessionStore {
                 firstUserMessage: firstUserMessage,
                 lastUserMessageDate: lastUserMessageDate
             )
-        }
-    }
-
-    private func applyOpenCodeChatItems(event: HookEvent, session: inout SessionState) {
-        guard session.opencodeRawSessionId != nil else { return }
-
-        let now = Date()
-
-        if event.event == "UserPromptSubmit",
-           let prompt = event.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !prompt.isEmpty {
-            // New user turn starts a new assistant stream.
-            opencodeActiveAssistantItemId[session.sessionId] = nil
-
-            // De-dupe: check recent items for an existing user message with the same text.
-            // After SQLite history load, the matching item may not be the very last one.
-            let recentItems = session.chatItems.suffix(10)
-            if recentItems.contains(where: { item in
-                if case .user(let text) = item.type { return text == prompt }
-                return false
-            }) {
-                return
-            }
-
-            session.chatItems.append(
-                ChatHistoryItem(
-                    id: "opencode-user-\(UUID().uuidString)",
-                    type: .user(prompt),
-                    timestamp: now
-                )
-            )
-        }
-
-        // OpenCode assistant streaming: we receive partial text via last_assistant_message.
-        if (event.event == "AssistantMessage" || event.event == "Stop"),
-           let text = event.lastAssistantMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !text.isEmpty {
-            let activeId = opencodeActiveAssistantItemId[session.sessionId]
-
-            if let activeId,
-               let idx = session.chatItems.firstIndex(where: { $0.id == activeId }),
-               case .assistant = session.chatItems[idx].type {
-                session.chatItems[idx] = ChatHistoryItem(
-                    id: activeId,
-                    type: .assistant(text),
-                    timestamp: session.chatItems[idx].timestamp
-                )
-            } else {
-                // De-dupe: if the last assistant item already has the same (or longer) text,
-                // this is a stale event after SQLite history load — skip it.
-                if let lastAssistant = session.chatItems.last(where: { item in
-                    if case .assistant = item.type { return true }
-                    return false
-                }), case .assistant(let existing) = lastAssistant.type,
-                   text.count <= existing.count, existing.hasPrefix(text) {
-                    return
-                }
-
-                let id = "opencode-assistant-\(UUID().uuidString)"
-                opencodeActiveAssistantItemId[session.sessionId] = id
-                session.chatItems.append(
-                    ChatHistoryItem(
-                        id: id,
-                        type: .assistant(text),
-                        timestamp: now
-                    )
-                )
-            }
-
-            // Stop means the turn is done; finalize the assistant item.
-            if event.event == "Stop" {
-                opencodeActiveAssistantItemId[session.sessionId] = nil
-            }
         }
     }
 
@@ -417,9 +305,6 @@ actor SessionStore {
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
             isInTmux: false,  // Will be updated
-            serverPort: event.serverPort,
-            serverHostname: event.serverHostname,
-            remoteHostId: event.remoteHostId,
             phase: .idle
         )
     }
@@ -1108,34 +993,17 @@ actor SessionStore {
     // MARK: - History Loading
 
     private func loadHistoryFromFile(sessionId: String, cwd: String) async {
-        let messages: [ChatMessage]
-        let completedTools: Set<String>
-        let toolResults: [String: ConversationParser.ToolResult]
-        let structuredResults: [String: ToolResultData]
-        let conversationInfo: ConversationInfo
-
-        if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
-            // OpenCode: load from SQLite database
-            let result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
-            messages = result.messages
-            completedTools = result.completedToolIds
-            toolResults = result.toolResults
-            structuredResults = [:]
-            conversationInfo = result.conversationInfo
-        } else {
-            // Claude Code: load from JSONL file
-            messages = await ConversationParser.shared.parseFullConversation(
-                sessionId: sessionId,
-                cwd: cwd
-            )
-            completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-            toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-            structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
-            conversationInfo = await ConversationParser.shared.parse(
-                sessionId: sessionId,
-                cwd: cwd
-            )
-        }
+        let messages = await ConversationParser.shared.parseFullConversation(
+            sessionId: sessionId,
+            cwd: cwd
+        )
+        let completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
+        let toolResults = await ConversationParser.shared.toolResults(for: sessionId)
+        let structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+        let conversationInfo = await ConversationParser.shared.parse(
+            sessionId: sessionId,
+            cwd: cwd
+        )
 
         // Process loaded history
         await process(.historyLoaded(
@@ -1174,14 +1042,6 @@ actor SessionStore {
             firstUserMessage: firstUserMessage,
             lastUserMessageDate: lastUserMessageDate
         )
-
-        // For OpenCode sessions, clear real-time items before loading from SQLite.
-        // The SQLite DB has the complete history; real-time items (with "opencode-" IDs)
-        // would otherwise duplicate the DB content since IDs differ.
-        if session.opencodeRawSessionId != nil {
-            session.chatItems.removeAll()
-            session.toolTracker = ToolTracker()
-        }
 
         // Convert messages to chat items
         let existingIds = Set(session.chatItems.map { $0.id })
@@ -1274,35 +1134,14 @@ actor SessionStore {
     }
 
     private func pruneDeadSessions() {
-        // Snapshot remote host connection status on MainActor
-        let disconnectedHosts: Set<String> = DispatchQueue.main.sync {
-            let mgr = RemoteManager.shared
-            var dead = Set<String>()
-            for host in mgr.hosts {
-                if let status = mgr.connectionStatus[host.id],
-                   case .disconnected = status {
-                    dead.insert(host.id)
-                }
-            }
-            return dead
-        }
-
         var changed = false
         for (sessionId, session) in sessions {
             guard session.phase != .ended else { continue }
 
-            var isDead = false
-
-            if session.isRemote {
-                // Remote session: check if SSH connection is down
-                if let hostId = session.remoteHostId, disconnectedHosts.contains(hostId) {
-                    isDead = true
-                }
-            } else if let pid = session.pid {
-                // Local session: check if process is still alive
-                // kill(pid, 0) returns 0 if process exists, -1 if not
-                isDead = kill(pid_t(pid), 0) != 0
-            }
+            guard let pid = session.pid else { continue }
+            // Local session: check if process is still alive
+            // kill(pid, 0) returns 0 if process exists, -1 if not
+            let isDead = kill(pid_t(pid), 0) != 0
 
             if isDead {
                 var updated = session
@@ -1330,17 +1169,6 @@ actor SessionStore {
     }
 
     // MARK: - Queries
-
-    /// Find an existing OpenCode session with the given PID (for deduplication).
-    /// Returns the session ID if found, nil otherwise.
-    private func findExistingOpenCodeSession(forPid pid: Int, excluding sessionId: String) -> String? {
-        for (id, session) in sessions where id != sessionId {
-            if session.opencodeRawSessionId != nil && session.pid == pid {
-                return id
-            }
-        }
-        return nil
-    }
 
     /// Get a specific session
     func session(for sessionId: String) -> SessionState? {

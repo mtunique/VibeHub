@@ -71,7 +71,6 @@ struct HookInstaller {
     private enum Defaults {
         // Keep key name stable; now stores Home folder bookmark.
         static let claudeDirBookmarkKey = "ci.bookmark.claudeDir"
-        static let opencodeDirBookmarkKey = "ci.bookmark.opencodeDir"
     }
 #endif
 
@@ -84,11 +83,6 @@ struct HookInstaller {
             _ = withSecurityScope(url: homeDir) {
                 let claudeDir = homeDir.appendingPathComponent(".claude")
                 _ = installAppStore(claudeDir: claudeDir)
-
-                let opencodeDir = homeDir.appendingPathComponent(".config").appendingPathComponent("opencode")
-                if FileManager.default.fileExists(atPath: opencodeDir.path) {
-                    _ = installOpenCodeAppStore(opencodeDir: opencodeDir)
-                }
             }
         }
         return
@@ -226,7 +220,6 @@ struct HookInstaller {
     /// Uninstall hooks from settings.json and remove script
     static func uninstall() {
 #if APP_STORE
-        // Prefer uninstallAppStore() since it can remove OpenCode plugin too.
         _ = uninstallAppStore()
         return
 #else
@@ -289,11 +282,6 @@ struct HookInstaller {
         storeBookmark(for: url, key: Defaults.claudeDirBookmarkKey)
     }
 
-    /// Stores a security-scoped bookmark for OpenCode config directory.
-    static func rememberOpenCodeDir(_ url: URL) -> Bool {
-        storeBookmark(for: url, key: Defaults.opencodeDirBookmarkKey)
-    }
-
     /// Installs Claude Code hooks into the provided Claude dir (usually ~/.claude).
     /// Caller must have an active security scope for claudeDir.
     static func installAppStore(claudeDir: URL) -> Bool {
@@ -323,39 +311,6 @@ struct HookInstaller {
         return true
     }
 
-    /// Installs OpenCode plugin into the provided OpenCode config dir (usually ~/.config/opencode).
-    /// Caller must have an active security scope for opencodeDir.
-    /// Plugins in ~/.config/opencode/plugins/ are auto-discovered — no opencode.json registration needed.
-    static func installOpenCodeAppStore(opencodeDir: URL) -> Bool {
-        let pluginsDir = opencodeDir.appendingPathComponent("plugins", isDirectory: true)
-        let pluginFile = pluginsDir.appendingPathComponent("vibehub.js")
-        let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
-
-        do {
-            try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
-        } catch {
-            return false
-        }
-
-        guard let bundled = Bundle.main.url(forResource: "vibehub-opencode", withExtension: "js") else {
-            return false
-        }
-
-        do {
-            try? FileManager.default.removeItem(at: pluginFile)
-            try FileManager.default.copyItem(at: bundled, to: pluginFile)
-            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pluginFile.path)
-
-            // Sidecar socket path so the plugin knows where to connect.
-            let p = HookSocketServer.socketPath + "\n"
-            try p.data(using: .utf8)?.write(to: socketFile, options: [.atomic])
-        } catch {
-            return false
-        }
-
-        return true
-    }
-
     /// Returns the real user home directory URL resolved from the stored bookmark, or nil if unavailable.
     static func resolvedHomeDirectory() -> URL? {
         resolveBookmark(key: Defaults.claudeDirBookmarkKey)
@@ -381,16 +336,6 @@ struct HookInstaller {
             let claudeDir = homeDir.appendingPathComponent(".claude")
             let removed = withSecurityScope(url: homeDir) {
                 uninstallInClaudeDir(claudeDir)
-            } ?? false
-            ok = ok && removed
-        }
-        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
-            // OpenCode config is also a descendant of Home.
-            let opencodeDir = homeDir
-                .appendingPathComponent(".config")
-                .appendingPathComponent("opencode")
-            let removed = withSecurityScope(url: homeDir) {
-                uninstallOpenCodeInDir(opencodeDir)
             } ?? false
             ok = ok && removed
         }
@@ -464,15 +409,6 @@ struct HookInstaller {
         if let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
             try? out.write(to: settings)
         }
-        return true
-    }
-
-    private static func uninstallOpenCodeInDir(_ opencodeDir: URL) -> Bool {
-        let pluginsDir = opencodeDir.appendingPathComponent("plugins")
-        let pluginFile = pluginsDir.appendingPathComponent("vibehub.js")
-        let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
-        try? FileManager.default.removeItem(at: pluginFile)
-        try? FileManager.default.removeItem(at: socketFile)
         return true
     }
 
