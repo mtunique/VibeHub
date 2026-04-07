@@ -151,16 +151,9 @@ struct InstanceRow: View {
         true
     }
 
-    /// Display name of the remote host, if this is a remote session
-    private var remoteHostName: String? {
-        guard let hostId = session.remoteHostId else { return nil }
-        return RemoteManager.shared.hosts.first(where: { $0.id == hostId })?.name
-            ?? hostId.prefix(8).description
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // First row: indicator, title, and tags
+            // First row: indicator, title, and time tag
             HStack(alignment: .center, spacing: 10) {
                 // State indicator on left
                 stateIndicator
@@ -173,38 +166,14 @@ struct InstanceRow: View {
 
                 Spacer(minLength: 0)
 
-                // Tags: software label + remote host + time
-                HStack(spacing: 6) {
-                    // Software tag (Claude/OpenCode)
-                    let isOpencode = session.opencodeRawSessionId != nil
-                    Text(isOpencode ? "opencode" : "claude")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isOpencode ? TerminalColors.green : claudeOrange)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background((isOpencode ? TerminalColors.green : claudeOrange).opacity(0.15))
-                        .clipShape(Capsule())
-
-                    // Remote host tag
-                    if let hostName = remoteHostName {
-                        Text(hostName)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(TerminalColors.cyan)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(TerminalColors.cyan.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-
-                    // Time tag
-                    Text(formatTimeAgo(session.lastActivity))
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Capsule())
-                }
+                // Time tag
+                Text(formatTimeAgo(session.lastActivity))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.4))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(Capsule())
             }
 
             // Second row: description + buttons
@@ -281,7 +250,7 @@ struct InstanceRow: View {
                         IconButton(icon: "bubble.left") {
                             onChat()
                         }
-                        if session.pid != nil || session.isRemote {
+                        if session.pid != nil {
                             TerminalButton(
                                 isEnabled: true,
                                 onTap: { onFocus() }
@@ -303,7 +272,7 @@ struct InstanceRow: View {
                         IconButton(icon: "bubble.left") {
                             onChat()
                         }
-                        if session.pid != nil || session.isRemote {
+                        if session.pid != nil {
                             IconButton(icon: "eye") {
                                 onFocus()
                             }

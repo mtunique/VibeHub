@@ -250,7 +250,6 @@ private struct OnboardingStandaloneView: View {
         await performInstallAppStore()
         #else
         HookInstaller.installIfNeeded()
-        OpenCodePluginInstaller.installIfNeeded()
         #endif
     }
 
@@ -288,11 +287,6 @@ private struct OnboardingStandaloneView: View {
 
         let claudeDir = url.appendingPathComponent(".claude", isDirectory: true)
         _ = HookInstaller.installAppStore(claudeDir: claudeDir)
-
-        let opencodeDir = url.appendingPathComponent(".config/opencode", isDirectory: true)
-        if FileManager.default.fileExists(atPath: opencodeDir.appendingPathComponent("opencode.json").path) {
-            _ = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
-        }
     }
     #endif
 }

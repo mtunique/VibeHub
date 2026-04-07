@@ -62,8 +62,6 @@ enum L10n {
     static var settingsNotifications: String { isChinese ? "通知" : "Notifications" }
     static var settingsSystem: String { isChinese ? "系统" : "System" }
     static var settingsAbout: String { isChinese ? "关于" : "About" }
-    static var remote: String { isChinese ? "远程" : "Remote" }
-    static var settingsRemoteHint: String { isChinese ? "在菜单中管理远程主机连接" : "Manage remote host connections from the menu" }
     static var launchAtLogin: String { isChinese ? "开机启动" : "Launch at Login" }
     static var hooks: String { isChinese ? "Hook 脚本" : "Hooks" }
     static var starOnGitHub: String { isChinese ? "在 GitHub 上点星" : "Star on GitHub" }
@@ -90,9 +88,7 @@ enum L10n {
     static var loadingMessages: String { isChinese ? "正在加载消息…" : "Loading messages..." }
     static var noMessagesYet: String { isChinese ? "暂无消息" : "No messages yet" }
     static var messageClaude: String { isChinese ? "给 Claude 发消息…" : "Message Claude..." }
-    static var messageOpenCode: String { isChinese ? "给 OpenCode 发消息…" : "Message OpenCode..." }
     static var noTTYAvailable: String { isChinese ? "该会话无可用 TTY" : "No TTY available for this session" }
-    static var remoteSendFailed: String { isChinese ? "远程发送失败" : "Remote send failed" }
     static var copiedPasteInTerminal: String { isChinese ? "已复制，请在终端粘贴" : "Copied. Paste in terminal" }
     static func copied(hint: String) -> String { isChinese ? "已复制 (\(hint))" : "Copied (\(hint))" }
     static var processing: String { isChinese ? "处理中" : "Processing" }
@@ -140,37 +136,6 @@ enum L10n {
     static var you: String { isChinese ? "你：" : "You:" }
     static var goToTerminal: String { isChinese ? "前往终端" : "Go to Terminal" }
 
-    // MARK: - Remote Hosts View
-
-    static var remoteHosts: String { isChinese ? "远程主机" : "Remote Hosts" }
-    static var noRemoteHostsYet: String { isChinese ? "暂无远程主机" : "No remote hosts yet" }
-    static var addOrImportSSH: String { isChinese ? "在下方添加或从 ~/.ssh/config 导入" : "Add one below or import from ~/.ssh/config" }
-    static var installOK: String { isChinese ? "安装成功" : "Install OK" }
-    static var installNeedsAttention: String { isChinese ? "安装需要关注" : "Install needs attention" }
-    static var installNotStarted: String { isChinese ? "未开始安装" : "Install not started" }
-    static var installingRemoteHooks: String { isChinese ? "正在安装远程钩子/插件…" : "Installing remote hooks/plugins..." }
-    static var installLog: String { isChinese ? "安装日志" : "Install log" }
-    static var ok: String { "ok" } // keep technical
-    static var fail: String { "fail" } // keep technical
-    static var importFromSSHConfig: String { isChinese ? "从 SSH 配置导入" : "Import from SSH config" }
-    static var name: String { isChinese ? "名称" : "Name" }
-    static var userAtHost: String { "user@host" } // universal
-    static var port: String { isChinese ? "端口" : "Port" }
-    static var identityFileOptional: String { isChinese ? "密钥文件（可选）" : "Identity file (optional)" }
-    static var sshConfig: String { "~/.ssh/config" } // path, no translation
-    static var noEntriesFound: String { isChinese ? "未找到条目" : "No entries found" }
-    static var noMatches: String { isChinese ? "无匹配" : "No matches" }
-    static var connect: String { isChinese ? "连接" : "Connect" }
-    static var connecting: String { isChinese ? "连接中…" : "Connecting..." }
-    static var disconnect: String { isChinese ? "断开" : "Disconnect" }
-    static var disconnected: String { isChinese ? "已断开" : "Disconnected" }
-    static var connectingStatus: String { isChinese ? "连接中" : "Connecting" }
-    static var connected: String { isChinese ? "已连接" : "Connected" }
-    static var failed: String { isChinese ? "失败" : "Failed" }
-    static var noUser: String { isChinese ? "（无用户）" : "(no user)" }
-    static var defaultPort: String { isChinese ? "（默认）" : "(default)" }
-    static var sshConfigSuffix: String { "(ssh config)" }
-
     // MARK: - Session Phase Helpers
 
     static func waitingForApproval(tool: String) -> String {
@@ -196,8 +161,8 @@ enum L10n {
     static var welcomeTitle: String { isChinese ? "欢迎使用 Vibe Hub" : "Welcome to Vibe Hub" }
     static var welcomeSubtitle: String {
         isChinese
-            ? "Vibe Hub 通过 Hook 脚本监听 Claude Code 和 OpenCode 的会话状态，在屏幕顶部实时显示。"
-            : "Vibe Hub monitors Claude Code and OpenCode sessions via hook scripts and shows real-time status at the top of your screen."
+            ? "Vibe Hub 通过 Hook 脚本监听 Claude Code 的会话状态，在屏幕顶部实时显示。"
+            : "Vibe Hub monitors Claude Code sessions via hook scripts and shows real-time status at the top of your screen."
     }
     static var welcomeInstallStep: String {
         isChinese

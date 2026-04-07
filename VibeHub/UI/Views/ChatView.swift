@@ -78,10 +78,7 @@ struct ChatView: View {
                                     payload: payload,
                                     onSubmit: { answers in
                                         sessionMonitor.submitAskUserQuestion(sessionId: sessionId, answers: answers)
-                                    },
-                                    onUseTerminal: isOpenCodeSession ? {
-                                        sessionMonitor.deferAskUserQuestionToTerminal(sessionId: sessionId)
-                                    } : nil
+                                    }
                                 )
                             } else {
                                 // Fallback: free text input for unstructured questions
@@ -214,29 +211,6 @@ struct ChatView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.85))
                     .lineLimit(1)
-
-                // Tags
-                HStack(spacing: 4) {
-                    // Software tag
-                    Text(isOpenCodeSession ? "opencode" : "claude")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background((isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34)).opacity(0.15))
-                        .clipShape(Capsule())
-
-                    // Remote host tag
-                    if let hostName = remoteHostName {
-                        Text(hostName)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(TerminalColors.cyan)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(TerminalColors.cyan.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                }
 
                 Spacer()
             }
@@ -395,37 +369,15 @@ struct ChatView: View {
 
     // MARK: - Input Bar
 
-    private var isOpenCodeSession: Bool {
-        session.opencodeRawSessionId != nil
-    }
-
-    /// Display name of the remote host, if this is a remote session
-    private var remoteHostName: String? {
-        guard let hostId = session.remoteHostId else { return nil }
-        return RemoteManager.shared.hosts.first(where: { $0.id == hostId })?.name
-            ?? hostId.prefix(8).description
-    }
-
-    /// Can send messages if we can reach the session.
-    /// - Claude Code: tmux send-keys (if in tmux) or TTY injection (if tty available).
-    /// - OpenCode: control socket / HTTP API / clipboard fallback.
+    /// Can send messages if a TTY is available for the session.
     private var canSendMessages: Bool {
-        if session.isRemote {
-            return true
-        }
-        // Claude Code: either tmux or raw TTY is sufficient
-        if !isOpenCodeSession {
-            return session.tty != nil
-        }
-        return true // OpenCode always has a path (control socket / HTTP / clipboard)
+        session.tty != nil
     }
 
     private var inputBar: some View {
         HStack(spacing: 10) {
             TextField(
-                canSendMessages
-                    ? (isOpenCodeSession ? L10n.messageOpenCode : L10n.messageClaude)
-                    : L10n.noTTYAvailable,
+                canSendMessages ? L10n.messageClaude : L10n.noTTYAvailable,
                 text: $inputText
             )
                 .textFieldStyle(.plain)
@@ -505,7 +457,7 @@ struct ChatView: View {
         ChatApprovalBar(
             tool: tool,
             toolInput: session.pendingToolInput,
-            allowAlways: isOpenCodeSession,
+            allowAlways: true,
             onApprove: { approvePermission() },
             onAlways: { approvePermissionAlways() },
             onDeny: { denyPermission() }
@@ -598,63 +550,6 @@ struct ChatView: View {
     }
 
     private func sendToSession(_ text: String) async {
-        if session.isRemote {
-            if isOpenCodeSession {
-                let res = await RemoteActions.sendOpenCodePrompt(session: session, text: text)
-                if !res.ok {
-                    await MainActor.run {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            inputHintText = L10n.remoteSendFailed + (res.hint.map { " (\($0))" } ?? "")
-                        }
-                    }
-                }
-            } else {
-                let res = await RemoteActions.sendClaudeMessage(session: session, text: text)
-                if !res.ok {
-                    await MainActor.run {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            inputHintText = L10n.remoteSendFailed + (res.hint.map { " (\($0))" } ?? "")
-                        }
-                    }
-                }
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    inputHintText = nil
-                }
-            }
-            return
-        }
-
-        if isOpenCodeSession {
-            let result = await sendToOpenCode(text)
-            if !result.success {
-                await MainActor.run {
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString(text, forType: .string)
-
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        if let hint = result.hint {
-                            inputHintText = L10n.copied(hint: hint)
-                        } else {
-                            inputHintText = L10n.copiedPasteInTerminal
-                        }
-                    }
-                }
-
-                focusTerminal()
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    inputHintText = nil
-                }
-            }
-            return
-        }
-
         guard session.isInTmux else {
             // Not in tmux - try TTY injection directly
             if let tty = session.tty {
@@ -755,114 +650,6 @@ except Exception as e:
         }
     }
 
-    private var openCodeServerSessionId: String? {
-        guard isOpenCodeSession else { return nil }
-        return session.opencodeRawSessionId
-    }
-
-    private func sendToOpenCode(_ text: String) async -> (success: Bool, hint: String?) {
-        if let result = await sendToOpenCodeControlSocket(text) {
-            return result
-        }
-
-        // Fallback to HTTP server if the OpenCode instance is exposing one.
-        return await sendToOpenCodeHTTP(text)
-    }
-
-    private func sendToOpenCodeControlSocket(_ text: String) async -> (success: Bool, hint: String?)? {
-        guard let sid = openCodeServerSessionId else {
-            return (false, "no session id")
-        }
-        guard let socketPath = session.openCodeControlSocketPath else {
-            return (false, "no control socket (restart opencode)")
-        }
-
-        let body: [String: Any] = [
-            "type": "prompt",
-            "session_id": sid,
-            "text": text,
-        ]
-        guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
-            return (false, "bad payload")
-        }
-
-        guard let data = await UnixSocketClient.sendAndReceive(
-            socketPath: socketPath,
-            payload: payload,
-            timeoutSeconds: 2,
-            allowNoResponse: true
-        ) else {
-            return (false, "control socket unreachable")
-        }
-
-        // Best-effort: if the control socket accepted the payload but didn't reply in time,
-        // treat it as success (the prompt may still have been queued).
-        if data.isEmpty {
-            return (true, nil)
-        }
-
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (false, "bad control response")
-        }
-
-        if let ok = obj["ok"] as? Bool, ok {
-            return (true, nil)
-        }
-
-        if let err = obj["error"] as? String, !err.isEmpty {
-            return (false, err)
-        }
-
-        return (false, "control failed")
-    }
-
-    private func sendToOpenCodeHTTP(_ text: String) async -> (success: Bool, hint: String?) {
-        guard let sid = openCodeServerSessionId else {
-            return (false, "no session id")
-        }
-        guard let port = session.serverPort else {
-            return (false, "no server info (restart opencode)")
-        }
-
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = (session.serverHostname?.isEmpty == false) ? session.serverHostname : "localhost"
-        components.port = port
-        // Use prompt_async to avoid blocking until completion.
-        components.path = "/session/\(sid)/prompt_async"
-
-        guard let url = components.url else { return (false, "invalid server url") }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = [
-            "parts": [[
-                "type": "text",
-                "text": text,
-            ]]
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: body) else {
-            return (false, "bad payload")
-        }
-        request.httpBody = data
-
-        do {
-            let (_, resp) = try await URLSession.shared.data(for: request)
-            if let http = resp as? HTTPURLResponse {
-                // prompt_async returns 204 on success.
-                if (200..<300).contains(http.statusCode) {
-                    return (true, nil)
-                }
-                return (false, "OpenCode API HTTP \(http.statusCode)")
-            }
-        } catch {
-            return (false, "OpenCode API unreachable")
-        }
-
-        return (false, "unexpected response")
-    }
 }
 
 // MARK: - Message Item View

@@ -62,8 +62,6 @@ struct MenuBarContentView: View {
             )
         case .menu:
             NotchMenuView(viewModel: viewModel)
-        case .remote:
-            RemoteHostsView(viewModel: viewModel)
         case .chat(let session):
             ChatView(
                 sessionId: session.sessionId,

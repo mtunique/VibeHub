@@ -91,7 +91,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketRouter.respondToPermission(
+            HookSocketServer.shared.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "allow"
             )
@@ -110,7 +110,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketRouter.respondToPermission(
+            HookSocketServer.shared.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "always"
             )
@@ -121,7 +121,7 @@ class ClaudeSessionMonitor: ObservableObject {
         }
     }
 
-    /// Submit answers for an AskUserQuestion prompt (works for both Claude Code and OpenCode)
+    /// Submit answers for an AskUserQuestion prompt
     func submitAskUserQuestion(sessionId: String, answers: [[String]]) {
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
@@ -129,7 +129,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketRouter.respondToPermission(
+            HookSocketServer.shared.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "allow",
                 answers: answers
@@ -149,12 +149,11 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketRouter.respondToPermission(
+            HookSocketServer.shared.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "ask"
             )
 
-            // Clear the in-app prompt UI; OpenCode will still ask in terminal.
             await SessionStore.shared.process(
                 .permissionDenied(sessionId: sessionId, toolUseId: permission.toolUseId, reason: nil)
             )
@@ -168,7 +167,7 @@ class ClaudeSessionMonitor: ObservableObject {
                 return
             }
 
-            HookSocketRouter.respondToPermission(
+            HookSocketServer.shared.respondToPermission(
                 toolUseId: permission.toolUseId,
                 decision: "deny",
                 reason: reason

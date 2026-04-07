@@ -178,7 +178,6 @@ struct OnboardingView: View {
         #else
         // Dev builds auto-install hooks
         HookInstaller.installIfNeeded()
-        OpenCodePluginInstaller.installIfNeeded()
         return true
         #endif
     }
@@ -209,16 +208,7 @@ struct OnboardingView: View {
         guard ok else { return false }
 
         let claudeDir = homeDir.appendingPathComponent(".claude", isDirectory: true)
-        let ok1 = HookInstaller.installAppStore(claudeDir: claudeDir)
-
-        let opencodeDir = homeDir
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("opencode", isDirectory: true)
-        if FileManager.default.fileExists(atPath: opencodeDir.appendingPathComponent("opencode.json").path) {
-            _ = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
-        }
-
-        return ok1
+        return HookInstaller.installAppStore(claudeDir: claudeDir)
     }
 
     @MainActor

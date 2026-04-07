@@ -486,8 +486,6 @@ struct NotchView: View {
             )
         case .menu:
             NotchMenuView(viewModel: viewModel)
-        case .remote:
-            RemoteHostsView(viewModel: viewModel)
         case .chat(let session):
             ChatView(
                 sessionId: session.sessionId,
@@ -567,7 +565,7 @@ struct NotchView: View {
                 return
             }
 
-            // Prefer jumping directly into chat for interactive tools (eg OpenCode AskUserQuestion),
+            // Prefer jumping directly into chat for interactive tools (eg AskUserQuestion),
             // since the instances list only shows a "Needs your input" hint.
             if let interactive = newlyPendingSessions.first(where: { $0.pendingToolName == "AskUserQuestion" }) {
                 NotchLog.log("handlePending: opening for interactive tool, session=\(interactive.sessionId.prefix(12)) tool=\(interactive.pendingToolName ?? "?")")
@@ -872,28 +870,8 @@ struct WelcomeView: View {
         let claudeDir = homeDir.appendingPathComponent(".claude", isDirectory: true)
         let ok1 = HookInstaller.installAppStore(claudeDir: claudeDir)
 
-        var ok2 = true
-        let wantsOpenCode = withNotchWindowDeemphasized {
-            NSAlert.runWelcomeChoice(
-                title: "OpenCode",
-                message: "Also install the OpenCode plugin (uses ~/.config/opencode if present)?",
-                primary: "Install",
-                secondary: "Skip"
-            )
-        }
-
-        if wantsOpenCode {
-            let opencodeDir = homeDir
-                .appendingPathComponent(".config", isDirectory: true)
-                .appendingPathComponent("opencode", isDirectory: true)
-            ok2 = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
-        }
-
-        if ok1 && ok2 {
+        if ok1 {
             showMessage(title: "Hooks", message: "Installed.")
-            return true
-        } else if ok1 {
-            showMessage(title: "Hooks", message: "Installed Claude hooks, but OpenCode plugin failed.")
             return true
         } else {
             showMessage(title: "Hooks", message: "Install failed.")
@@ -949,15 +927,4 @@ struct WelcomeView: View {
     }
 }
 
-private extension NSAlert {
-    @MainActor
-    static func runWelcomeChoice(title: String, message: String, primary: String, secondary: String) -> Bool {
-        let a = NSAlert()
-        a.messageText = title
-        a.informativeText = message
-        a.addButton(withTitle: primary)
-        a.addButton(withTitle: secondary)
-        return a.runModal() == .alertFirstButtonReturn
-    }
-}
 #endif

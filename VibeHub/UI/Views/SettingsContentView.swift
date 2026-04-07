@@ -15,7 +15,6 @@ import SwiftUI
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case appearance
     case notifications
-    case remote
     case system
     case about
 
@@ -25,7 +24,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return L10n.settingsAppearance
         case .notifications: return L10n.settingsNotifications
-        case .remote: return L10n.remote
         case .system: return L10n.settingsSystem
         case .about: return L10n.settingsAbout
         }
@@ -35,7 +33,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
-        case .remote: return "network"
         case .system: return "gearshape.fill"
         case .about: return "info.circle.fill"
         }
@@ -45,7 +42,6 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return .purple
         case .notifications: return .red
-        case .remote: return .blue
         case .system: return .gray
         case .about: return .blue
         }
@@ -75,7 +71,7 @@ struct SettingsContentView: View {
     @State private var selectedSection: SettingsSection? = .appearance
 
     private var mainSections: [SettingsSection] {
-        [.appearance, .notifications, .remote, .system]
+        [.appearance, .notifications, .system]
     }
 
     private var bottomSections: [SettingsSection] {
@@ -161,8 +157,6 @@ struct SettingsContentView: View {
             AppearanceSection()
         case .notifications:
             NotificationsSection()
-        case .remote:
-            RemoteSection()
         case .system:
             SystemSection()
         case .about:
@@ -252,14 +246,6 @@ private struct NotificationsSection: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-    }
-}
-
-// MARK: - Remote Section
-
-private struct RemoteSection: View {
-    var body: some View {
-        RemoteHostsView()
     }
 }
 

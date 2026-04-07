@@ -42,7 +42,6 @@ enum NotchOpenReason {
 enum NotchContentType: Equatable {
     case instances
     case menu
-    case remote
     case chat(SessionState)
     case onboarding
     #if APP_STORE
@@ -53,7 +52,6 @@ enum NotchContentType: Equatable {
         switch self {
         case .instances: return "instances"
         case .menu: return "menu"
-        case .remote: return "remote"
         case .chat(let session): return "chat-\(session.sessionId)"
         case .onboarding: return "onboarding"
         #if APP_STORE
@@ -111,11 +109,6 @@ class NotchViewModel: ObservableObject {
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
                 height: 320
-            )
-        case .remote:
-            return CGSize(
-                width: min(screenRect.width * 0.45, 540),
-                height: 420
             )
         case .onboarding:
             return CGSize(

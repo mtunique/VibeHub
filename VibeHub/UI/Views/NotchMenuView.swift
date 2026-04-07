@@ -71,7 +71,6 @@ struct NotchMenuView: View {
             return
         }
 
-        // Persist access to Home; allows access to ~/.claude and ~/.config/opencode as descendants.
         _ = HookInstaller.rememberClaudeDir(homeDir)
 
         let claudeOk = homeDir.startAccessingSecurityScopedResource()
@@ -84,28 +83,9 @@ struct NotchMenuView: View {
         let claudeDir = homeDir.appendingPathComponent(".claude", isDirectory: true)
         let ok1 = HookInstaller.installAppStore(claudeDir: claudeDir)
 
-        var ok2 = true
-        let wantsOpenCode = withNotchWindowDeemphasized {
-            NSAlert.runChoice(
-                title: "OpenCode",
-                message: "Also install the OpenCode plugin (uses ~/.config/opencode if present)?",
-                primary: "Install",
-                secondary: "Skip"
-            )
-        }
-
-        if wantsOpenCode {
-            let opencodeDir = homeDir
-                .appendingPathComponent(".config", isDirectory: true)
-                .appendingPathComponent("opencode", isDirectory: true)
-            ok2 = HookInstaller.installOpenCodeAppStore(opencodeDir: opencodeDir)
-        }
-
         refreshStates()
-        if ok1 && ok2 {
+        if ok1 {
             showMessage(title: "Hooks", message: "Installed.")
-        } else if ok1 {
-            showMessage(title: "Hooks", message: "Installed Claude hooks, but OpenCode plugin failed.")
         } else {
             showMessage(title: "Hooks", message: "Install failed.")
         }

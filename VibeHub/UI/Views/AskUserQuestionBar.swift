@@ -2,7 +2,7 @@
 //  AskUserQuestionBar.swift
 //  VibeHub
 //
-//  OpenCode: render question.asked inside the notch.
+//  Renders an AskUserQuestion tool prompt inside the notch.
 //
 
 import SwiftUI
