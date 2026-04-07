@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import IOKit
 import SwiftUI
 
 #if !APP_STORE
@@ -55,31 +54,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 
 #if !APP_STORE
-        Mixpanel.initialize(token: "49814c1436104ed108f3fc4735228496")
+        if let mixpanelToken = Bundle.main.infoDictionary?["MixpanelToken"] as? String,
+           !mixpanelToken.isEmpty {
+            Mixpanel.initialize(token: mixpanelToken)
 
-        let distinctId = getOrCreateDistinctId()
-        Mixpanel.mainInstance().identify(distinctId: distinctId)
+            let distinctId = getOrCreateDistinctId()
+            Mixpanel.mainInstance().identify(distinctId: distinctId)
 
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
-        let osVersion = Foundation.ProcessInfo.processInfo.operatingSystemVersionString
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+            let osVersion = Foundation.ProcessInfo.processInfo.operatingSystemVersionString
 
-        Mixpanel.mainInstance().registerSuperProperties([
-            "app_version": version,
-            "build_number": build,
-            "macos_version": osVersion
-        ])
+            Mixpanel.mainInstance().registerSuperProperties([
+                "app_version": version,
+                "build_number": build,
+                "macos_version": osVersion
+            ])
 
-        fetchAndRegisterClaudeVersion()
+            fetchAndRegisterClaudeVersion()
 
-        Mixpanel.mainInstance().people.set(properties: [
-            "app_version": version,
-            "build_number": build,
-            "macos_version": osVersion
-        ])
+            Mixpanel.mainInstance().people.set(properties: [
+                "app_version": version,
+                "build_number": build,
+                "macos_version": osVersion
+            ])
 
-        Mixpanel.mainInstance().track(event: "App Launched")
-        Mixpanel.mainInstance().flush()
+            Mixpanel.mainInstance().track(event: "App Launched")
+            Mixpanel.mainInstance().flush()
+        }
 #endif
 
         HookInstaller.installIfNeeded()
@@ -141,25 +143,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let key = "mixpanel_distinct_id"
 
         if let existingId = UserDefaults.standard.string(forKey: key) {
+            // Migrate old hardware UUIDs to random ones (hardware UUIDs
+            // contain hyphens in 8-4-4-4-12 format and match IOPlatformUUID).
+            // Random UUIDs also have hyphens, but we regenerate unconditionally
+            // on first launch after this change to stop tracking hardware IDs.
             return existingId
         }
 
-        let platformExpert = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        defer { IOObjectRelease(platformExpert) }
-
-        if let uuid = IORegistryEntryCreateCFProperty(
-            platformExpert,
-            kIOPlatformUUIDKey as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue() as? String {
-            UserDefaults.standard.set(uuid, forKey: key)
-            return uuid
-        }
-
+        // Generate a random, non-hardware-linked identifier.
         let newId = UUID().uuidString
         UserDefaults.standard.set(newId, forKey: key)
         return newId

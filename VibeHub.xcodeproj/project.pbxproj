@@ -334,6 +334,7 @@
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
 				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/VibeHub/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
+				INFOPLIST_KEY_MixpanelToken = "49814c1436104ed108f3fc4735228496";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -375,6 +376,7 @@
 				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
 				INFOPLIST_KEY_SUFeedURL = "https://mtunique.github.io/VibeHub/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=";
+				INFOPLIST_KEY_MixpanelToken = "49814c1436104ed108f3fc4735228496";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

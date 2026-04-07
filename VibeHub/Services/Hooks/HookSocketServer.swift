@@ -423,9 +423,22 @@ class HookSocketServer {
 
     // MARK: - Private
 
+    /// Simple rate limiter: track recent connection timestamps
+    private var recentConnections: [Date] = []
+    private let maxConnectionsPerSecond = 20
+
     private func acceptConnection() {
         let clientSocket = accept(serverSocket, nil, nil)
         guard clientSocket >= 0 else { return }
+
+        // Rate limit: reject if too many connections in the last second
+        let now = Date()
+        recentConnections.removeAll { now.timeIntervalSince($0) > 1.0 }
+        if recentConnections.count >= maxConnectionsPerSecond {
+            close(clientSocket)
+            return
+        }
+        recentConnections.append(now)
 
         // Verify the connecting process belongs to the same user.
         // Fail closed: reject if credentials cannot be verified.
