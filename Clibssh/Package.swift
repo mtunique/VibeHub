@@ -20,8 +20,7 @@ let package = Package(
                 .linkedLibrary("mbedcrypto", .when(platforms: [.macOS])),
                 .linkedLibrary("mbedtls", .when(platforms: [.macOS])),
                 .linkedLibrary("mbedx509", .when(platforms: [.macOS])),
-                .unsafeFlags([
-                    "-L/opt/homebrew/lib",
+.unsafeFlags([
                     "-L\(Context.packageDirectory)/libs",
                 ]),
             ]
