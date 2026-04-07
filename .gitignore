@@ -33,6 +33,10 @@ Pods/
 *.iml
 .vscode/
 
+# App builds
+*.app/
+*.app.zip
+
 # Sparkle signing keys (NEVER commit these!)
 .sparkle-keys/
 
