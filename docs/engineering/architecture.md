@@ -4,7 +4,7 @@ This document is for coding agents and contributors who need a fast, implementat
 
 ## Primary Goal
 
-Vibe Hub is a macOS menu bar app that surfaces live Claude Code and OpenCode session activity in a Dynamic Island-style overlay. The app reacts to hook events, stores normalized session state, and renders that state through SwiftUI and AppKit window management.
+Vibe Hub is a macOS menu bar app that surfaces live Claude Code session activity in a Dynamic Island-style overlay. The app reacts to hook events, stores normalized session state, and renders that state through SwiftUI and AppKit window management.
 
 ## First Files To Read
 
@@ -65,16 +65,9 @@ This is the canonical state pipeline. If behavior looks wrong in the UI, check w
 
 - `VibeHub/Services/Hooks/HookInstaller.swift`
 - `VibeHub/Services/Hooks/HookSocketServer.swift`
-- `VibeHub/Services/Hooks/HookSocketRouter.swift`
 - `VibeHub/Resources/`
 
-Handles installation of local integrations and receipt of runtime events from Claude Code or Claude Code-style hooks.
-
-### OpenCode Integration
-
-- `VibeHub/Services/OpenCode/OpenCodePluginInstaller.swift`
-
-Owns OpenCode-specific installation and compatibility concerns. Use this area when the feature is CLI-specific rather than session-state-specific.
+Handles installation of local integrations and receipt of runtime events from Claude Code hooks.
 
 ### Session File Watching
 
@@ -93,14 +86,6 @@ Bridges state from on-disk CLI artifacts into the app, especially for subagent a
 
 Used when approval flow needs to route back into tmux or when the app decides whether it should interrupt the user with notch UI.
 
-### Remote Support
-
-- `VibeHub/Services/Remote/`
-- `VibeHub/Services/Shared/UnixSocketClient.swift`
-- `VibeHub/Services/Shared/ProcessExecutor.swift`
-
-Supports remote hosts, SSH forwarding, install/report flows, and remote socket connectivity.
-
 ### UI Rendering
 
 - `VibeHub/UI/Views/`
@@ -113,8 +98,7 @@ Pure presentation and interaction code. Prefer changing model or view-model beha
 - If a new event type or lifecycle state is involved, start in `Models/` and `Services/State/`.
 - If the data is correct but the notch opens or closes at the wrong time, start in `Core/`.
 - If the notch content is wrong but the state looks right, start in `UI/Views/`.
-- If the issue only happens for Claude Code, hooks, or OpenCode, start in the integration service rather than UI.
-- If a bug only reproduces for remote sessions, inspect `Services/Remote/` before changing shared state logic.
+- If the issue only happens for Claude Code or hooks, start in the integration service rather than UI.
 
 ## High-Value Invariants
 

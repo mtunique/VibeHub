@@ -19,16 +19,7 @@ Start here when the app is not receiving events, installation is broken, or a lo
 
 - `VibeHub/Services/Hooks/HookInstaller.swift`
 - `VibeHub/Services/Hooks/HookSocketServer.swift`
-- `VibeHub/Services/Hooks/HookSocketRouter.swift`
 - `VibeHub/Resources/`
-
-## OpenCode-Specific Behavior
-
-Start here when a behavior differs between Claude Code and OpenCode.
-
-- `VibeHub/Services/OpenCode/OpenCodePluginInstaller.swift`
-- `VibeHub/Services/Hooks/HookInstaller.swift`
-- `VibeHub/Services/Hooks/HookSocketServer.swift`
 
 ## Subagents, Chat History, and JSONL Watching
 
@@ -82,19 +73,6 @@ Start here when approve or deny controls, request banners, or tmux handoff break
 - `VibeHub/Services/Tmux/TmuxController.swift`
 - `VibeHub/UI/Views/AskUserQuestionBar.swift`
 - `VibeHub/UI/Views/NotchView.swift`
-
-## Remote SSH Monitoring
-
-Start here when remote hosts, SSH tunnel setup, or remote event forwarding break.
-
-- `VibeHub/Services/Remote/RemoteManager.swift` — connection lifecycle, exec(hostId:command:)
-- `VibeHub/Services/Remote/NativeSSH/NativeSSHForwarder.swift` — libssh tunnel + exec queue
-- `VibeHub/Services/Remote/RemoteInstaller.swift` — remote hook installation via SSH
-- `VibeHub/Services/Remote/SSHForwarder.swift` — legacy process-based SSH (fallback)
-- `VibeHub/Services/Remote/SSHConfigParser.swift`
-- `VibeHub/Services/Remote/RemoteActions.swift` — send messages to remote Claude/OpenCode
-- `VibeHub/Services/Remote/RemoteHost.swift` — host model with sshTarget, localSocketPath
-- `VibeHub/UI/Views/RemoteHostsView.swift`
 
 ## Terminal and Focus Awareness
 
@@ -155,4 +133,4 @@ Start here when update prompts, release feed behavior, or the release pipeline c
 - Wrong data: inspect `Models/` and `Services/State/` first.
 - Wrong timing: inspect `Core/` and terminal visibility logic first.
 - Wrong rendering: inspect `UI/Views/` and `UI/Components/` first.
-- Wrong integration behavior: inspect `Services/Hooks/`, `Services/OpenCode/`, or `Services/Remote/` first.
+- Wrong integration behavior: inspect `Services/Hooks/` first.

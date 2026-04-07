@@ -29,7 +29,6 @@ The app uses XcodeGen with file system synchronization (no .xcodeproj editing ne
 - swift-markdown (0.5.0+) - Markdown rendering
 - Sparkle (2.0.0+) - Auto-update (non-App Store builds)
 - mixpanel-swift (master) - Analytics (non-App Store builds)
-- Clibssh (local package) - Native SSH via libssh + mbedTLS
 
 ### Release (non-App Store)
 
@@ -42,11 +41,11 @@ Requires: Developer ID Application certificate, `xcrun notarytool` keychain prof
 
 ## Architecture Overview
 
-VibeHub is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Claude Code and OpenCode CLI sessions. It communicates with the CLI via hooks installed to `~/.claude/hooks/` (Claude Code) or `~/.opencode/hooks/` (OpenCode).
+VibeHub is a macOS menu bar app (LSUIElement) that provides a Dynamic Island-style overlay for monitoring Claude Code CLI sessions. It communicates with the CLI via hooks installed to `~/.claude/hooks/`.
 
 ### Core Data Flow
 
-1. **HookInstaller** (`Services/Hooks/HookInstaller.swift`) - On first launch, installs `vibehub-state.py` to both `~/.claude/hooks/` and `~/.opencode/hooks/` (if they exist), and registers hook events in their respective `settings.json` files. Uses `SupportedCLI` enum to manage both.
+1. **HookInstaller** (`Services/Hooks/HookInstaller.swift`) - On first launch, installs `vibehub-state.py` to `~/.claude/hooks/` and registers hook events in `settings.json`.
 
 2. **HookSocketServer** (`Services/Hooks/HookSocketServer.swift`) - Listens on Unix socket `/tmp/vibehub.sock` for events from the Python hook. Handles permission approval/denial responses.
 
@@ -115,13 +114,6 @@ When Claude finishes, the notch:
 3. User clicks button → app sends response over socket
 4. Hook receives response and proceeds or denies
 
-### Remote SSH Monitoring
-
-- **RemoteManager** (`Services/Remote/RemoteManager.swift`) - Manages remote host connections, reconnection, install tasks. Exposes `exec(hostId:command:)` for running commands via native SSH.
-- **NativeSSHForwarder** (`Services/Remote/NativeSSH/NativeSSHForwarder.swift`) - libssh-based SSH tunnel. Runs on a dedicated thread. Supports reverse TCP forwarding and command execution via an exec queue (commands enqueued from any thread, drained in the forward loop).
-- **RemoteInstaller** (`Services/Remote/RemoteInstaller.swift`) - Installs hooks on remote hosts via SSH. Also provides `runSSH`/`runSSHResult` for process-based SSH fallback.
-- **TerminalActivator** (`Services/Window/TerminalActivator.swift`) - Activates terminal windows for sessions. For remote sessions with multiple SSH connections to the same host, queries the remote via `RemoteManager.exec` to match the correct local SSH tab by TCP source port.
-
 ### Licensing (non-App Store only)
 
 All licensing code is behind `#if !APP_STORE`. Uses LemonSqueezy API.
@@ -138,12 +130,11 @@ All licensing code is behind `#if !APP_STORE`. Uses LemonSqueezy API.
 
 ## Code Patterns
 
-- `@MainActor` for all UI-bound classes (ClaudeSessionMonitor, NotchViewModel, RemoteManager, LicenseManager)
+- `@MainActor` for all UI-bound classes (ClaudeSessionMonitor, NotchViewModel, LicenseManager)
 - Swift **actor** for thread-safe SessionStore and TerminalActivator
 - `CurrentValueSubject` with `receive(on: DispatchQueue.main)` for UI binding
 - `matchedGeometryEffect` for smooth notch animations
 - SwiftUI + AppKit interop via `NSApplicationDelegateAdaptor`
-- NativeSSHForwarder runs libssh on a dedicated `Thread` — all `ssh_*` calls stay on that thread; cross-thread communication via `NSLock`-guarded exec queue with `withCheckedContinuation`
 - Conditional compilation: `#if !APP_STORE` guards licensing, Sparkle updates, and Mixpanel analytics
 - `NotchWindowController.hasBooted` static flag prevents boot animation on screen-change window recreation
-- Notch auto-expansion checks `TerminalActivator.isSessionTerminalFocused` before opening (avoids popping when terminal is in foreground)
+- Notch auto-expansion checks terminal visibility before opening (avoids popping when terminal is in foreground)

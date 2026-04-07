@@ -13,14 +13,12 @@ This file is intentionally short-lived and should be updated after meaningful fe
 - `SessionStore` is the canonical state owner.
 - UI-bound coordination lives on `@MainActor`.
 - Notch behavior is a combination of state transitions, terminal visibility, and UI presentation.
-- Local CLI, OpenCode, and remote flows converge into the same visible session model.
+- Local CLI flows feed into the visible session model.
 
 ## Recent Changes (v1.3.1)
 
 - Licensing switched from Polar.sh to LemonSqueezy (`LemonSqueezyAPIClient`).
-- Remote eye-button now matches the correct SSH tab via TCP source-port lookup through `RemoteManager.exec` (native libssh, no process spawning).
-- `NativeSSHForwarder` gained an exec queue (`enqueueExec` / `drainPendingExecs`) for running one-shot commands on the SSH thread.
-- Notch auto-expansion checks `TerminalActivator.isSessionTerminalFocused` before opening.
+- Notch auto-expansion checks terminal visibility before opening.
 - `NotchWindowController.hasBooted` prevents repeated boot animations on screen changes.
 - Release pipeline: `scripts/create-release.sh` handles build → notarize → DMG → Sparkle → GitHub Release → appcast push to releases dir.
 - SUFeedURL points to `https://github.com/mtunique/VibeHub/releases/download/v1.3.1/appcast.xml` (served via GitHub Pages).
