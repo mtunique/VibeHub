@@ -13,8 +13,11 @@ final class NativeSSHForwarder: ObservableObject {
     @Published private(set) var status: Status = .disconnected
 
     private var runner: SSHRunner?
+    private var processForwarder: ProcessForwarder?
     private var hostId: String?
     private var generation: UInt64 = 0
+    /// True when using process-based forwarding (ProxyJump / GSSAPI-only hosts).
+    private var usingProcessMode = false
 
     func connect(host: RemoteHost) {
         hostId = host.id
@@ -23,12 +26,28 @@ final class NativeSSHForwarder: ObservableObject {
         let gen = generation
         status = .connecting
 
-        let r = SSHRunner()
-        runner = r
-        r.start(host: host) { [weak self] newStatus in
-            DispatchQueue.main.async {
-                guard let self, self.generation == gen else { return }
-                self.status = newStatus
+        // Detect if ProxyJump is configured — libssh can't handle GSSAPI through proxies.
+        let needsProcess = SSHRunner.detectProxyJump(host: host) != nil
+        usingProcessMode = needsProcess
+
+        if needsProcess {
+            Task { await RemoteLog.shared.log(.info, "Using process-based SSH (ProxyJump detected)", hostId: host.id) }
+            let pf = ProcessForwarder()
+            processForwarder = pf
+            pf.start(host: host) { [weak self] newStatus in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == gen else { return }
+                    self.status = newStatus
+                }
+            }
+        } else {
+            let r = SSHRunner()
+            runner = r
+            r.start(host: host) { [weak self] newStatus in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == gen else { return }
+                    self.status = newStatus
+                }
             }
         }
     }
@@ -36,17 +55,118 @@ final class NativeSSHForwarder: ObservableObject {
     func disconnect() {
         runner?.stop()
         runner = nil
+        processForwarder?.stop()
+        processForwarder = nil
     }
 
     /// Execute a command on the remote host via the existing SSH session.
     /// Returns (stdout, exitCode). Returns ("", -1) if not connected.
     func exec(command: String) async -> (output: String, exitCode: Int32) {
+        if usingProcessMode {
+            guard let pf = processForwarder else { return ("", -1) }
+            return await pf.exec(command: command)
+        }
         guard let runner else { return ("", -1) }
         return await withCheckedContinuation { cont in
             runner.enqueueExec(command) { output, exitCode in
                 cont.resume(returning: (output, exitCode))
             }
         }
+    }
+}
+
+// MARK: - ProcessForwarder
+
+/// Process-based SSH tunnel for hosts that require ProxyJump/GSSAPI.
+/// Uses `/usr/bin/ssh -N -R` for the tunnel and ControlMaster for exec.
+private final class ProcessForwarder: @unchecked Sendable {
+    private var process: Process?
+    private var host: RemoteHost?
+    private var shouldStop = false
+
+    func start(host: RemoteHost, onStatus: @escaping (SSHForwarder.Status) -> Void) {
+        self.host = host
+        let controlDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vibehub", isDirectory: true)
+        try? FileManager.default.createDirectory(at: controlDir, withIntermediateDirectories: true)
+        let controlPath = controlDir.appendingPathComponent("ssh-%C").path
+
+        var args: [String] = [
+            "-N", "-T",
+            "-o", "BatchMode=yes",
+            "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=3",
+            "-o", "StreamLocalBindUnlink=yes",
+            "-o", "StreamLocalBindMask=0000",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ControlMaster=auto",
+            "-o", "ControlPath=\(controlPath)",
+            "-o", "ControlPersist=300",
+        ]
+        if host.useGSSAPI {
+            args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
+        }
+        if let port = host.port { args += ["-p", String(port)] }
+        if let key = host.identityFile, !key.isEmpty { args += ["-i", key] }
+        args += ["-R", "\(host.remoteSocketPath):\(host.localSocketPath)"]
+        args += [host.sshTarget]
+
+        let sshCmd = (["/usr/bin/ssh"] + args)
+            .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            .joined(separator: " ")
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", sshCmd]
+        p.environment = RemoteInstaller.getSSHEnvironment()
+
+        let errPipe = Pipe()
+        p.standardError = errPipe
+        p.standardOutput = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+
+        p.terminationHandler = { [weak self] proc in
+            guard let self, !self.shouldStop else { return }
+            let code = proc.terminationStatus
+            if code == 0 { return }  // ControlMaster multiplexed exit
+            Task { await RemoteLog.shared.log(.warn, "ssh process exited (\(code))", hostId: host.id) }
+            onStatus(.failed("ssh exited (\(code))"))
+        }
+
+        do {
+            try p.run()
+            process = p
+            Task { await RemoteLog.shared.log(.info, "ssh process started pid=\(p.processIdentifier)", hostId: host.id) }
+        } catch {
+            onStatus(.failed("ssh start failed"))
+            return
+        }
+
+        // Monitor stderr for connection status
+        let handle = errPipe.fileHandleForReading
+        handle.readabilityHandler = { h in
+            let data = h.availableData
+            guard !data.isEmpty, let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty else { return }
+            Task { await RemoteLog.shared.log(.debug, "ssh stderr: \(msg)", hostId: host.id) }
+        }
+
+        // Mark connected after a short delay (same heuristic as SSHForwarder)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self, weak p] in
+            guard let self, !self.shouldStop, let p, p.isRunning else { return }
+            onStatus(.connected)
+        }
+    }
+
+    func stop() {
+        shouldStop = true
+        if let p = process, p.isRunning { p.terminate() }
+        process = nil
+    }
+
+    func exec(command: String) async -> (output: String, exitCode: Int32) {
+        guard let host else { return ("", -1) }
+        let result = await RemoteInstaller.runSSHResult(host: host, command: command, timeoutSeconds: 10)
+        return (result.output, result.exitCode)
     }
 }
 
@@ -195,6 +315,33 @@ private final class SSHRunner: @unchecked Sendable {
         return nil
     }
 
+    // MARK: ProxyJump detection
+
+    /// Runs `ssh -G <host>` to detect ProxyJump. Returns the jump target or nil.
+    static func detectProxyJump(host: RemoteHost) -> String? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        proc.arguments = ["-G", host.host]
+        proc.environment = RemoteInstaller.getSSHEnvironment()
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return nil }
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0 else { return nil }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            if parts[0].lowercased() == "proxyjump" {
+                let value = String(parts[1])
+                return value == "none" ? nil : value
+            }
+        }
+        return nil
+    }
+
     // MARK: Host key verification
 
     private func verifyHostKey(_ s: OpaquePointer, host: RemoteHost) -> String? {
@@ -221,13 +368,24 @@ private final class SSHRunner: @unchecked Sendable {
     // MARK: Authentication
 
     private func authenticate(_ s: OpaquePointer, host: RemoteHost) -> String? {
-        // Try agent + auto key first (covers most users without extra config).
-        let autoResult = ssh_userauth_publickey_auto(s, nil, nil)
-        if autoResult == SSH_AUTH_SUCCESS.rawValue { return nil }
+        // Query which methods the server actually supports.
+        // ssh_userauth_none is required first to get the method list.
+        let noneRC = ssh_userauth_none(s, nil)
+        if noneRC == SSH_AUTH_SUCCESS.rawValue { return nil }
 
-        // GSSAPI (Kerberos / jump-host environments).
-        if host.useGSSAPI {
-            if ssh_userauth_gssapi(s) == SSH_AUTH_SUCCESS.rawValue { return nil }
+        let methods = ssh_userauth_list(s, nil)
+
+        // GSSAPI first if enabled and available (preferred for corp environments).
+        if host.useGSSAPI && (methods & Int32(SSH_AUTH_METHOD_GSSAPI_MIC)) != 0 {
+            let rc = ssh_userauth_gssapi(s)
+            if rc == SSH_AUTH_SUCCESS.rawValue { return nil }
+            Task { await RemoteLog.shared.log(.warn, "GSSAPI auth failed (rc=\(rc))", hostId: host.id) }
+        }
+
+        // Public key (agent + key files).
+        if (methods & Int32(SSH_AUTH_METHOD_PUBLICKEY)) != 0 {
+            let rc = ssh_userauth_publickey_auto(s, nil, nil)
+            if rc == SSH_AUTH_SUCCESS.rawValue { return nil }
         }
 
         return "authentication failed (\(host.host))"

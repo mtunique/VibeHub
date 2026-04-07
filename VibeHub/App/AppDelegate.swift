@@ -87,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 #endif
 
         HookInstaller.installIfNeeded()
+        HookInstaller.startWatchingSettings()
 #if !APP_STORE
         OpenCodePluginInstaller.installIfNeeded()
 #endif
