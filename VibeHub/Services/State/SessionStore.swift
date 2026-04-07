@@ -124,7 +124,7 @@ actor SessionStore {
 
         // Track new session in Mixpanel
         #if !APP_STORE
-        if isNewSession {
+        if isNewSession && AppDelegate.mixpanelInitialized {
             Mixpanel.mainInstance().track(event: "Session Started")
         }
         #endif

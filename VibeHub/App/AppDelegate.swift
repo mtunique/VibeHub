@@ -18,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 #if !APP_STORE
     let updater: SPUUpdater
     private let userDriver: NotchUserDriver
+    /// Whether Mixpanel was successfully initialized (token present in Info.plist)
+    static private(set) var mixpanelInitialized = false
 #endif
 
     var windowController: NotchWindowController? {
@@ -57,6 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let mixpanelToken = Bundle.main.infoDictionary?["MixpanelToken"] as? String,
            !mixpanelToken.isEmpty {
             Mixpanel.initialize(token: mixpanelToken)
+            AppDelegate.mixpanelInitialized = true
 
             let distinctId = getOrCreateDistinctId()
             Mixpanel.mainInstance().identify(distinctId: distinctId)
@@ -133,7 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
 #if !APP_STORE
-        Mixpanel.mainInstance().flush()
+        if AppDelegate.mixpanelInitialized {
+            Mixpanel.mainInstance().flush()
+        }
 #endif
         updateCheckTimer?.invalidate()
         screenObserver = nil
