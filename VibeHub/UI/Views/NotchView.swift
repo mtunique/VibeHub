@@ -398,7 +398,9 @@ struct NotchView: View {
                              Color.clear
                          }
                      }
-                     .frame(width: viewModel.status == .opened ? 20 : sideWidth)
+                     // Keep the spinner/checkmark visually close to the count badge.
+                     // We still reserve `sideWidth` for consistent outer padding.
+                     .frame(width: viewModel.status == .opened ? 20 : sideWidth, alignment: .trailing)
 
                      // Session count badge — fixed width so the right edge is stable
                      if showBadge {
@@ -581,6 +583,8 @@ struct NotchView: View {
     }
 
     private func handleWaitingForInputChange(_ instances: [SessionState]) {
+        let notifyMode = AppSettings.notifyCompletion
+
         // Get sessions that are now waiting for input
         let waitingForInputSessions = instances.filter { $0.phase == .waitingForInput }
         let currentIds = Set(waitingForInputSessions.map { $0.stableId })
@@ -608,7 +612,7 @@ struct NotchView: View {
 
             // When work completes, proactively open the notch so the user can see the outcome.
             // Use the notification reason so we don't steal focus.
-            if AppSettings.expandOnCompletion,
+            if notifyMode != .never,
                (viewModel.status == .closed || viewModel.status == .popping),
                let focusSession = newlyWaitingSessions.sorted(by: { $0.lastActivity > $1.lastActivity }).first {
                 // Debounce: wait a moment so message history/title has time to sync.
@@ -634,7 +638,7 @@ struct NotchView: View {
                     Task {
                         let isFocused = await TerminalActivator.shared.isSessionTerminalFocused(for: latest)
                         NotchLog.log("handleWaiting: isFocused=\(isFocused) for session=\(stableId.prefix(16))")
-                        guard !isFocused else { return }
+                        guard AppSettings.shouldNotify(notifyMode, isFocused: isFocused) else { return }
 
                         await MainActor.run { [self] in
                             // Re-verify session still exists and is waiting
@@ -656,10 +660,10 @@ struct NotchView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
             }
 
-            // Play notification sound if the session is not actively focused
+            // Play notification sound if enabled by notifyMode
             // IMPORTANT: Delay the sound to avoid false positives when state transitions quickly
             // (e.g., when multiple tools execute in sequence)
-            if let soundName = AppSettings.notificationSound.soundName {
+            if notifyMode != .never, let soundName = AppSettings.notificationSound.soundName {
                 for session in newlyWaitingSessions {
                     let stableId = session.stableId
                     // Cancel any pending sound for this session
@@ -672,7 +676,7 @@ struct NotchView: View {
 
                         // Check if we should play sound (async check for tmux pane focus)
                         Task {
-                            let shouldPlaySound = await shouldPlayNotificationSound(for: [latest])
+                            let shouldPlaySound = await shouldPlayNotificationSound(for: [latest], notifyMode: notifyMode)
                             if shouldPlaySound {
                                 await MainActor.run {
                                     NSSound(named: soundName)?.play()
@@ -686,12 +690,29 @@ struct NotchView: View {
                 }
             }
 
-            // Trigger bounce animation to get user's attention
-            DispatchQueue.main.async {
-                isBouncing = true
-                // Bounce back after a short delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    isBouncing = false
+            // Trigger bounce animation to get user's attention (if enabled)
+            if notifyMode != .never {
+                Task {
+                    // BackgroundOnly: bounce only if at least one completed session is not focused.
+                    // Always: bounce regardless of focus.
+                    var shouldBounce = (notifyMode == .always)
+                    if !shouldBounce {
+                        for session in newlyWaitingSessions {
+                            let isFocused = await TerminalActivator.shared.isSessionTerminalFocused(for: session)
+                            if AppSettings.shouldNotify(notifyMode, isFocused: isFocused) {
+                                shouldBounce = true
+                                break
+                            }
+                        }
+                    }
+
+                    guard shouldBounce else { return }
+                    await MainActor.run {
+                        isBouncing = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            isBouncing = false
+                        }
+                    }
                 }
             }
 
@@ -705,17 +726,20 @@ struct NotchView: View {
         previousWaitingForInputIds = currentIds
     }
 
-    /// Determine if notification sound should play for the given sessions
-    /// Returns true if ANY session is not actively focused
-    private func shouldPlayNotificationSound(for sessions: [SessionState]) async -> Bool {
+    /// Determine if notification sound should play for the given sessions.
+    /// Returns true if ANY session meets the notifyMode criteria.
+    private func shouldPlayNotificationSound(for sessions: [SessionState], notifyMode: NotifyMode) async -> Bool {
+        guard notifyMode != .never else { return false }
+        if notifyMode == .always { return true }
+
         for session in sessions {
             guard let pid = session.pid else {
-                // No PID means we can't check focus, assume not focused
+                // No PID means we can't check focus, assume not focused.
                 return true
             }
 
             let isFocused = await TerminalVisibilityDetector.isSessionFocused(sessionPid: pid)
-            if !isFocused {
+            if AppSettings.shouldNotify(notifyMode, isFocused: isFocused) {
                 return true
             }
         }
