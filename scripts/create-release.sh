@@ -32,6 +32,7 @@ xcodebuild archive \
     -destination "generic/platform=macOS" \
     ENABLE_HARDENED_RUNTIME=YES \
     CODE_SIGN_STYLE=Automatic \
+    ARCHS=arm64 \
     -allowProvisioningUpdates
 
 echo ""
