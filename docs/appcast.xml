@@ -4,6 +4,14 @@
         <title>Vibe Hub</title>
         <item>
             <title>1.3.1</title>
+            <pubDate>Wed, 08 Apr 2026 08:51:46 +0800</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="3317504" type="application/octet-stream" sparkle:edSignature="o1HzUpzEK7mVermx3L0nhaMQHeeDFBqSkhpTLFBAX/4pmr+C/a/GyxpArZQBUiPMGqRfVQcoF84UXcIBhfyQBw=="/>
+        </item>
+        <item>
+            <title>1.3.1</title>
             <pubDate>Mon, 06 Apr 2026 21:40:32 +0800</pubDate>
             <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
