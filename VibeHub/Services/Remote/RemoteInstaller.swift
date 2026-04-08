@@ -198,7 +198,7 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
             return steps
         }
 
-        let checkVersionCommand = "grep 'VERSION = \"1.0.1\"' ~/.config/opencode/plugins/vibehub.js"
+        let checkVersionCommand = "grep 'VERSION = \"1.0.2\"' ~/.config/opencode/plugins/vibehub.js"
         let versionCheckResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
         if versionCheckResult.exitCode == 0 {
             if let progress { await progress("opencode plugin up to date") }

@@ -154,9 +154,11 @@ function safeOneLine(s) {
   return (s || "").toString().replace(/\n/g, " ").trim();
 }
 
-export const VERSION = "1.0.1";
+const VERSION = "1.0.2";
 
-export default async ({ client, serverUrl }) => {
+export default {
+  id: "vibehub",
+  server: async ({ client }) => {
   const pid = process.pid;
   const clientConfig = client?._client?.getConfig?.() || null;
 
@@ -784,4 +786,5 @@ export default async ({ client, serverUrl }) => {
       }
     },
   };
+  },
 };
