@@ -8,7 +8,7 @@
             <sparkle:version>8</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="3317504" type="application/octet-stream" sparkle:edSignature="o1HzUpzEK7mVermx3L0nhaMQHeeDFBqSkhpTLFBAX/4pmr+C/a/GyxpArZQBUiPMGqRfVQcoF84UXcIBhfyQBw=="/>
+            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="3319483" type="application/octet-stream" sparkle:edSignature="qwxWjMZBPw4vtETqZCZCanbcFEpG2AlW+e+5Mae5FoQcJXAOjCz4S2nroYjWLZ0Jdp3bg3p0HPr9pk63VSX0BQ=="/>
         </item>
         <item>
             <title>1.3.1</title>
