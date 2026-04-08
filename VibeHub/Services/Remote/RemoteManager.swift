@@ -26,7 +26,7 @@ final class RemoteManager: ObservableObject {
     private var healthCheckLoopTask: Task<Void, Never>?
 
     private var servers: [String: HookSocketServer] = [:]
-    private var forwarders: [String: NativeSSHForwarder] = [:]
+    private var forwarders: [String: SSHForwarder] = [:]
     private var installTasks: [String: Task<Void, Never>] = [:]
     /// Per-host Combine subscription for SSHForwarder status changes.
     /// Replacing the old shared `Set<AnyCancellable>` prevents subscription leaks:
@@ -148,7 +148,7 @@ final class RemoteManager: ObservableObject {
             servers.removeValue(forKey: id)
         }
 
-        let forwarder = forwarders[id] ?? NativeSSHForwarder()
+        let forwarder = forwarders[id] ?? SSHForwarder()
         forwarders[id] = forwarder
 
         // Track status. Drop the initial `.disconnected` emission so it doesn't overwrite

@@ -1,5 +1,4 @@
 import AppKit
-import Clibssh
 import Combine
 import IOKit
 import SwiftUI
@@ -49,9 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // libssh + mbedTLS must be initialized before any SSH session.
-        vibehub_ssh_global_init()
-
         if !ensureSingleInstance() {
             NSApplication.shared.terminate(nil)
             return
