@@ -207,88 +207,88 @@ struct InstanceRow: View {
                 }
             }
 
-            // Second row: description + buttons
-            HStack(spacing: 10) {
-                // Description text
-                Group {
-                    if isWaitingForApproval, let toolName = session.pendingToolName {
-                        HStack(spacing: 4) {
+            // Second row: description
+            HStack(spacing: 4) {
+                if isWaitingForApproval, let toolName = session.pendingToolName {
+                    Text(MCPToolFormatter.formatToolName(toolName))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(TerminalColors.amber.opacity(0.9))
+                        .fixedSize()
+                    if isInteractiveTool {
+                        Text(L10n.needsYourInput)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(1)
+                    } else if let input = session.pendingToolInput {
+                        MarqueeText(
+                            text: input,
+                            fontSize: 11,
+                            fontWeight: .regular,
+                            nsFontWeight: .regular,
+                            color: .white.opacity(0.5),
+                            trigger: input,
+                            loop: true
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 14)
+                    }
+                } else if let role = session.lastMessageRole {
+                    switch role {
+                    case "tool":
+                        if let toolName = session.lastToolName {
                             Text(MCPToolFormatter.formatToolName(toolName))
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundColor(TerminalColors.amber.opacity(0.9))
-                            if isInteractiveTool {
-                                Text(L10n.needsYourInput)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .lineLimit(1)
-                            } else if let input = session.pendingToolInput {
-                                Text(input)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .lineLimit(1)
-                            }
+                                .foregroundColor(.white.opacity(0.5))
+                                .fixedSize()
                         }
-                    } else if let role = session.lastMessageRole {
-                        switch role {
-                        case "tool":
-                            HStack(spacing: 4) {
-                                if let toolName = session.lastToolName {
-                                    Text(MCPToolFormatter.formatToolName(toolName))
-                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white.opacity(0.5))
-                                }
-                                if let input = session.lastMessage {
-                                    Text(input)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.4))
-                                        .lineLimit(1)
-                                }
-                            }
-                        case "user":
-                            HStack(spacing: 4) {
-                                Text(L10n.you)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.5))
-                                if let msg = session.lastMessage {
-                                    Text(msg)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.4))
-                                        .lineLimit(1)
-                                }
-                            }
-                        default:
-                            if let msg = session.lastMessage {
-                                Text(msg)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .lineLimit(1)
-                            }
+                        if let input = session.lastMessage {
+                            Text(input)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.4))
+                                .lineLimit(1)
                         }
-                    } else if let lastMsg = session.lastMessage {
-                        Text(lastMsg)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.4))
-                            .lineLimit(1)
+                    case "user":
+                        Text(L10n.you)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .fixedSize()
+                        if let msg = session.lastMessage {
+                            Text(msg)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.4))
+                                .lineLimit(1)
+                        }
+                    default:
+                        if let msg = session.lastMessage {
+                            Text(msg)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.4))
+                                .lineLimit(1)
+                        }
                     }
+                } else if let lastMsg = session.lastMessage {
+                    Text(lastMsg)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
+                        .lineLimit(1)
                 }
-                .padding(.leading, 24)
+            }
+            .padding(.leading, 24)
 
+            // Third row: action buttons (separate row for approval)
+            HStack(spacing: 8) {
                 Spacer(minLength: 0)
 
-                // Action icons or approval buttons
                 if isWaitingForApproval && isInteractiveTool {
-                    HStack(spacing: 8) {
-                        IconButton(icon: "bubble.left") {
-                            onChat()
-                        }
-                        if session.pid != nil || session.isRemote {
-                            TerminalButton(
-                                isEnabled: true,
-                                onTap: { onFocus() }
-                            )
-                        }
+                    IconButton(icon: "bubble.left") {
+                        onChat()
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    if session.pid != nil || session.isRemote {
+                        TerminalButton(
+                            isEnabled: true,
+                            onTap: { onFocus() }
+                        )
+                    }
                 } else if isWaitingForApproval {
                     InlineApprovalButtons(
                         onChat: onChat,
@@ -297,26 +297,24 @@ struct InstanceRow: View {
                         allowAlways: allowAlways,
                         onAlways: allowAlways ? onApproveAlways : nil
                     )
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 } else {
-                    HStack(spacing: 8) {
-                        IconButton(icon: "bubble.left") {
-                            onChat()
-                        }
-                        if session.pid != nil || session.isRemote {
-                            IconButton(icon: "eye") {
-                                onFocus()
-                            }
-                        }
-                        if session.phase == .idle || session.phase == .waitingForInput {
-                            IconButton(icon: "archivebox") {
-                                onArchive()
-                            }
+                    IconButton(icon: "bubble.left") {
+                        onChat()
+                    }
+                    if session.pid != nil || session.isRemote {
+                        IconButton(icon: "eye") {
+                            onFocus()
                         }
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    if session.phase == .idle || session.phase == .waitingForInput {
+                        IconButton(icon: "archivebox") {
+                            onArchive()
+                        }
+                    }
                 }
             }
+            .padding(.leading, 24)
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 8)
