@@ -174,6 +174,9 @@ actor SessionStore {
         if let remoteHostId = event.remoteHostId {
             session.remoteHostId = remoteHostId
         }
+        if let sshClientPort = event.sshClientPort {
+            session.sshClientPort = sshClientPort
+        }
         session.lastActivity = Date()
 
         if event.status == "ended" {

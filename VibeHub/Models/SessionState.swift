@@ -28,6 +28,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     /// If non-nil, this session is coming from a remote host.
     var remoteHostId: String?
+    /// SSH client source port (from SSH_CLIENT env on remote), used for local tab matching
+    var sshClientPort: String?
 
     nonisolated var isRemote: Bool { remoteHostId != nil }
 
@@ -96,6 +98,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         serverPort: Int? = nil,
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
+        sshClientPort: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -117,6 +120,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
+        self.sshClientPort = sshClientPort
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker

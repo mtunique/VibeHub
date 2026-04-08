@@ -184,14 +184,19 @@ actor TerminalActivator {
 
         log("activateRemoteSession: found \(sshCandidates.count) SSH candidates for host=\(hostname)")
 
-        // If multiple candidates, query remote to find the exact match
+        // Try to match the correct SSH candidate when there are multiple
         var targetTTY: String?
-        if sshCandidates.count > 1, let remotePid = session.pid {
-            if let clientPort = await queryRemoteSSHClientPort(host: host, remotePid: remotePid) {
-                log("activateRemoteSession: remote client port=\(clientPort)")
-                targetTTY = findLocalTTYBySourcePort(clientPort, candidates: sshCandidates)
-                log("activateRemoteSession: matched targetTTY=\(targetTTY ?? "nil")")
-            }
+        if sshCandidates.count > 1, let clientPort = session.sshClientPort {
+            log("activateRemoteSession: ssh client port from hook=\(clientPort)")
+            // Try direct port match first (works without ProxyJump)
+            targetTTY = findLocalTTYBySourcePort(clientPort, candidates: sshCandidates)
+            log("activateRemoteSession: port matched targetTTY=\(targetTTY ?? "nil")")
+        }
+        // Fallback: query remote to find which local SSH process owns this session's TTY
+        if targetTTY == nil, sshCandidates.count > 1,
+           let remoteTTY = session.tty, !remoteTTY.isEmpty {
+            targetTTY = await matchByRemoteTTY(host: host, remoteTTY: remoteTTY, candidates: sshCandidates)
+            log("activateRemoteSession: tty-exec matched targetTTY=\(targetTTY ?? "nil")")
         }
 
         // Use matched TTY, or fall back to first candidate
@@ -216,90 +221,29 @@ actor TerminalActivator {
         return false
     }
 
-    /// Query the remote host to find the SSH client source port for a given remote PID.
-    /// Uses the existing native SSH session (no process spawning).
-    private func queryRemoteSSHClientPort(host: RemoteHost, remotePid: Int) async -> String? {
-        let script = """
-        import subprocess, sys
-
-        pid = int(sys.argv[1])
-        pp = {}
-        for line in subprocess.check_output(['ps', '-eo', 'pid=,ppid='], text=True).splitlines():
-            p = line.strip().split()
-            if len(p) != 2: continue
-            try: pp[int(p[0])] = int(p[1])
-            except Exception: continue
-
-        cur = pid
-        sshd_pid = None
-        for _ in range(100):
-            if cur <= 1: break
-            try:
-                comm = subprocess.check_output(['ps', '-p', str(cur), '-o', 'comm='], text=True).strip()
-            except Exception:
-                cur = pp.get(cur, 0)
-                continue
-            if 'sshd' in comm:
-                sshd_pid = cur
-                break
-            cur = pp.get(cur, 0)
-
-        if not sshd_pid:
-            sys.exit(1)
-
-        def found(port):
-            print(port)
-            sys.exit(0)
-
-        # Method 1: /proc/<pid>/environ (Linux)
-        try:
-            env = open(f'/proc/{sshd_pid}/environ', 'rb').read()
-            for kv in env.split(b'\\x00'):
-                if kv.startswith(b'SSH_CLIENT='):
-                    parts = kv.split(b'=', 1)[1].decode().split()
-                    if len(parts) >= 2:
-                        found(parts[1])
-        except Exception: pass
-
-        # Method 2: lsof (macOS, most Linux)
-        try:
-            out = subprocess.check_output(
-                ['lsof', '-a', '-p', str(sshd_pid), '-i', 'TCP', '-n', '-P', '-F', 'n'],
-                text=True, stderr=subprocess.DEVNULL
-            )
-            for line in out.splitlines():
-                if line.startswith('n') and '->' in line:
-                    peer = line.split('->')[1]
-                    found(peer.rsplit(':', 1)[-1])
-        except Exception: pass
-
-        # Method 3: ss (Linux without lsof)
-        try:
-            out = subprocess.check_output(['ss', '-tnp'], text=True, stderr=subprocess.DEVNULL)
-            for line in out.splitlines():
-                if f'pid={sshd_pid}' in line:
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        found(parts[4].rsplit(':', 1)[-1])
-        except Exception: pass
-
-        sys.exit(1)
-        """
-
-        let remoteCmd = "python3 - \(remotePid) <<'PY'\n\(script)\nPY"
-        let (output, exitCode) = await RemoteManager.shared.exec(hostId: host.id, command: remoteCmd)
-        log("queryRemoteSSHClientPort: exit=\(exitCode) output=\(output.prefix(100))")
-        guard exitCode == 0 else { return nil }
-        let port = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return port.isEmpty ? nil : port
-    }
-
     /// Find which local SSH candidate has a TCP connection with the given source port.
     private nonisolated func findLocalTTYBySourcePort(_ clientPort: String, candidates: [(pid: Int, tty: String)]) -> String? {
         // Use lsof to find which SSH process uses this source port
         guard let output = ProcessExecutor.shared.runSyncOrNil(
             "/usr/sbin/lsof", arguments: ["-n", "-P", "-i", "TCP", "-a", "-c", "ssh", "-F", "pcn"]
         ) else { return nil }
+
+        let candidatePids = Set(candidates.map(\.pid))
+
+        // Build child→parent map for SSH processes so we can match ProxyCommand children
+        // to their parent SSH process (which owns the TTY).
+        var childToParent: [Int: Int] = [:]
+        if let psOutput = ProcessExecutor.shared.runSyncOrNil(
+            "/bin/ps", arguments: ["-A", "-o", "pid=,ppid=,comm="]
+        ) {
+            for line in psOutput.split(separator: "\n") {
+                let parts = line.split(separator: " ", maxSplits: 2)
+                guard parts.count >= 3, parts[2].contains("ssh") else { continue }
+                if let child = Int(parts[0]), let parent = Int(parts[1]) {
+                    childToParent[child] = parent
+                }
+            }
+        }
 
         // Parse lsof field output: p<pid>, c<command>, n<connection>
         var currentPid: Int?
@@ -309,7 +253,13 @@ actor TerminalActivator {
             } else if line.hasPrefix("n"), let pid = currentPid {
                 // n like "192.168.1.1:54321->10.0.0.1:22"
                 if line.contains(":\(clientPort)->") {
+                    // Direct match
                     if let match = candidates.first(where: { $0.pid == pid }) {
+                        return match.tty
+                    }
+                    // ProxyCommand child: check if parent is a candidate
+                    if let parent = childToParent[pid],
+                       let match = candidates.first(where: { $0.pid == parent }) {
                         return match.tty
                     }
                 }
@@ -317,6 +267,89 @@ actor TerminalActivator {
         }
 
         return nil
+    }
+
+    /// Match a remote session's TTY to a local SSH candidate by querying the remote host.
+    /// Uses `who` to find the login time for the remote TTY, then matches against
+    /// the start time of each local SSH candidate process.
+    private func matchByRemoteTTY(host: RemoteHost, remoteTTY: String, candidates: [(pid: Int, tty: String)]) async -> String? {
+        // Get the login timestamp for this TTY on the remote via `who`
+        // remoteTTY is like "pts/23" (without /dev/ prefix)
+        let devTTY = remoteTTY.hasPrefix("/dev/") ? remoteTTY : "/dev/\(remoteTTY)"
+        let shortTTY = remoteTTY.replacingOccurrences(of: "/dev/", with: "")
+        let cmd = "who | grep '\\b\(shortTTY)\\b' | head -1"
+        let (output, exitCode) = await RemoteManager.shared.exec(hostId: host.id, command: cmd)
+        guard exitCode == 0, !output.isEmpty else {
+            log("matchByRemoteTTY: who query failed, exit=\(exitCode)")
+            return nil
+        }
+        log("matchByRemoteTTY: who output=\(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+
+        // Parse who output: "user  pts/23  2026-04-07 20:29 (10.x.x.x)"
+        // Extract the timestamp part
+        let parts = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ", omittingEmptySubsequences: true)
+        // Find the date part (YYYY-MM-DD) and time part (HH:MM)
+        var remoteDateStr: String?
+        for (i, part) in parts.enumerated() {
+            if part.count == 10, part.contains("-"),
+               i + 1 < parts.count, parts[i + 1].contains(":") {
+                remoteDateStr = "\(part) \(parts[i + 1])"
+                break
+            }
+        }
+
+        guard let remoteDateStr else {
+            log("matchByRemoteTTY: could not parse date from who output")
+            return nil
+        }
+
+        // Parse the remote login time
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm"
+        df.timeZone = TimeZone.current  // who shows local time
+        guard let remoteLoginTime = df.date(from: remoteDateStr) else {
+            log("matchByRemoteTTY: could not parse date '\(remoteDateStr)'")
+            return nil
+        }
+
+        // Get start time of each local SSH candidate and find closest match
+        var bestMatch: (tty: String, delta: TimeInterval)?
+        for candidate in candidates {
+            guard let startOutput = ProcessExecutor.shared.runSyncOrNil(
+                "/bin/ps", arguments: ["-p", String(candidate.pid), "-o", "lstart="]
+            ) else { continue }
+            let trimmed = startOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            // ps lstart format: "Mon Jan  2 15:04:05 2006"
+            let psdf = DateFormatter()
+            psdf.dateFormat = "EEE MMM  d HH:mm:ss yyyy"
+            psdf.locale = Locale(identifier: "en_US_POSIX")
+            // Also try single-space day format
+            let psdf2 = DateFormatter()
+            psdf2.dateFormat = "EEE MMM d HH:mm:ss yyyy"
+            psdf2.locale = Locale(identifier: "en_US_POSIX")
+
+            guard let localStart = psdf.date(from: trimmed) ?? psdf2.date(from: trimmed) else {
+                log("matchByRemoteTTY: could not parse lstart '\(trimmed)'")
+                continue
+            }
+
+            let delta = abs(localStart.timeIntervalSince(remoteLoginTime))
+            log("matchByRemoteTTY: candidate tty=\(candidate.tty) pid=\(candidate.pid) delta=\(Int(delta))s")
+            if bestMatch == nil || delta < bestMatch!.delta {
+                bestMatch = (candidate.tty, delta)
+            }
+        }
+
+        // Only accept if the best match is within 2 minutes (SSH connection setup time)
+        guard let best = bestMatch, best.delta < 120 else {
+            log("matchByRemoteTTY: no close time match found")
+            return nil
+        }
+
+        return best.tty
     }
 
     /// Find a local SSH process that connects to the given remote session's host

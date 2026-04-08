@@ -65,6 +65,9 @@ struct HookEvent: Codable, Sendable {
     // Remote session metadata (set by Claude Island when ingesting via SSH)
     let remoteHostId: String?
 
+    // SSH client source port (from SSH_CLIENT env var on remote)
+    let sshClientPort: String?
+
     // Streaming updates from the remote hook
     let newJsonlLines: [String]?
 
@@ -82,6 +85,7 @@ struct HookEvent: Codable, Sendable {
         case serverPort = "_server_port"
         case serverHostname = "_server_hostname"
         case remoteHostId = "_remote_host_id"
+        case sshClientPort = "ssh_client_port"
         case newJsonlLines = "new_jsonl_lines"
     }
 
@@ -105,6 +109,7 @@ struct HookEvent: Codable, Sendable {
         serverPort: Int? = nil,
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
+        sshClientPort: String? = nil,
         newJsonlLines: [String]? = nil
     ) {
         self.sessionId = sessionId
@@ -125,6 +130,7 @@ struct HookEvent: Codable, Sendable {
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
+        self.sshClientPort = sshClientPort
         self.newJsonlLines = newJsonlLines
     }
 
@@ -342,6 +348,7 @@ class HookSocketServer {
             serverPort: event.serverPort,
             serverHostname: event.serverHostname,
             remoteHostId: remoteHostId,
+            sshClientPort: event.sshClientPort,
             newJsonlLines: event.newJsonlLines
         )
     }
@@ -591,6 +598,7 @@ class HookSocketServer {
                 serverPort: event.serverPort,
                 serverHostname: event.serverHostname,
                 remoteHostId: event.remoteHostId,
+                sshClientPort: event.sshClientPort,
                 newJsonlLines: event.newJsonlLines
             )
 
