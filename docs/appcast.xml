@@ -16,15 +16,7 @@
             <sparkle:version>8</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="3319483" type="application/octet-stream" sparkle:edSignature="qwxWjMZBPw4vtETqZCZCanbcFEpG2AlW+e+5Mae5FoQcJXAOjCz4S2nroYjWLZ0Jdp3bg3p0HPr9pk63VSX0BQ=="/>
-        </item>
-        <item>
-            <title>1.3.1</title>
-            <pubDate>Mon, 06 Apr 2026 21:40:32 +0800</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="5556418" type="application/octet-stream" sparkle:edSignature="ffpNUBo4WsOuW5u+h6Hu7onuzCAX8LFpfIp5SWAGfA1i/sV6c/DM74cnuoodt1Tdj4vUtoxTGfcn4JowI6I+Dg=="/>
+            <enclosure url="https://github.com/mtunique/VibeHub/releases/download/v1.3.1/VibeHub-1.3.1.dmg" length="3317504" type="application/octet-stream" sparkle:edSignature="o1HzUpzEK7mVermx3L0nhaMQHeeDFBqSkhpTLFBAX/4pmr+C/a/GyxpArZQBUiPMGqRfVQcoF84UXcIBhfyQBw=="/>
         </item>
         <item>
             <title>1.2.1</title>
