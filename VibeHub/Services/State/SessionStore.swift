@@ -1298,7 +1298,7 @@ actor SessionStore {
 
     private func pruneDeadSessions() async {
         // Snapshot remote host connection status on MainActor
-        let disconnectedHosts: Set<String> = DispatchQueue.main.sync {
+        let disconnectedHosts: Set<String> = await MainActor.run {
             let mgr = RemoteManager.shared
             var dead = Set<String>()
             for host in mgr.hosts {
@@ -1341,16 +1341,25 @@ actor SessionStore {
             }
         }
 
-        // Probe remote sessions via SSH to check if the Claude process is still running
-        for (sessionId, session) in remoteSessionsToProbe {
-            guard let hostId = session.remoteHostId, let pid = session.pid else { continue }
-            let (_, exitCode) = await RemoteManager.shared.exec(
-                hostId: hostId,
-                command: "kill -0 \(pid) 2>/dev/null"
-            )
-            // exit 0 = process alive, non-zero = dead
-            if exitCode != 0 {
-                Self.logger.info("Remote session \(sessionId.prefix(8), privacy: .public) pid \(pid) no longer alive")
+        // Probe remote sessions via SSH in parallel to check if Claude process is still running
+        if !remoteSessionsToProbe.isEmpty {
+            let deadSessionIds = await withTaskGroup(of: String?.self) { group in
+                for (sessionId, session) in remoteSessionsToProbe {
+                    guard let hostId = session.remoteHostId, let pid = session.pid else { continue }
+                    group.addTask {
+                        let (_, exitCode) = await RemoteManager.shared.exec(
+                            hostId: hostId,
+                            command: "kill -0 \(pid) 2>/dev/null"
+                        )
+                        return exitCode != 0 ? sessionId : nil
+                    }
+                }
+                var ids: [String] = []
+                for await id in group { if let id { ids.append(id) } }
+                return ids
+            }
+            for sessionId in deadSessionIds {
+                Self.logger.info("Remote session \(sessionId.prefix(8), privacy: .public) no longer alive")
                 markSessionEnded(sessionId)
                 changed = true
             }

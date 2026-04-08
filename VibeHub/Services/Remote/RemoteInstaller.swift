@@ -13,9 +13,8 @@ enum RemoteInstaller {
 
         if let progress { await progress("verify files") }
 
-        // Verify the tunnel is active: native SSH writes a TCP port file;
-        // legacy ssh process creates a Unix socket. Accept either.
-        let tunnelCheck = "test -f /tmp/vibehub.port || test -S \(host.remoteSocketPath)"
+        // Verify the tunnel is active by checking the remote Unix socket.
+        let tunnelCheck = "test -S \(host.remoteSocketPath)"
         steps.append(await step(
             name: "verify tunnel",
             command: tunnelCheck,
@@ -232,7 +231,7 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
         var args: [String] = []
 
         // Sandbox: SSH child processes cannot read ~/.ssh/{config,known_hosts}.
-        // Use the container copies prepared by SSHForwarder.sandboxSSHDir().
+        // Use the container copies prepared by sandboxSSHDir().
         #if APP_STORE
         if let ssh = SSHForwarder.sandboxSSHDir() {
             args += ["-F", ssh.config]

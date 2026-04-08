@@ -41,16 +41,7 @@ function resolveSocketPath() {
 
 const SOCKET = resolveSocketPath();
 
-// Native SSH mode: Vibe Hub writes the reverse-TCP port to this file.
-const TCP_PORT_FILE = "/tmp/vibehub.port";
-
 function resolveConnectOpts() {
-  try {
-    if (existsSync(TCP_PORT_FILE)) {
-      const port = parseInt(readFileSync(TCP_PORT_FILE, "utf8").trim(), 10);
-      if (port > 0) return { host: "127.0.0.1", port };
-    }
-  } catch { /* ignore */ }
   return { path: SOCKET };
 }
 
