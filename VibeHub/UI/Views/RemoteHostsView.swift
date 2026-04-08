@@ -34,16 +34,16 @@ struct RemoteHostsView: View {
             HStack(spacing: 10) {
                 Text(L10n.remoteHosts)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundColor(.primary.opacity(0.9))
                 Spacer()
                 Button {
                     viewModel?.contentType = .menu
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
                         .frame(width: 24, height: 24)
-                        .background(Color.white.opacity(0.08))
+                        .background(Color.primary.opacity(0.08))
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -57,14 +57,14 @@ struct RemoteHostsView: View {
                         VStack(spacing: 6) {
                             Text(L10n.noRemoteHostsYet)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.7))
+                                .foregroundColor(.primary.opacity(0.7))
                             Text(L10n.addOrImportSSH)
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.45))
+                                .foregroundColor(.primary.opacity(0.45))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
-                        .background(Color.white.opacity(0.04))
+                        .background(Color.primary.opacity(0.04))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
@@ -77,14 +77,14 @@ struct RemoteHostsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(host.name)
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.92))
+                                    .foregroundColor(.primary.opacity(0.92))
                                 Text(hostLine(for: host))
                                     .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.45))
+                                    .foregroundColor(.primary.opacity(0.45))
 
                                 Text("id: \(String(host.id.prefix(8)))  sock: \(host.localSocketPath)")
                                     .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.35))
+                                    .foregroundColor(.primary.opacity(0.35))
 
                                 Text(statusLine(for: status))
                                     .font(.system(size: 10, weight: .semibold))
@@ -101,7 +101,7 @@ struct RemoteHostsView: View {
                                 } else if case .connected = status {
                                     Text(L10n.installNotStarted)
                                         .font(.system(size: 10, weight: .semibold))
-                                        .foregroundColor(.white.opacity(0.35))
+                                        .foregroundColor(.primary.opacity(0.35))
                                 }
                             }
 
@@ -117,10 +117,10 @@ struct RemoteHostsView: View {
                             } label: {
                                 Text(buttonLabel(for: status))
                                     .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.black)
+                                    .foregroundColor(Color(nsColor: .textBackgroundColor))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
-                                    .background(Color.white.opacity(0.92))
+                                    .background(Color.primary.opacity(0.92))
                                     .clipShape(Capsule())
                             }
                             .buttonStyle(.plain)
@@ -134,22 +134,22 @@ struct RemoteHostsView: View {
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.system(size: 12))
-                                    .foregroundColor(.white.opacity(0.5))
+                                    .foregroundColor(.primary.opacity(0.5))
                                     .frame(width: 28, height: 28)
-                                    .background(Color.white.opacity(0.06))
+                                    .background(Color.primary.opacity(0.06))
                                     .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.06))
+                        .background(Color.primary.opacity(0.06))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
                         if case .failed(let msg) = status {
                             Text(msg)
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(.primary.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
                         }
@@ -157,7 +157,7 @@ struct RemoteHostsView: View {
                         if installing {
                             Text(L10n.installingRemoteHooks)
                                 .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(.primary.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
                                 .padding(.bottom, 6)
@@ -167,30 +167,30 @@ struct RemoteHostsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(L10n.installLog)
                                     .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.6))
+                                    .foregroundColor(.primary.opacity(0.6))
                                 ForEach(report.steps.prefix(6)) { step in
                                     let line = "\(step.ok ? "ok" : "fail") \(step.name) (\(step.exitCode))"
                                     Text(line)
                                         .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(step.ok ? .white.opacity(0.45) : Color(red: 1.0, green: 0.55, blue: 0.55))
+                                        .foregroundColor(step.ok ? .primary.opacity(0.45) : Color(red: 1.0, green: 0.55, blue: 0.55))
                                 }
                                 if report.steps.count > 6 {
                                     Text("...")
                                         .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(.white.opacity(0.35))
+                                        .foregroundColor(.primary.opacity(0.35))
                                 }
 
                                 if let bad = report.steps.first(where: { !$0.ok }) {
                                     if !bad.command.isEmpty {
                                         Text(bad.command)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.45))
+                                            .foregroundColor(.primary.opacity(0.45))
                                             .lineLimit(2)
                                     }
                                     if !bad.stderr.isEmpty {
                                         Text(bad.stderr)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.55))
+                                            .foregroundColor(.primary.opacity(0.55))
                                             .lineLimit(10)
                                     }
                                 }
@@ -206,7 +206,7 @@ struct RemoteHostsView: View {
             }
 
             Divider()
-                .background(Color.white.opacity(0.08))
+                .background(Color.primary.opacity(0.08))
 
             VStack(spacing: 8) {
                 HStack {
@@ -221,10 +221,10 @@ struct RemoteHostsView: View {
                             Text(L10n.importFromSSHConfig)
                                 .font(.system(size: 12, weight: .semibold))
                         }
-                        .foregroundColor(.white.opacity(0.85))
+                        .foregroundColor(.primary.opacity(0.85))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
-                        .background(Color.white.opacity(0.12))
+                        .background(Color.primary.opacity(0.12))
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -240,7 +240,7 @@ struct RemoteHostsView: View {
                 .font(.system(size: 12))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 HStack(spacing: 8) {
@@ -252,7 +252,7 @@ struct RemoteHostsView: View {
                 .font(.system(size: 12))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 // GSSAPI toggle
@@ -260,14 +260,14 @@ struct RemoteHostsView: View {
                     Toggle(isOn: $useGSSAPI) {
                         Text("Use GSSAPI authentication")
                             .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.primary.opacity(0.7))
                     }
                     .toggleStyle(.switch)
                     .scaleEffect(0.7)
                     Spacer()
                     Text("For jump hosts")
                         .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.primary.opacity(0.4))
                 }
                 .padding(.horizontal, 12)
 
@@ -290,10 +290,10 @@ struct RemoteHostsView: View {
                 } label: {
                     Text(L10n.add)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(Color(nsColor: .textBackgroundColor))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background(Color.white.opacity(0.92))
+                        .background(Color.primary.opacity(0.92))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -312,7 +312,7 @@ struct RemoteHostsView: View {
 
     private var sshImportOverlay: some View {
         ZStack {
-            Color.black.opacity(0.55)
+            Color.primary.opacity(0.55)
                 .ignoresSafeArea()
                 .onTapGesture { showSSHImport = false }
 
@@ -320,16 +320,16 @@ struct RemoteHostsView: View {
                 HStack(spacing: 10) {
                     Text(L10n.sshConfig)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(.primary.opacity(0.9))
                     Spacer()
                     Button {
                         showSSHImport = false
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white.opacity(0.6))
+                            .foregroundColor(.primary.opacity(0.6))
                             .frame(width: 24, height: 24)
-                            .background(Color.white.opacity(0.08))
+                            .background(Color.primary.opacity(0.08))
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
@@ -340,7 +340,7 @@ struct RemoteHostsView: View {
                     .font(.system(size: 12))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
+                    .background(Color.primary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -348,7 +348,7 @@ struct RemoteHostsView: View {
                         if filteredSSHEntries.isEmpty {
                             Text(sshEntries.isEmpty ? L10n.noEntriesFound : L10n.noMatches)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.55))
+                                .foregroundColor(.primary.opacity(0.55))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 18)
                         }
@@ -375,19 +375,19 @@ struct RemoteHostsView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(e.alias)
                                             .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(.white.opacity(0.92))
+                                            .foregroundColor(.primary.opacity(0.92))
                                         Text(detailLine(for: e))
                                             .font(.system(size: 11))
-                                            .foregroundColor(.white.opacity(0.45))
+                                            .foregroundColor(.primary.opacity(0.45))
                                     }
                                     Spacer()
                                     Image(systemName: "arrow.down.left")
                                         .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.white.opacity(0.35))
+                                        .foregroundColor(.primary.opacity(0.35))
                                 }
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
-                                .background(Color.white.opacity(0.08))
+                                .background(Color.primary.opacity(0.08))
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                             .buttonStyle(.plain)
@@ -397,11 +397,11 @@ struct RemoteHostsView: View {
             }
             .padding(12)
             .frame(width: 420, height: 320)
-            .background(Color.black.opacity(0.92))
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.92))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
             )
         }
     }
@@ -478,7 +478,7 @@ struct RemoteHostsView: View {
         case .failed:
             return Color(red: 1.0, green: 0.4, blue: 0.4)
         case .disconnected:
-            return .white.opacity(0.35)
+            return .primary.opacity(0.35)
         }
     }
 }
