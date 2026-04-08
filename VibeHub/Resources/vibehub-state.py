@@ -390,7 +390,7 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 def main():
     if "--version" in sys.argv:
