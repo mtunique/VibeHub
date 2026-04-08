@@ -20,5 +20,11 @@
     <string>Copyright 2025. All rights reserved.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Vibe Hub needs permission to switch terminal tabs when focusing a session.</string>
+    <key>SUFeedURL</key>
+    <string>https://mtunique.github.io/VibeHub/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>U8Y0ms3c3A8x0jnZvJ7wPYTC+kr0bmuGj6umXG2JfiQ=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>
