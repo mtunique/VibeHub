@@ -579,6 +579,13 @@ struct NotchView: View {
             }
         }
 
+        // Auto-collapse: notch was opened for approvals but all were resolved in the terminal
+        if !previousPendingIds.isEmpty, currentIds.isEmpty,
+           viewModel.status == .opened, viewModel.openReason == .interaction {
+            NotchLog.log("handlePending: all approvals resolved externally, auto-closing")
+            viewModel.notchClose()
+        }
+
         previousPendingIds = currentIds
     }
 

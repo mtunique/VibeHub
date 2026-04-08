@@ -475,8 +475,12 @@ actor SessionStore {
         case "PostToolUse":
             if let toolUseId = event.toolUseId {
                 session.toolTracker.completeTool(id: toolUseId, success: true)
-                // Update chatItem status - tool completed (possibly approved via terminal)
-                // Only update if still waiting for approval or running
+                // Check if this tool was waiting for approval (approved in terminal, not VibeHub)
+                let wasWaitingForApproval = session.chatItems.contains {
+                    guard $0.id == toolUseId, case .toolCall(let t) = $0.type else { return false }
+                    return t.status == .waitingForApproval
+                }
+                // Update chatItem status - tool completed
                 for i in 0..<session.chatItems.count {
                     if session.chatItems[i].id == toolUseId,
                        case .toolCall(var tool) = session.chatItems[i].type,
@@ -488,6 +492,22 @@ actor SessionStore {
                             timestamp: session.chatItems[i].timestamp
                         )
                         break
+                    }
+                }
+                // If this tool was approved in the terminal, transition phase like processPermissionApproved
+                if wasWaitingForApproval, case .waitingForApproval = session.phase {
+                    if let nextPending = findNextPendingTool(in: session, excluding: toolUseId) {
+                        let newPhase = SessionPhase.waitingForApproval(PermissionContext(
+                            toolUseId: nextPending.id,
+                            toolName: nextPending.name,
+                            toolInput: nil,
+                            receivedAt: nextPending.timestamp
+                        ))
+                        if session.phase.canTransition(to: newPhase) {
+                            session.phase = newPhase
+                        }
+                    } else if session.phase.canTransition(to: .processing) {
+                        session.phase = .processing
                     }
                 }
             }
@@ -1276,7 +1296,7 @@ actor SessionStore {
         }
     }
 
-    private func pruneDeadSessions() {
+    private func pruneDeadSessions() async {
         // Snapshot remote host connection status on MainActor
         let disconnectedHosts: Set<String> = DispatchQueue.main.sync {
             let mgr = RemoteManager.shared
@@ -1291,6 +1311,8 @@ actor SessionStore {
         }
 
         var changed = false
+        var remoteSessionsToProbe: [(id: String, session: SessionState)] = []
+
         for (sessionId, session) in sessions {
             guard session.phase != .ended else { continue }
 
@@ -1301,6 +1323,12 @@ actor SessionStore {
                 if let hostId = session.remoteHostId, disconnectedHosts.contains(hostId) {
                     isDead = true
                 }
+                // Remote session killed abnormally won't fire SessionEnd hook.
+                // If idle for 30s, probe the remote process via SSH.
+                if !isDead, !session.phase.isActive,
+                   Date().timeIntervalSince(session.lastActivity) > 30 {
+                    remoteSessionsToProbe.append((sessionId, session))
+                }
             } else if let pid = session.pid {
                 // Local session: check if process is still alive
                 // kill(pid, 0) returns 0 if process exists, -1 if not
@@ -1308,20 +1336,40 @@ actor SessionStore {
             }
 
             if isDead {
-                var updated = session
-                updated.phase = .ended
-                sessions[sessionId] = updated
+                markSessionEnded(sessionId)
                 changed = true
-
-                let sid = sessionId
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(60))
-                    await self?.processSessionEnd(sessionId: sid)
-                }
             }
         }
+
+        // Probe remote sessions via SSH to check if the Claude process is still running
+        for (sessionId, session) in remoteSessionsToProbe {
+            guard let hostId = session.remoteHostId, let pid = session.pid else { continue }
+            let (_, exitCode) = await RemoteManager.shared.exec(
+                hostId: hostId,
+                command: "kill -0 \(pid) 2>/dev/null"
+            )
+            // exit 0 = process alive, non-zero = dead
+            if exitCode != 0 {
+                Self.logger.info("Remote session \(sessionId.prefix(8), privacy: .public) pid \(pid) no longer alive")
+                markSessionEnded(sessionId)
+                changed = true
+            }
+        }
+
         if changed {
             publishState()
+        }
+    }
+
+    private func markSessionEnded(_ sessionId: String) {
+        guard var session = sessions[sessionId] else { return }
+        session.phase = .ended
+        sessions[sessionId] = session
+        cancelPendingSync(sessionId: sessionId)
+
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            await self?.processSessionEnd(sessionId: sessionId)
         }
     }
 
