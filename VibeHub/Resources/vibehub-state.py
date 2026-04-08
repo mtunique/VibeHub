@@ -390,7 +390,7 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 def main():
     if "--version" in sys.argv:
@@ -429,6 +429,13 @@ def main():
         "pid": claude_pid,
         "tty": tty,
     }
+
+    # Include SSH client source port for remote tab matching
+    ssh_client = os.environ.get("SSH_CLIENT")
+    if ssh_client:
+        parts = ssh_client.split()
+        if len(parts) >= 2:
+            state["ssh_client_port"] = parts[1]
 
     # Fetch any new lines from the JSONL file to stream to the app
     new_lines = get_new_jsonl_lines(session_id, cwd)

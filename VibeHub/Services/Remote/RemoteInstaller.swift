@@ -48,14 +48,14 @@ enum RemoteInstaller {
 
         let checkVersionCommand = "python3 ~/.claude/hooks/vibehub-state.py --version"
         let checkResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
-        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.1") {
+        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.2") {
             if let progress { await progress("claude hook up to date") }
             steps.append(RemoteInstallStep(
                 name: "check claude hook version",
                 command: checkVersionCommand,
                 ok: true,
                 exitCode: 0,
-                stdout: "Up to date (1.0.1)",
+                stdout: "Up to date (1.0.2)",
                 stderr: ""
             ))
             return steps
@@ -207,7 +207,7 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
                 command: checkVersionCommand,
                 ok: true,
                 exitCode: 0,
-                stdout: "Up to date (1.0.1)",
+                stdout: "Up to date (1.0.2)",
                 stderr: ""
             ))
             return steps
