@@ -168,19 +168,26 @@ struct RemoteHostsView: View {
                                 Text(L10n.installLog)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(.primary.opacity(0.6))
-                                ForEach(report.steps.prefix(6)) { step in
-                                    let line = "\(step.ok ? "ok" : "fail") \(step.name) (\(step.exitCode))"
-                                    Text(line)
+                                // Show ok steps (compact), then all failed steps explicitly
+                                let okSteps = report.steps.filter { $0.ok }
+                                let failedSteps = report.steps.filter { !$0.ok }
+                                ForEach(okSteps.prefix(6)) { step in
+                                    Text("ok \(step.name) (\(step.exitCode))")
                                         .font(.system(size: 10, design: .monospaced))
-                                        .foregroundColor(step.ok ? .primary.opacity(0.45) : Color(red: 1.0, green: 0.55, blue: 0.55))
+                                        .foregroundColor(.primary.opacity(0.45))
                                 }
-                                if report.steps.count > 6 {
-                                    Text("...")
+                                if okSteps.count > 6 {
+                                    Text("... +\(okSteps.count - 6) ok")
                                         .font(.system(size: 10, design: .monospaced))
                                         .foregroundColor(.primary.opacity(0.35))
                                 }
+                                ForEach(failedSteps) { step in
+                                    Text("FAIL \(step.name) (exit \(step.exitCode))")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(Color(red: 1.0, green: 0.55, blue: 0.55))
+                                }
 
-                                if let bad = report.steps.first(where: { !$0.ok }) {
+                                if let bad = failedSteps.first {
                                     if !bad.command.isEmpty {
                                         Text(bad.command)
                                             .font(.system(size: 10, design: .monospaced))

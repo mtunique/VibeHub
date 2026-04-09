@@ -82,6 +82,8 @@ struct HookInstaller {
         // (ensures socket path stays correct across build switches).
         if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
             _ = withSecurityScope(url: homeDir) {
+                installSharedScript()
+
                 let claudeDir = homeDir.appendingPathComponent(".claude")
                 _ = installAppStore(claudeDir: claudeDir)
 
@@ -89,10 +91,18 @@ struct HookInstaller {
                 if FileManager.default.fileExists(atPath: opencodeDir.path) {
                     _ = installOpenCodeAppStore(opencodeDir: opencodeDir)
                 }
+
+                let codexDir = homeDir.appendingPathComponent(".codex")
+                if FileManager.default.fileExists(atPath: codexDir.path) {
+                    _ = CodexHookInstaller.installCodexAppStore(codexDir: codexDir)
+                }
             }
         }
         return
 #else
+        // Install the shared script once into ~/.vibehub/, then symlink from each CLI's hooks dir.
+        Self.installSharedScript()
+
         let claudeDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude")
         let hooksDir = claudeDir.appendingPathComponent("hooks")
@@ -104,14 +114,7 @@ struct HookInstaller {
             withIntermediateDirectories: true
         )
 
-        if let bundled = Bundle.main.url(forResource: "vibehub-state", withExtension: "py") {
-            try? FileManager.default.removeItem(at: pythonScript)
-            try? FileManager.default.copyItem(at: bundled, to: pythonScript)
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o755],
-                ofItemAtPath: pythonScript.path
-            )
-        }
+        Self.ensureSymlink(at: pythonScript, target: sharedScriptURL)
 
         updateSettings(at: settings)
 #endif
@@ -126,7 +129,7 @@ struct HookInstaller {
 
         let python = detectPython()
         let sock = HookSocketServer.socketPath.replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "CLAUDE_ISLAND_SOCKET_PATH=\"\(sock)\" \(python) ~/.claude/hooks/vibehub-state.py"
+        let command = "VIBEHUB_SOCKET_PATH=\"\(sock)\" \(python) ~/.claude/hooks/vibehub-state.py"
         let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
         let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
         let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]
@@ -276,6 +279,9 @@ struct HookInstaller {
         ) {
             try? data.write(to: settings)
         }
+        CodexHookInstaller.uninstall()
+        // Remove the shared script last (after all symlinks are gone).
+        try? FileManager.default.removeItem(at: sharedScriptURL)
         installedSubject.send(false)
 #endif
     }
@@ -307,17 +313,8 @@ struct HookInstaller {
             return false
         }
 
-        guard let bundled = Bundle.main.url(forResource: "vibehub-state", withExtension: "py") else {
-            return false
-        }
-
-        do {
-            try? FileManager.default.removeItem(at: pythonScript)
-            try FileManager.default.copyItem(at: bundled, to: pythonScript)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pythonScript.path)
-        } catch {
-            return false
-        }
+        // Symlink to shared script (App Store: shared script installed in installIfNeeded)
+        ensureSymlink(at: pythonScript, target: sharedScriptURL)
 
         updateSettings(at: settings)
         return true
@@ -393,6 +390,12 @@ struct HookInstaller {
                 uninstallOpenCodeInDir(opencodeDir)
             } ?? false
             ok = ok && removed
+        }
+        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
+            let codexDir = homeDir.appendingPathComponent(".codex")
+            _ = withSecurityScope(url: homeDir) {
+                CodexHookInstaller.uninstallInDir(codexDir)
+            }
         }
         return ok
     }
@@ -509,7 +512,34 @@ struct HookInstaller {
 
 #endif
 
-    private static func detectPython() -> String {
+    // MARK: - Shared Script
+
+    /// Canonical location for the shared hook script.
+    static let sharedScriptURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".vibehub", isDirectory: true)
+        .appendingPathComponent("vibehub-state.py")
+
+    /// Copy the bundled script to ~/.vibehub/vibehub-state.py (single copy, shared by all CLIs).
+    static func installSharedScript() {
+        let fm = FileManager.default
+        let dir = sharedScriptURL.deletingLastPathComponent()
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        guard let bundled = Bundle.main.url(forResource: "vibehub-state", withExtension: "py") else { return }
+        try? fm.removeItem(at: sharedScriptURL)
+        try? fm.copyItem(at: bundled, to: sharedScriptURL)
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedScriptURL.path)
+    }
+
+    /// Create (or update) a symlink at `link` pointing to `target`.
+    static func ensureSymlink(at link: URL, target: URL) {
+        let fm = FileManager.default
+        // Remove whatever is there (old copy or stale symlink).
+        try? fm.removeItem(at: link)
+        try? fm.createSymbolicLink(at: link, withDestinationURL: target)
+    }
+
+    static func detectPython() -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = ["python3"]

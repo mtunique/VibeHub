@@ -18,7 +18,7 @@ const ENV_KEYS = [
 ];
 
 function resolveSocketPath() {
-  if (process.env.CLAUDE_ISLAND_SOCKET_PATH) return process.env.CLAUDE_ISLAND_SOCKET_PATH;
+  if (process.env.VIBEHUB_SOCKET_PATH) return process.env.VIBEHUB_SOCKET_PATH;
   for (const p of [
     // Sidecar next to the plugin file
     (() => { try {

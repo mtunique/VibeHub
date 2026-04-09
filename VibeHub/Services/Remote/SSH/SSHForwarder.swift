@@ -65,9 +65,21 @@ final class SSHForwarder: ObservableObject {
 
         startStderrMonitor(errPipe, generation: gen)
 
-        // Mark connected after a short delay (ssh doesn't signal when the tunnel is ready)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self, weak p] in
-            guard let self, self.generation == gen, let p, p.isRunning else { return }
+        // Mark connected after a short delay (ssh doesn't signal when the tunnel is ready).
+        // NOTE: We check the ControlMaster socket instead of p.isRunning because
+        // the Process wraps /bin/zsh which execs into ssh — after exec, the original
+        // Process object reports isRunning=false even though ssh is alive.
+        let controlDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vibehub", isDirectory: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self, self.generation == gen else { return }
+            // Check if the ControlMaster socket exists as proof the ssh process is alive.
+            let hasControlSocket = (try? FileManager.default.contentsOfDirectory(atPath: controlDir.path))?
+                .contains(where: { $0.hasPrefix("ssh-") }) ?? false
+            guard hasControlSocket else {
+                self.status = .failed("ssh process died")
+                return
+            }
             self.status = .connected
         }
     }
@@ -152,25 +164,23 @@ final class SSHForwarder: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == gen else { return }
 
-                if case .connecting = self.status {
-                    let lower = msg.lowercased()
-                    let isLocalForwardNoise =
-                        lower.contains("address already in use") ||
-                        lower.contains("cannot listen to port") ||
-                        lower.contains("channel_setup_fwd_listener_tcpip") ||
-                        lower.contains("could not request local forwarding")
-                    if !isLocalForwardNoise {
-                        self.status = .failed(msg)
-                    }
-                    return
-                }
+                let lower = msg.lowercased()
 
-                if case .connected = self.status {
-                    let lower = msg.lowercased()
-                    if lower.contains("remote port forwarding failed") ||
-                        lower.contains("remote forwarding") && lower.contains("failed") {
-                        self.status = .failed(msg)
-                    }
+                // Allowlist of fatal SSH errors. Anything NOT on this list is
+                // treated as noise (jump proxy banners, warnings, host key
+                // notices, etc.) and safely ignored.
+                let isFatal =
+                    lower.contains("permission denied") ||
+                    lower.contains("connection refused") ||
+                    lower.contains("connection timed out") ||
+                    lower.contains("no route to host") ||
+                    lower.contains("could not resolve hostname") ||
+                    lower.contains("host key verification failed") ||
+                    lower.contains("remote port forwarding failed") ||
+                    (lower.contains("remote forwarding") && lower.contains("failed"))
+
+                if isFatal {
+                    self.status = .failed(msg)
                 }
             }
         }

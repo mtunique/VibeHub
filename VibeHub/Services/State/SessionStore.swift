@@ -1137,7 +1137,14 @@ actor SessionStore {
         let structuredResults: [String: ToolResultData]
         let conversationInfo: ConversationInfo
 
-        if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
+        if sessions[sessionId]?.codexRawSessionId != nil {
+            // Codex: no JSONL or SQLite history available, rely on real-time events only
+            messages = []
+            completedTools = []
+            toolResults = [:]
+            structuredResults = [:]
+            conversationInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+        } else if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
             // OpenCode: load from SQLite database
             let result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
             messages = result.messages

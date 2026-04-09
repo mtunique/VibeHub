@@ -218,12 +218,19 @@ struct ChatView: View {
                 // Tags
                 HStack(spacing: 4) {
                     // Software tag
-                    Text(isOpenCodeSession ? "opencode" : "claude")
+                    let cliSourceColor: Color = {
+                        switch session.cliSource {
+                        case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
+                        case .opencode: return TerminalColors.green
+                        case .codex: return TerminalColors.blue
+                        }
+                    }()
+                    Text(session.cliSource.rawValue)
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34))
+                        .foregroundColor(cliSourceColor)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background((isOpenCodeSession ? TerminalColors.green : Color(red: 0.85, green: 0.47, blue: 0.34)).opacity(0.15))
+                        .background(cliSourceColor.opacity(0.15))
                         .clipShape(Capsule())
 
                     // Remote host tag
@@ -399,6 +406,10 @@ struct ChatView: View {
         session.opencodeRawSessionId != nil
     }
 
+    private var isCodexSession: Bool {
+        session.codexRawSessionId != nil
+    }
+
     /// Display name of the remote host, if this is a remote session
     private var remoteHostName: String? {
         guard let hostId = session.remoteHostId else { return nil }
@@ -413,8 +424,8 @@ struct ChatView: View {
         if session.isRemote {
             return true
         }
-        // Claude Code: either tmux or raw TTY is sufficient
-        if !isOpenCodeSession {
+        // Claude Code / Codex: either tmux or raw TTY is sufficient
+        if !isOpenCodeSession && !isCodexSession {
             return session.tty != nil
         }
         return true // OpenCode always has a path (control socket / HTTP / clipboard)

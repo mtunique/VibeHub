@@ -175,14 +175,20 @@ struct InstanceRow: View {
 
                 // Tags: software label + remote host + time
                 HStack(spacing: 6) {
-                    // Software tag (Claude/OpenCode)
-                    let isOpencode = session.opencodeRawSessionId != nil
-                    Text(isOpencode ? "opencode" : "claude")
+                    // Software tag (Claude/OpenCode/Codex)
+                    let sourceColor: Color = {
+                        switch session.cliSource {
+                        case .claude: return claudeOrange
+                        case .opencode: return TerminalColors.green
+                        case .codex: return TerminalColors.blue
+                        }
+                    }()
+                    Text(session.cliSource.rawValue)
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(isOpencode ? TerminalColors.green : claudeOrange)
+                        .foregroundColor(sourceColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background((isOpencode ? TerminalColors.green : claudeOrange).opacity(0.15))
+                        .background(sourceColor.opacity(0.15))
                         .clipShape(Capsule())
 
                     // Remote host tag

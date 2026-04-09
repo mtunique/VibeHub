@@ -191,7 +191,7 @@ final class RemoteManager: ObservableObject {
                 await RemoteLog.shared.log(.info, "pre-connect cleanup: removed local socket \(path)", hostId: id)
             }
             await killOrphanedSSH(for: host)
-            
+
             // Clean up stale ControlMaster socket
             #if APP_STORE
             // Sandbox: ControlMaster sockets live in /tmp/vh-ssh-*.
@@ -210,7 +210,7 @@ final class RemoteManager: ObservableObject {
                 }
             }
             #endif
-            
+
             // Clean up stale remote socket
             _ = await RemoteInstaller.runSSHResult(host: host, command: "rm -f \(host.remoteSocketPath)", timeoutSeconds: 5)
 

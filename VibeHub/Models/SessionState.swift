@@ -38,6 +38,21 @@ struct SessionState: Equatable, Identifiable, Sendable {
         return String(sessionId[range.upperBound...])
     }
 
+    nonisolated var codexRawSessionId: String? {
+        guard sessionId.hasPrefix("codex-") else { return nil }
+        return String(sessionId.dropFirst("codex-".count))
+    }
+
+    enum CLISource: String {
+        case claude, opencode, codex
+    }
+
+    nonisolated var cliSource: CLISource {
+        if opencodeRawSessionId != nil { return .opencode }
+        if codexRawSessionId != nil { return .codex }
+        return .claude
+    }
+
     nonisolated var openCodeControlSocketPath: String? {
         guard opencodeRawSessionId != nil else { return nil }
         guard let pid else { return nil }

@@ -11,7 +11,7 @@ import socket
 import sys
 
 SOCKET_PATH = os.environ.get(
-    "CLAUDE_ISLAND_SOCKET_PATH",
+    "VIBEHUB_SOCKET_PATH",
     os.path.expanduser("~/.vibehub/ci.sock"),
 )
 TIMEOUT_SECONDS = 300  # 5 minutes for permission decisions
@@ -72,7 +72,7 @@ def _install_claude_hook(socket_path):
     hooks = data.get("hooks") or {}
 
     quoted_sock = socket_path.replace('"', '\\"')
-    cmd = f'CLAUDE_ISLAND_SOCKET_PATH="{quoted_sock}" python3 ~/.claude/hooks/vibehub-state.py'
+    cmd = f'VIBEHUB_SOCKET_PATH="{quoted_sock}" python3 ~/.claude/hooks/vibehub-state.py'
     hook_entry = [{"type": "command", "command": cmd}]
     hook_entry_with_timeout = [{"type": "command", "command": cmd, "timeout": 86400}]
 
@@ -170,7 +170,7 @@ def _install_opencode_plugin(socket_path):
 
 def install_all():
     # Installer mode: targets standard locations (no directory picker).
-    socket_path = os.environ.get("CLAUDE_ISLAND_SOCKET_PATH") or SOCKET_PATH
+    socket_path = os.environ.get("VIBEHUB_SOCKET_PATH") or SOCKET_PATH
     ok1 = _install_claude_hook(socket_path)
     ok2 = _install_opencode_plugin(socket_path)
     return ok1 and ok2
@@ -365,7 +365,11 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.3"
+VERSION = "1.0.5"
+
+# Detect Codex context: prefer explicit env var (set by hook command),
+# fall back to __file__ path detection (unreliable with symlinks).
+IS_CODEX = os.environ.get("VIBEHUB_SOURCE") == "codex" or "/.codex/" in os.path.abspath(__file__)
 
 def main():
     if "--version" in sys.argv:
@@ -388,6 +392,8 @@ def main():
         sys.exit(1)
 
     session_id = data.get("session_id", "unknown")
+    if IS_CODEX:
+        session_id = "codex-" + session_id
     event = data.get("hook_event_name", "")
     cwd = data.get("cwd", "")
     tool_input = data.get("tool_input", {})
@@ -413,17 +419,20 @@ def main():
             state["ssh_client_port"] = parts[1]
 
     # Fetch any new lines from the JSONL file to stream to the app
-    new_lines = get_new_jsonl_lines(session_id, cwd)
-    if new_lines:
-        state["new_jsonl_lines"] = new_lines
+    # Codex doesn't store JSONL in ~/.claude/projects/
+    if not IS_CODEX:
+        new_lines = get_new_jsonl_lines(session_id, cwd)
+        if new_lines:
+            state["new_jsonl_lines"] = new_lines
 
     # Map events to status
     if event == "UserPromptSubmit":
         # User just sent a message - Claude is now processing
         state["status"] = "processing"
-        title = get_session_title(session_id, cwd)
-        if title:
-            state["session_title"] = title
+        if not IS_CODEX:
+            title = get_session_title(session_id, cwd)
+            if title:
+                state["session_title"] = title
 
     elif event == "PreToolUse":
         tool_name = data.get("tool_name")

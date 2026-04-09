@@ -169,8 +169,8 @@ extension HookEvent {
 
     /// Whether this event should trigger a file sync
     nonisolated var shouldSyncFile: Bool {
-        // OpenCode sessions do not use Claude JSONL files.
-        if sessionId.contains("opencode-") {
+        // OpenCode and Codex sessions do not use Claude JSONL files.
+        if sessionId.contains("opencode-") || sessionId.hasPrefix("codex-") {
             return false
         }
         switch event {

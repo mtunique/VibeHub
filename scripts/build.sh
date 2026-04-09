@@ -52,16 +52,16 @@ cat > "$EXPORT_OPTIONS" << 'EOF'
 EOF
 
 # Optional overrides
-# - CLAUDE_ISLAND_TEAM_ID: Apple Developer Team ID
-# - CLAUDE_ISLAND_SIGNING_CERTIFICATE: e.g. "Developer ID Application" or "Apple Distribution"
-if [ -n "${CLAUDE_ISLAND_TEAM_ID:-}" ]; then
-    /usr/libexec/PlistBuddy -c "Add :teamID string ${CLAUDE_ISLAND_TEAM_ID}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
-    /usr/libexec/PlistBuddy -c "Set :teamID ${CLAUDE_ISLAND_TEAM_ID}" "$EXPORT_OPTIONS"
+# - VIBEHUB_TEAM_ID: Apple Developer Team ID
+# - VIBEHUB_SIGNING_CERTIFICATE: e.g. "Developer ID Application" or "Apple Distribution"
+if [ -n "${VIBEHUB_TEAM_ID:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :teamID string ${VIBEHUB_TEAM_ID}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
+    /usr/libexec/PlistBuddy -c "Set :teamID ${VIBEHUB_TEAM_ID}" "$EXPORT_OPTIONS"
 fi
 
-if [ -n "${CLAUDE_ISLAND_SIGNING_CERTIFICATE:-}" ]; then
-    /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${CLAUDE_ISLAND_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
-    /usr/libexec/PlistBuddy -c "Set :signingCertificate ${CLAUDE_ISLAND_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS"
+if [ -n "${VIBEHUB_SIGNING_CERTIFICATE:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${VIBEHUB_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS" >/dev/null 2>&1 || \
+    /usr/libexec/PlistBuddy -c "Set :signingCertificate ${VIBEHUB_SIGNING_CERTIFICATE}" "$EXPORT_OPTIONS"
 fi
 
 # Export the archive
