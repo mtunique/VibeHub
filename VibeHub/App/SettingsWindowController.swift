@@ -30,6 +30,8 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
         w.titlebarAppearsTransparent = true
         w.titleVisibility = .hidden
         w.toolbarStyle = .unified
+        w.isOpaque = false
+        w.backgroundColor = .clear
 
         let toolbar = NSToolbar(identifier: "SettingsToolbar")
         toolbar.delegate = self
@@ -39,9 +41,25 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
 
         w.isReleasedWhenClosed = false
 
-        let contentView = SettingsContentView()
-            .frame(width: 680, height: 520)
-        w.contentViewController = NSHostingController(rootView: contentView)
+        // Use NSVisualEffectView as the base for behind-window blur
+        let visualEffectView = NSVisualEffectView()
+        visualEffectView.material = .sidebar
+        visualEffectView.blendingMode = .behindWindow
+        visualEffectView.state = .active
+        w.contentView = visualEffectView
+
+        let hostingView = NSHostingView(
+            rootView: SettingsContentView()
+                .frame(width: 680, height: 520)
+        )
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        visualEffectView.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor),
+        ])
 
         // Center on the screen where the mouse cursor is.
         // Use setFrame to enforce size after contentViewController may have resized the window.

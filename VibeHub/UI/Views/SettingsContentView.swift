@@ -74,33 +74,37 @@ private struct SettingsIcon: View {
 struct SettingsContentView: View {
     @State private var selectedSection: SettingsSection? = .appearance
 
-    private var mainSections: [SettingsSection] {
-        [.appearance, .notifications, .remote, .system]
-    }
-
-    private var bottomSections: [SettingsSection] {
-        [.about]
-    }
+    private static let mainSections: [SettingsSection] = [.appearance, .notifications, .remote, .system]
+    private static let bottomSections: [SettingsSection] = [.about]
 
     var body: some View {
-        NavigationSplitView(columnVisibility: .constant(.all)) {
-            List(selection: $selectedSection) {
-                Section {
-                    ForEach(mainSections) { section in
-                        sidebarRow(section)
-                    }
-                }
+        HStack(spacing: 0) {
+            // Sidebar
+            VStack(spacing: 0) {
+                // Top padding for titlebar area
+                Spacer().frame(height: 8)
 
-                Section {
-                    ForEach(bottomSections) { section in
+                VStack(spacing: 2) {
+                    ForEach(Self.mainSections) { section in
                         sidebarRow(section)
                     }
                 }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(200)
-            .toolbar(removing: .sidebarToggle)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+                .padding(.horizontal, 12)
+
+                Divider()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+
+                VStack(spacing: 2) {
+                    ForEach(Self.bottomSections) { section in
+                        sidebarRow(section)
+                    }
+                }
+                .padding(.horizontal, 12)
+
+                Spacer()
+
+                // Quit button
                 Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
@@ -111,31 +115,49 @@ struct SettingsContentView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 8)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
-        } detail: {
+            .frame(width: 200)
+            .background(.primary.opacity(0.03))
+
+            // Divider
+            Rectangle()
+                .fill(.primary.opacity(0.08))
+                .frame(width: 1)
+
+            // Detail
             if let section = selectedSection {
                 sectionDetail(section)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    .navigationSplitViewColumnWidth(530)
             }
         }
-        .navigationSplitViewColumnWidth(730)
-        .navigationSplitViewStyle(.balanced)
     }
 
     private func sidebarRow(_ section: SettingsSection) -> some View {
-        Label {
-            Text(section.title)
-        } icon: {
-            SettingsIcon(systemName: section.icon, color: section.iconColor)
+        Button {
+            selectedSection = section
+        } label: {
+            Label {
+                Text(section.title)
+            } icon: {
+                SettingsIcon(systemName: section.icon, color: section.iconColor)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.primary.opacity(selectedSection == section ? 0.1 : 0))
+                    .animation(.easeInOut(duration: 0.15), value: selectedSection)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
-        .padding(.vertical, 2)
-        .tag(section)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

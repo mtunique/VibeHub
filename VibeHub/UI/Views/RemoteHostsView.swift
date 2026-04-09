@@ -270,10 +270,10 @@ struct RemoteHostsView: View {
                             .foregroundColor(.primary.opacity(0.7))
                     }
                     .toggleStyle(.switch)
-                    .scaleEffect(0.7)
+                    .controlSize(.small)
                     Spacer()
                     Text("For jump hosts")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundColor(.primary.opacity(0.4))
                 }
                 .padding(.horizontal, 12)
@@ -319,8 +319,8 @@ struct RemoteHostsView: View {
 
     private var sshImportOverlay: some View {
         ZStack {
-            Color.primary.opacity(0.55)
-                .ignoresSafeArea()
+            Color.clear
+                .contentShape(Rectangle())
                 .onTapGesture { showSSHImport = false }
 
             VStack(spacing: 10) {
@@ -362,10 +362,6 @@ struct RemoteHostsView: View {
 
                         ForEach(filteredSSHEntries) { e in
                             Button {
-                                // Fill the form; let the user adjust before adding.
-                                // Prefer explicit user; otherwise default to the current local username.
-                                // Prefer the ssh alias so additional options (ProxyJump, etc) apply.
-                                // If the entry includes a User, keep it; otherwise allow alias-only.
                                 let user = e.user?.trimmingCharacters(in: .whitespacesAndNewlines)
                                 if let user, !user.isEmpty {
                                     userAtHost = "\(user)@\(e.alias)"
@@ -402,14 +398,15 @@ struct RemoteHostsView: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(16)
             .frame(width: 420, height: 320)
-            .background(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+            .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 5)
         }
     }
 
