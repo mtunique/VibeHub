@@ -8,118 +8,82 @@ import os from "os";
 import path from "path";
 
 const DEFAULT_SOCKET = path.join(os.homedir(), ".vibehub", "ci.sock");
+const VERSION = "1.0.2";
+
+const ENV_KEYS = [
+  "TERM_PROGRAM", "ITERM_SESSION_ID", "TERM_SESSION_ID",
+  "TMUX", "TMUX_PANE", "KITTY_WINDOW_ID", "__CFBundleIdentifier",
+  "CONDUCTOR_WORKSPACE_NAME", "CONDUCTOR_PORT", "CURSOR_TRACE_ID",
+  "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_SOCKET_PATH",
+];
 
 function resolveSocketPath() {
   if (process.env.CLAUDE_ISLAND_SOCKET_PATH) return process.env.CLAUDE_ISLAND_SOCKET_PATH;
-
-  // Sidecar next to the plugin file (preferred for strict OpenCode configs).
-  try {
-    const selfUrl = new URL(import.meta.url);
-    const selfPath = decodeURIComponent(selfUrl.pathname);
-    const sidecar = path.join(path.dirname(selfPath), "vibehub.socket");
-    if (existsSync(sidecar)) {
-      const p = (readFileSync(sidecar, "utf8") || "").trim();
-      if (p) return p;
-    }
-  } catch {
-    // ignore
+  for (const p of [
+    // Sidecar next to the plugin file
+    (() => { try {
+      const selfPath = decodeURIComponent(new URL(import.meta.url).pathname);
+      return path.join(path.dirname(selfPath), "vibehub.socket");
+    } catch { return null; } })(),
+    // Override written by installer
+    path.join(os.homedir(), ".vibehub", "socket-path"),
+  ]) {
+    try { if (p && existsSync(p)) { const v = readFileSync(p, "utf8").trim(); if (v) return v; } } catch {}
   }
-
-  // Optional override written by the installer.
-  try {
-    const overridePath = path.join(os.homedir(), ".vibehub", "socket-path");
-    if (existsSync(overridePath)) {
-      const p = (readFileSync(overridePath, "utf8") || "").trim();
-      if (p) return p;
-    }
-  } catch {
-    // ignore
-  }
-
   return DEFAULT_SOCKET;
 }
 
 const SOCKET = resolveSocketPath();
 
-function resolveConnectOpts() {
-  return { path: SOCKET };
-}
+// --- Socket helpers ---
 
-// Terminal environment sampling
-const ENV_KEYS = [
-  "TERM_PROGRAM",
-  "ITERM_SESSION_ID",
-  "TERM_SESSION_ID",
-  "TMUX",
-  "TMUX_PANE",
-  "KITTY_WINDOW_ID",
-  "__CFBundleIdentifier",
-  "CONDUCTOR_WORKSPACE_NAME",
-  "CONDUCTOR_PORT",
-  "CURSOR_TRACE_ID",
-  "CMUX_WORKSPACE_ID",
-  "CMUX_SURFACE_ID",
-  "CMUX_SOCKET_PATH",
-];
-
-function collectEnv() {
-  const env = {};
-  for (const k of ENV_KEYS) {
-    if (process.env[k]) env[k] = process.env[k];
-  }
-  return env;
+function connectSocket(opts = {}) {
+  return new Promise((resolve) => {
+    const timeout = opts.timeout || 3000;
+    try {
+      const sock = connect({ path: SOCKET }, () => resolve(sock));
+      sock.on("error", () => resolve(null));
+      sock.setTimeout(timeout, () => { sock.destroy(); resolve(null); });
+    } catch { resolve(null); }
+  });
 }
 
 function sendToSocket(json) {
-  return new Promise((resolve) => {
-    try {
-      const sock = connect(resolveConnectOpts(), () => {
-        sock.write(JSON.stringify(json));
-        sock.end();
-        resolve(true);
-      });
-      sock.on("error", () => resolve(false));
-      sock.setTimeout(3000, () => {
-        sock.destroy();
-        resolve(false);
-      });
-    } catch {
-      resolve(false);
-    }
+  return connectSocket().then((sock) => {
+    if (!sock) return false;
+    sock.write(JSON.stringify(json));
+    sock.end();
+    return true;
   });
 }
 
 function sendAndWaitResponse(json, timeoutMs = 300000) {
-  return new Promise((resolve) => {
-    try {
-      const sock = connect(resolveConnectOpts(), () => {
-        sock.write(JSON.stringify(json));
-      });
-      let buf = "";
-      sock.on("data", (data) => {
-        buf += data.toString();
-      });
-      sock.on("end", () => {
-        try {
-          resolve(JSON.parse(buf));
-        } catch {
-          resolve(null);
-        }
-      });
+  return connectSocket({ timeout: timeoutMs }).then((sock) => {
+    if (!sock) return null;
+    sock.write(JSON.stringify(json));
+    let buf = "";
+    return new Promise((resolve) => {
+      sock.on("data", (d) => { buf += d.toString(); });
+      sock.on("end", () => { try { resolve(JSON.parse(buf)); } catch { resolve(null); } });
       sock.on("error", () => resolve(null));
-      sock.setTimeout(timeoutMs, () => {
-        sock.destroy();
-        resolve(null);
-      });
-    } catch {
-      resolve(null);
-    }
+    });
   });
 }
 
+// --- Utilities ---
+
+function collectEnv() {
+  const env = {};
+  for (const k of ENV_KEYS) if (process.env[k]) env[k] = process.env[k];
+  return env;
+}
+
 function titleCase(s) {
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  return s ? s[0].toUpperCase() + s.slice(1) : "";
+}
+
+function safeOneLine(s) {
+  return (s || "").toString().replace(/\n/g, " ").trim();
 }
 
 function detectTty() {
@@ -127,655 +91,383 @@ function detectTty() {
     const { execSync } = require("child_process");
     let walkPid = process.pid;
     for (let i = 0; i < 8; i++) {
-      const info = execSync(`ps -o tty=,ppid= -p ${walkPid}`, { timeout: 1000 })
-        .toString()
-        .trim();
-      const parts = info.split(/\s+/);
-      const tty = parts[0];
-      const ppid = parseInt(parts[1]);
+      const info = execSync(`ps -o tty=,ppid= -p ${walkPid}`, { timeout: 1000 }).toString().trim();
+      const [tty, ppid] = info.split(/\s+/);
       if (tty && tty !== "??" && tty !== "?") return `/dev/${tty}`;
-      if (!ppid || ppid <= 1) break;
-      walkPid = ppid;
+      if (!ppid || parseInt(ppid) <= 1) break;
+      walkPid = parseInt(ppid);
     }
   } catch {}
   return null;
 }
 
-function safeOneLine(s) {
-  return (s || "").toString().replace(/\n/g, " ").trim();
+function parseUrlLike(value) {
+  try {
+    if (!value) return null;
+    if (value instanceof URL) return value;
+    const str = typeof value === "string" ? value
+      : value.href || value.baseUrl || value.baseURL;
+    return str ? new URL(str) : null;
+  } catch { return null; }
 }
 
-const VERSION = "1.0.2";
+function toolUseIdFromPart(part) {
+  return part?.id || part?.toolUseID || part?.tool_use_id || part?.state?.id || null;
+}
+
+// --- Event dispatch table ---
+
+const eventHandlers = {
+  "session.created"(p, ctx) {
+    const { id, directory: cwd = "" } = p.info;
+    ctx.sessionCwd.set(id, cwd);
+    ctx.getSession(id);
+    ctx.setTabTitle(`opencode-${id}`, cwd, null, null);
+    return ctx.base(`opencode-${id}`, { cwd, event: "SessionStart", status: "waiting_for_input" });
+  },
+
+  "session.deleted"(p, ctx) {
+    ctx.sessions.delete(p.info.id);
+    ctx.sessionCwd.delete(p.info.id);
+    return ctx.base(`opencode-${p.info.id}`, { event: "SessionEnd", status: "ended", cwd: p.info.directory || "" });
+  },
+
+  "session.updated"(p, ctx) {
+    const { id, directory, title } = p.info;
+    if (directory) ctx.sessionCwd.set(id, directory);
+    if (p.info.time?.archived) {
+      ctx.sessions.delete(id);
+      ctx.sessionCwd.delete(id);
+      return ctx.base(`opencode-${id}`, { event: "SessionEnd", status: "ended", cwd: directory || "" });
+    }
+    if (title && !title.startsWith("New session")) {
+      ctx.getSession(id).pendingTitle = title;
+      ctx.setTabTitle(`opencode-${id}`, ctx.sessionCwd.get(id) || "", null, title);
+    }
+    return null;
+  },
+
+  "session.status"(p, ctx) {
+    const rawId = ctx.resolveSessionId(p.sessionID || p.sessionId);
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    if (p.status?.type !== "idle") return null;
+    const s = ctx.getSession(rawId);
+    const cwd = ctx.sessionCwd.get(rawId) || "";
+    const extra = { event: "Stop", status: "waiting_for_input", cwd, last_assistant_message: s.lastAssistantText || undefined };
+    if (s.pendingTitle) { extra.session_title = s.pendingTitle; s.pendingTitle = null; }
+    return ctx.base(`opencode-${rawId}`, extra);
+  },
+
+  "message.updated"(p, ctx) {
+    const resolved = ctx.resolveSessionId(p.info.sessionID);
+    ctx.msgRoles.set(p.info.id, { role: p.info.role, sessionID: resolved });
+    if (ctx.msgRoles.size > 200) ctx.msgRoles.delete(ctx.msgRoles.keys().next().value);
+    return null;
+  },
+
+  "message.part.updated"(p, ctx) {
+    const part = p.part;
+    if (part?.type === "text") return handleTextPart(part, ctx);
+    if (part?.type === "tool") return handleToolPart(part, ctx);
+    return null;
+  },
+
+  "permission.asked"(p, ctx) {
+    const rawId = ctx.resolveSessionId(p.sessionID);
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    const toolName = titleCase(p.permission || "Tool");
+    const patterns = p.patterns || [];
+    const toolInput = { patterns, metadata: p.metadata };
+    if (p.permission === "bash" && patterns.length) toolInput.command = patterns.join(" && ");
+    if ((p.permission === "edit" || p.permission === "write") && patterns.length) toolInput.file_path = patterns[0];
+
+    const sid = `opencode-${rawId}`;
+    const cwd = ctx.sessionCwd.get(rawId) || "";
+    return {
+      _kind: "permission",
+      pre: ctx.base(sid, { event: "PreToolUse", status: "running_tool", cwd, tool: toolName, tool_input: toolInput, tool_use_id: p.id }),
+      permission: ctx.base(sid, { event: "PermissionRequest", status: "waiting_for_approval", cwd, tool: toolName, tool_input: toolInput, tool_use_id: p.id, _opencode_request_id: p.id }),
+    };
+  },
+
+  "permission.replied"(p, ctx) {
+    const rawId = ctx.resolveSessionId(p.sessionID);
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    return ctx.base(`opencode-${rawId}`, { event: "PostToolUse", status: "processing", cwd: ctx.sessionCwd.get(rawId) || "", tool_use_id: p.id });
+  },
+
+  "question.asked"(p, ctx) {
+    const rawId = ctx.resolveSessionId(p.sessionID);
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    const questions = (p.questions || []).map((q) => ({
+      question: q.question || "", header: q.header || "",
+      options: (q.options || []).map((o) => ({ label: o.label, description: o.description })),
+      multiSelect: !!q.multiple,
+    }));
+    return {
+      _kind: "question",
+      requestId: p.id,
+      event: ctx.base(`opencode-${rawId}`, { event: "PermissionRequest", status: "waiting_for_approval", cwd: ctx.sessionCwd.get(rawId) || "", tool: "AskUserQuestion", tool_input: { questions }, tool_use_id: p.id }),
+    };
+  },
+
+  "question.replied"(p, ctx) { return questionDone(p, ctx); },
+  "question.rejected"(p, ctx) { return questionDone(p, ctx); },
+};
+
+function questionDone(p, ctx) {
+  const rawId = ctx.resolveSessionId(p.sessionID);
+  ctx.getSession(rawId).lastActivityAt = Date.now();
+  return ctx.base(`opencode-${rawId}`, { event: "PostToolUse", status: "processing", cwd: ctx.sessionCwd.get(rawId) || "", tool: "AskUserQuestion", tool_use_id: p.id });
+}
+
+function handleTextPart(part, ctx) {
+  const meta = ctx.msgRoles.get(part.messageID);
+  if (!meta) return null;
+  const text = part.text || "";
+  if (!text) return null;
+  const s = ctx.getSession(meta.sessionID);
+  const cwd = ctx.sessionCwd.get(meta.sessionID) || "";
+  const sid = `opencode-${meta.sessionID}`;
+
+  if (meta.role === "user") {
+    s.lastUserText = text;
+    s.lastActivityAt = Date.now();
+    ctx.setTabTitle(sid, cwd, text, null);
+    return ctx.base(sid, { event: "UserPromptSubmit", status: "processing", cwd, prompt: text });
+  }
+  if (meta.role === "assistant") {
+    s.lastAssistantText = text;
+    s.lastActivityAt = Date.now();
+    const now = Date.now();
+    if (now - (s._lastAssistantEmitAt || 0) > 800) {
+      s._lastAssistantEmitAt = now;
+      return ctx.base(sid, { event: "AssistantMessage", status: "processing", cwd, last_assistant_message: text });
+    }
+  }
+  return null;
+}
+
+function handleToolPart(part, ctx) {
+  const rawId = ctx.resolveSessionId(part.sessionID);
+  const sid = `opencode-${rawId}`;
+  const cwd = ctx.sessionCwd.get(rawId) || "";
+  const toolName = titleCase(part.tool || "Tool");
+  const st = part.state?.status;
+  const toolUseId = toolUseIdFromPart(part);
+
+  if (st === "running" || st === "pending") {
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    return ctx.base(sid, { event: "PreToolUse", status: "running_tool", cwd, tool: toolName, tool_input: part.state?.input || {}, tool_use_id: toolUseId || undefined });
+  }
+  if (st === "completed" || st === "error") {
+    ctx.getSession(rawId).lastActivityAt = Date.now();
+    return ctx.base(sid, { event: "PostToolUse", status: "processing", cwd, tool: toolName, tool_input: part.state?.input || {}, tool_use_id: toolUseId || undefined });
+  }
+  return null;
+}
+
+// --- Approval / question reply helpers ---
+
+const DECISION_MAP = { allow: "once", always: "always", deny: "reject" };
+
+async function handleApprovalResponse(mapped, ctx) {
+  if (!ctx.internalFetch) { await sendToSocket(mapped.permission); return; }
+
+  await sendToSocket(mapped.pre);
+  const response = await sendAndWaitResponse(mapped.permission);
+  if (!response?.decision) return;
+
+  const reply = DECISION_MAP[response.decision];
+  const requestId = mapped.permission._opencode_request_id;
+  if (!reply || !requestId) return;
+
+  try {
+    await ctx.internalFetch(new Request(`http://localhost:${ctx.serverPort}/permission/${requestId}/reply`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reply, message: response.reason }),
+    }));
+  } catch {}
+
+  await sendToSocket(ctx.base(mapped.permission.session_id, {
+    event: "PostToolUse", status: "processing", cwd: mapped.permission.cwd || "",
+    tool: mapped.permission.tool, tool_input: mapped.permission.tool_input || {}, tool_use_id: requestId,
+  }));
+}
+
+async function handleQuestionResponse(mapped, ctx) {
+  if (!ctx.internalFetch) { await sendToSocket(mapped.event); return; }
+
+  const response = await sendAndWaitResponse(mapped.event);
+  if (!response || response.decision === "ask" || !Array.isArray(response.answers)) return;
+
+  try {
+    await ctx.internalFetch(new Request(`http://localhost:${ctx.serverPort}/question/${mapped.requestId}/reply`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers: response.answers }),
+    }));
+  } catch {}
+
+  await sendToSocket(ctx.base(mapped.event.session_id, {
+    event: "PostToolUse", status: "processing", cwd: mapped.event.cwd || "", tool: "AskUserQuestion", tool_use_id: mapped.requestId,
+  }));
+}
+
+// --- Plugin export ---
 
 export default {
   id: "vibehub",
   server: async ({ client }) => {
-  const pid = process.pid;
-  const clientConfig = client?._client?.getConfig?.() || null;
+    const pid = process.pid;
+    const clientConfig = client?._client?.getConfig?.() || null;
 
-  const controlDir = path.join(os.homedir(), ".vibehub");
-  try {
-    mkdirSync(controlDir, { recursive: true });
-  } catch {
-    // ignore
-  }
-  const CONTROL_SOCKET = path.join(controlDir, `ci-opencode-${pid}.sock`);
+    const controlDir = path.join(os.homedir(), ".vibehub");
+    try { mkdirSync(controlDir, { recursive: true }); } catch {}
+    const CONTROL_SOCKET = path.join(controlDir, `ci-opencode-${pid}.sock`);
 
-  function startControlServer() {
-    try {
-      if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET);
-    } catch {
-      // ignore
-    }
+    const parsedServerUrl = parseUrlLike(clientConfig?.baseUrl) || parseUrlLike(clientConfig?.baseURL) || parseUrlLike(client?.serverUrl);
+    const serverPort = parsedServerUrl ? parseInt(parsedServerUrl.port || "") || 4096 : 4096;
+    const internalFetch = clientConfig?.fetch || null;
+    const detectedTty = detectTty();
 
-    const server = createServer((sock) => {
-      let buf = "";
-      sock.on("data", (data) => {
-        buf += data.toString();
-      });
-      sock.on("end", async () => {
-        try {
-          const req = JSON.parse(buf || "{}");
-          if (req && req.type === "prompt" && req.session_id && typeof req.text === "string") {
-            const sessionID = req.session_id;
-            const text = req.text;
+    // Terminal tab title via OSC 2 (Ghostty)
+    const termProg = process.env.TERM_PROGRAM || "";
+    const isOsc2Terminal = (termProg === "ghostty" || termProg === "xterm-ghostty") && !process.env.TMUX;
+    let displayTitle = null;
 
-            function errToString(e) {
-              try {
-                if (!e) return "";
-                if (typeof e === "string") return e;
-                if (e.message) return e.message;
-                return JSON.stringify(e);
-              } catch {
-                return String(e);
-              }
-            }
+    // Session state
+    const msgRoles = new Map();
+    const sessionCwd = new Map();
+    const sessions = new Map();
 
-            const result = await (async () => {
-              const errors = [];
+    // Shared context passed to event handlers
+    const ctx = {
+      sessions, sessionCwd, msgRoles, internalFetch, serverPort,
+      base(sessionId, extra) {
+        return { session_id: sessionId, _source: "opencode", _ppid: pid, _env: collectEnv(), tty: detectedTty, _server_port: serverPort, _server_hostname: (parsedServerUrl?.hostname || "localhost"), ...extra };
+      },
+      getSession(rawId) {
+        if (!sessions.has(rawId)) sessions.set(rawId, { lastUserText: "", lastAssistantText: "", pendingTitle: null, lastActivityAt: Date.now() });
+        return sessions.get(rawId);
+      },
+      resolveSessionId(rawId) {
+        if (sessions.has(rawId)) return rawId;
+        if (sessions.size === 1) return sessions.keys().next().value;
+        let best = null, bestTime = 0;
+        for (const [id, s] of sessions) { if (s.lastActivityAt > bestTime) { bestTime = s.lastActivityAt; best = id; } }
+        return best || rawId;
+      },
+      setTabTitle(sessionId, cwd, userText, aiTitle) {
+        if (!isOsc2Terminal || !detectedTty) return;
+        const project = (cwd || process.env.PWD || "session").split("/").pop() || "session";
+        const prefix = sessionId.replace("opencode-", "").slice(0, 16);
+        if (aiTitle) displayTitle = safeOneLine(aiTitle).slice(0, 30);
+        else if (!displayTitle && userText) displayTitle = safeOneLine(userText).slice(0, 30);
+        const title = displayTitle ? `${project} · ${displayTitle} · ${prefix}` : `${project} · ${prefix}`;
+        try { require("fs").writeFileSync(detectedTty, `\x1b]2;${title}\x07`); } catch {}
+      },
+    };
 
-              // Strategy 1: SDK session prompt APIs (multiple shapes across versions).
-              const candidates = [
-                { ctx: client?.session, fn: client?.session?.prompt },
-                { ctx: client?.sessions, fn: client?.sessions?.prompt },
-                { ctx: client?._client?.session, fn: client?._client?.session?.prompt },
-                { ctx: client?._client?.sessions, fn: client?._client?.sessions?.prompt },
-              ].filter((c) => typeof c.fn === "function");
+    // --- Control socket server (for receiving prompts from Vibe Hub) ---
 
-              for (const c of candidates) {
-                try {
-                  await c.fn.call(c.ctx || client, {
-                    path: { id: sessionID },
-                    body: { parts: [{ type: "text", text }] },
-                  });
-                  return { ok: true, via: "session.prompt" };
-                } catch (e) {
-                  errors.push(errToString(e));
-                }
-              }
+    function startControlServer() {
+      try { if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET); } catch {}
 
-              // Strategy 2: internal HTTP (works even when external HTTP server isn't reachable).
-              const fetcher = internalFetch || globalThis.fetch;
-              if (fetcher && parsedServerUrl) {
-                try {
-                  const origin = parsedServerUrl.origin;
-                  const url = `${origin}/session/${sessionID}/prompt_async`;
-                  const resp = await fetcher(url, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ parts: [{ type: "text", text }] }),
-                  });
-                  if (resp && (resp.status >= 200 && resp.status < 300)) {
-                    return { ok: true, via: "http.prompt_async" };
-                  }
-                  errors.push(`http ${resp ? resp.status : "no response"}`);
-                } catch (e) {
-                  errors.push(errToString(e));
-                }
-              }
-
-              // Strategy 3: drive the TUI prompt buffer.
-              if (client?.tui?.appendPrompt && client?.tui?.submitPrompt) {
-                try {
-                  await client.tui.appendPrompt({ body: { text } });
-                  await client.tui.submitPrompt();
-                  return { ok: true, via: "tui.submitPrompt" };
-                } catch (e) {
-                  errors.push(errToString(e));
-                }
-              }
-
-              return { ok: false, error: errors[0] || "no client api" };
-            })();
-
-            sock.write(JSON.stringify(result));
-            sock.end();
-            return;
-          }
-
-          sock.write(JSON.stringify({ ok: false, error: "bad request" }));
-          sock.end();
-        } catch {
+      const server = createServer((sock) => {
+        let buf = "";
+        sock.on("data", (d) => { buf += d.toString(); });
+        sock.on("end", async () => {
           try {
-            sock.write(JSON.stringify({ ok: false, error: "invalid json" }));
-            sock.end();
+            const req = JSON.parse(buf || "{}");
+            if (req?.type !== "prompt" || !req.session_id || typeof req.text !== "string") {
+              sock.write(JSON.stringify({ ok: false, error: "bad request" })); sock.end(); return;
+            }
+            const result = await tryPromptSession(req.session_id, req.text);
+            sock.write(JSON.stringify(result)); sock.end();
           } catch {
-            // ignore
+            try { sock.write(JSON.stringify({ ok: false, error: "invalid json" })); sock.end(); } catch {}
           }
-        }
+        });
+        sock.on("error", () => {});
       });
-      sock.on("error", () => {});
-    });
+      server.on("error", () => {});
+      server.listen(CONTROL_SOCKET);
 
-    server.on("error", () => {});
-    server.listen(CONTROL_SOCKET, () => {});
-
-    // Send SessionEnd for all active sessions on exit (synchronous - "exit" handler can't do async)
-    function sendEndEventsSync() {
-      try {
+      let exitHandled = false;
+      function handleExit() {
+        if (exitHandled) return;
+        exitHandled = true;
+        // Send SessionEnd for all active sessions synchronously
         const net = require("net");
         for (const [rawId] of sessions) {
-          const sid = `opencode-${rawId}`;
-          const cwd = sessionCwd.get(rawId) || "";
-          const payload = JSON.stringify(base(sid, { event: "SessionEnd", status: "ended", cwd }));
           try {
-            const sock = net.createConnection(resolveConnectOpts());
-            sock.write(payload);
-            sock.end();
-          } catch { /* ignore */ }
+            const payload = JSON.stringify(ctx.base(`opencode-${rawId}`, { event: "SessionEnd", status: "ended", cwd: sessionCwd.get(rawId) || "" }));
+            const s = net.createConnection({ path: SOCKET }); s.write(payload); s.end();
+          } catch {}
         }
-      } catch { /* ignore */ }
-    }
-
-    let exitHandled = false;
-    function handleExit() {
-      if (exitHandled) return;
-      exitHandled = true;
-      sendEndEventsSync();
-      try { server.close(); } catch { /* ignore */ }
-      try { if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET); } catch { /* ignore */ }
-    }
-
-    process.on("exit", handleExit);
-    process.on("SIGINT", () => { handleExit(); process.exit(0); });
-    process.on("SIGTERM", () => { handleExit(); process.exit(0); });
-  }
-
-  startControlServer();
-  function parseUrlLike(value) {
-    try {
-      if (!value) return null;
-      if (value instanceof URL) return value;
-      if (typeof value === "string") return new URL(value);
-      // Some clients pass a URL-like object.
-      if (typeof value === "object" && typeof value.href === "string") return new URL(value.href);
-      // Some configs expose baseUrl as a string.
-      if (typeof value === "object" && typeof value.baseUrl === "string") return new URL(value.baseUrl);
-      if (typeof value === "object" && typeof value.baseURL === "string") return new URL(value.baseURL);
-      return value;
-    } catch {
-      return null;
-    }
-  }
-
-  // Prefer the SDK client's baseUrl (it is what the TUI actually uses).
-  const parsedServerUrl =
-    parseUrlLike(clientConfig?.baseUrl) ||
-    parseUrlLike(clientConfig?.baseURL) ||
-    parseUrlLike(serverUrl);
-
-  const serverPort = parsedServerUrl ? parseInt(parsedServerUrl.port || "") || 4096 : 4096;
-  const serverHostname = (parsedServerUrl && (parsedServerUrl.hostname || parsedServerUrl.host)) || "localhost";
-  const internalFetch = client?._client?.getConfig?.()?.fetch || null;
-  const detectedTty = detectTty();
-
-  // Optional: set terminal tab title via OSC 2 (Ghostty)
-  const termProg = process.env.TERM_PROGRAM || "";
-  const isOsc2Terminal = (termProg === "ghostty" || termProg === "xterm-ghostty") && !process.env.TMUX;
-  let displayTitle = null;
-
-  function setTabTitle(sessionId, cwd, userText, aiTitle) {
-    if (!isOsc2Terminal) return;
-    if (!detectedTty) return;
-
-    const project = (cwd || process.env.PWD || "session").split("/").pop() || "session";
-    const prefix = sessionId.replace("opencode-", "").slice(0, 16);
-
-    if (aiTitle) {
-      displayTitle = safeOneLine(aiTitle).slice(0, 30);
-    } else if (!displayTitle && userText) {
-      displayTitle = safeOneLine(userText).slice(0, 30);
-    }
-
-    const title = displayTitle ? `${project} · ${displayTitle} · ${prefix}` : `${project} · ${prefix}`;
-    const osc = `\x1b]2;${title}\x07`;
-
-    try {
-      const fs = require("fs");
-      fs.writeFileSync(detectedTty, osc);
-    } catch {
-      // Ignore
-    }
-  }
-
-  const msgRoles = new Map();
-  const sessionCwd = new Map();
-  const sessions = new Map();
-
-  // OpenCode may use different ID properties across event types
-  // (e.g. session.created uses info.id while session.status uses sessionID).
-  // If they diverge, Vibe Hub would see two sessions for one logical session.
-  // resolveSessionId maps an unknown ID back to the canonical one when possible.
-  function resolveSessionId(rawId) {
-    if (sessions.has(rawId)) return rawId;
-    // Only auto-resolve when there is exactly one known session to avoid
-    // mis-mapping in the (unlikely) multi-session-per-process scenario.
-    if (sessions.size === 1) {
-      return sessions.keys().next().value;
-    }
-    // Multiple sessions: pick the most recently active one as a best guess.
-    let best = null;
-    let bestTime = 0;
-    for (const [id, s] of sessions) {
-      if (s.lastActivityAt > bestTime) {
-        bestTime = s.lastActivityAt;
-        best = id;
+        try { server.close(); } catch {}
+        try { if (existsSync(CONTROL_SOCKET)) unlinkSync(CONTROL_SOCKET); } catch {}
       }
-    }
-    return best || rawId;
-  }
 
-  function getSession(rawSessionId) {
-    if (!sessions.has(rawSessionId)) {
-      sessions.set(rawSessionId, {
-        lastUserText: "",
-        lastAssistantText: "",
-        pendingTitle: null,
-        lastActivityAt: Date.now(),
-      });
-    }
-    return sessions.get(rawSessionId);
-  }
-
-  function base(sessionId, extra) {
-    return {
-      session_id: sessionId,
-      _source: "opencode",
-      _ppid: pid,
-      _env: collectEnv(),
-      tty: detectedTty,
-      _server_port: serverPort,
-      _server_hostname: serverHostname,
-      ...extra,
-    };
-  }
-
-  function toolUseIdFromPart(part) {
-    return part?.id || part?.toolUseID || part?.tool_use_id || part?.state?.id || null;
-  }
-
-  function mapEvent(ev) {
-    const t = ev.type;
-    const p = ev.properties || {};
-
-    if (t === "session.created" && p.info) {
-      const cwd = p.info.directory || "";
-      sessionCwd.set(p.info.id, cwd);
-      getSession(p.info.id);
-      const sid = `opencode-${p.info.id}`;
-      setTabTitle(sid, cwd, null, null);
-      return base(sid, {
-        cwd,
-        event: "SessionStart",
-        status: "waiting_for_input",
-      });
+      process.on("exit", handleExit);
+      process.on("SIGINT", () => { handleExit(); process.exit(0); });
+      process.on("SIGTERM", () => { handleExit(); process.exit(0); });
     }
 
-    if (t === "session.deleted" && p.info) {
-      sessions.delete(p.info.id);
-      sessionCwd.delete(p.info.id);
-      return base(`opencode-${p.info.id}`, {
-        event: "SessionEnd",
-        status: "ended",
-        cwd: p.info.directory || "",
-      });
-    }
-
-    if (t === "session.updated" && p.info) {
-      if (p.info.directory) sessionCwd.set(p.info.id, p.info.directory);
-      if (p.info.time?.archived) {
-        sessions.delete(p.info.id);
-        sessionCwd.delete(p.info.id);
-        return base(`opencode-${p.info.id}`, {
-          event: "SessionEnd",
-          status: "ended",
-          cwd: p.info.directory || "",
-        });
+    async function tryPromptSession(sessionID, text) {
+      const errors = [];
+      // Strategy 1: SDK session prompt APIs
+      for (const c of [
+        { ctx: client?.session, fn: client?.session?.prompt },
+        { ctx: client?.sessions, fn: client?.sessions?.prompt },
+        { ctx: client?._client?.session, fn: client?._client?.session?.prompt },
+        { ctx: client?._client?.sessions, fn: client?._client?.sessions?.prompt },
+      ].filter((c) => typeof c.fn === "function")) {
+        try {
+          await c.fn.call(c.ctx || client, { path: { id: sessionID }, body: { parts: [{ type: "text", text }] } });
+          return { ok: true, via: "session.prompt" };
+        } catch (e) { errors.push(e?.message || String(e)); }
       }
-      if (p.info.title && !p.info.title.startsWith("New session")) {
-        const s = getSession(p.info.id);
-        s.pendingTitle = p.info.title;
-        setTabTitle(`opencode-${p.info.id}`, sessionCwd.get(p.info.id) || "", null, p.info.title);
-      }
-      return null;
-    }
-
-    if (t === "session.status" && (p.sessionID || p.sessionId)) {
-      const rawSessionId = resolveSessionId(p.sessionID || p.sessionId);
-      getSession(rawSessionId).lastActivityAt = Date.now();
-      if (p.status?.type === "idle") {
-        const sid = `opencode-${rawSessionId}`;
-        const cwd = sessionCwd.get(rawSessionId) || "";
-        const s = getSession(rawSessionId);
-        const extra = {
-          event: "Stop",
-          status: "waiting_for_input",
-          cwd,
-          last_assistant_message: s.lastAssistantText || undefined,
-        };
-        if (s.pendingTitle) {
-          extra.session_title = s.pendingTitle;
-          s.pendingTitle = null;
-        }
-        return base(sid, extra);
-      }
-      return null;
-    }
-
-    if (t === "message.updated" && p.info?.id && p.info?.sessionID) {
-      const resolvedSID = resolveSessionId(p.info.sessionID);
-      msgRoles.set(p.info.id, { role: p.info.role, sessionID: resolvedSID });
-      if (msgRoles.size > 200) {
-        msgRoles.delete(msgRoles.keys().next().value);
-      }
-      return null;
-    }
-
-    if (t === "message.part.updated" && p.part?.type === "text" && p.part?.messageID) {
-      const meta = msgRoles.get(p.part.messageID);
-      if (!meta) return null;
-      const s = getSession(meta.sessionID);
-      const cwd = sessionCwd.get(meta.sessionID) || "";
-      const text = p.part.text || "";
-      if (meta.role === "user" && text) {
-        s.lastUserText = text;
-        s.lastActivityAt = Date.now();
-        setTabTitle(`opencode-${meta.sessionID}`, cwd, text, null);
-        return base(`opencode-${meta.sessionID}`, {
-          event: "UserPromptSubmit",
-          status: "processing",
-          cwd,
-          prompt: text,
-        });
-      }
-      if (meta.role === "assistant" && text) {
-        s.lastAssistantText = text;
-        s.lastActivityAt = Date.now();
-        // Throttle: only emit every ~800ms to keep chat view updated without flooding.
-        const now = Date.now();
-        if (now - (s._lastAssistantEmitAt || 0) > 800) {
-          s._lastAssistantEmitAt = now;
-          return base(`opencode-${meta.sessionID}`, {
-            event: "AssistantMessage",
-            status: "processing",
-            cwd,
-            last_assistant_message: text,
+      // Strategy 2: internal HTTP
+      const fetcher = internalFetch || globalThis.fetch;
+      if (fetcher && parsedServerUrl) {
+        try {
+          const resp = await fetcher(`${parsedServerUrl.origin}/session/${sessionID}/prompt_async`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ parts: [{ type: "text", text }] }),
           });
+          if (resp?.status >= 200 && resp?.status < 300) return { ok: true, via: "http.prompt_async" };
+          errors.push(`http ${resp?.status || "no response"}`);
+        } catch (e) { errors.push(e?.message || String(e)); }
+      }
+      // Strategy 3: TUI prompt buffer
+      if (client?.tui?.appendPrompt && client?.tui?.submitPrompt) {
+        try {
+          await client.tui.appendPrompt({ body: { text } });
+          await client.tui.submitPrompt();
+          return { ok: true, via: "tui.submitPrompt" };
+        } catch (e) { errors.push(e?.message || String(e)); }
+      }
+      return { ok: false, error: errors[0] || "no client api" };
+    }
+
+    startControlServer();
+
+    return {
+      event: async ({ event }) => {
+        const handler = eventHandlers[event.type];
+        if (!handler) return;
+        const mapped = handler(event.properties || {}, ctx);
+        if (!mapped) return;
+        if (mapped._kind === "permission") { await handleApprovalResponse(mapped, ctx); return; }
+        if (mapped._kind === "question") { await handleQuestionResponse(mapped, ctx); return; }
+        await sendToSocket(mapped);
+      },
+      "shell.env": async (_input, output) => {
+        for (const v of ENV_KEYS) {
+          if (process.env[v]) output.env["_CI_" + v] = process.env[v];
         }
-      }
-      return null;
-    }
-
-    if (t === "message.part.updated" && p.part?.type === "tool" && p.part?.sessionID) {
-      const resolvedToolSID = resolveSessionId(p.part.sessionID);
-      const sid = `opencode-${resolvedToolSID}`;
-      const cwd = sessionCwd.get(resolvedToolSID) || "";
-      const toolName = titleCase(p.part.tool || "Tool");
-      const st = p.part.state?.status;
-      const toolUseId = toolUseIdFromPart(p.part);
-
-      if (st === "running" || st === "pending") {
-        getSession(resolvedToolSID).lastActivityAt = Date.now();
-        return base(sid, {
-          event: "PreToolUse",
-          status: "running_tool",
-          cwd,
-          tool: toolName,
-          tool_input: p.part.state?.input || {},
-          tool_use_id: toolUseId || undefined,
-        });
-      }
-
-      if (st === "completed" || st === "error") {
-        getSession(resolvedToolSID).lastActivityAt = Date.now();
-        return base(sid, {
-          event: "PostToolUse",
-          status: "processing",
-          cwd,
-          tool: toolName,
-          tool_input: p.part.state?.input || {},
-          tool_use_id: toolUseId || undefined,
-        });
-      }
-      return null;
-    }
-
-    if (t === "permission.asked" && p.id && p.sessionID) {
-      const resolvedPermSID = resolveSessionId(p.sessionID);
-      getSession(resolvedPermSID).lastActivityAt = Date.now();
-      const requestId = p.id;
-      const toolName = titleCase(p.permission || "Tool");
-      const patterns = p.patterns || [];
-      const toolInput = { patterns, metadata: p.metadata };
-      if (p.permission === "bash" && patterns.length > 0) toolInput.command = patterns.join(" && ");
-      if ((p.permission === "edit" || p.permission === "write") && patterns.length > 0) toolInput.file_path = patterns[0];
-
-      // We'll emit a PreToolUse placeholder (fire-and-forget), then hold the socket for PermissionRequest.
-      const sid = `opencode-${resolvedPermSID}`;
-      const cwd = sessionCwd.get(resolvedPermSID) || "";
-
-      return {
-        _kind: "permission",
-        pre: base(sid, {
-          event: "PreToolUse",
-          status: "running_tool",
-          cwd,
-          tool: toolName,
-          tool_input: toolInput,
-          tool_use_id: requestId,
-        }),
-        permission: base(sid, {
-          event: "PermissionRequest",
-          status: "waiting_for_approval",
-          cwd,
-          tool: toolName,
-          tool_input: toolInput,
-          tool_use_id: requestId,
-          _opencode_request_id: requestId,
-        }),
-      };
-    }
-
-    if (t === "permission.replied" && p.sessionID && p.id) {
-      const resolvedReplySID = resolveSessionId(p.sessionID);
-      getSession(resolvedReplySID).lastActivityAt = Date.now();
-      const sid = `opencode-${resolvedReplySID}`;
-      const cwd = sessionCwd.get(resolvedReplySID) || "";
-      return base(sid, {
-        event: "PostToolUse",
-        status: "processing",
-        cwd,
-        tool_use_id: p.id,
-      });
-    }
-
-    if (t === "question.asked" && p.id && p.sessionID) {
-      const resolvedQSID = resolveSessionId(p.sessionID);
-      getSession(resolvedQSID).lastActivityAt = Date.now();
-      const sid = `opencode-${resolvedQSID}`;
-      const cwd = sessionCwd.get(resolvedQSID) || "";
-      const questions = (p.questions || []).map((q) => ({
-        question: q.question || "",
-        header: q.header || "",
-        options: (q.options || []).map((o) => ({
-          label: o.label,
-          description: o.description,
-        })),
-        multiSelect: !!q.multiple,
-      }));
-
-      return {
-        _kind: "question",
-        requestId: p.id,
-        event: base(sid, {
-          event: "PermissionRequest",
-          status: "waiting_for_approval",
-          cwd,
-          tool: "AskUserQuestion",
-          tool_input: { questions },
-          tool_use_id: p.id,
-        }),
-      };
-    }
-
-    if ((t === "question.replied" || t === "question.rejected") && p.sessionID && p.id) {
-      const resolvedQRSID = resolveSessionId(p.sessionID);
-      getSession(resolvedQRSID).lastActivityAt = Date.now();
-      const sid = `opencode-${resolvedQRSID}`;
-      const cwd = sessionCwd.get(resolvedQRSID) || "";
-      return base(sid, {
-        event: "PostToolUse",
-        status: "processing",
-        cwd,
-        tool: "AskUserQuestion",
-        tool_use_id: p.id,
-      });
-    }
-
-    return null;
-  }
-
-  async function handlePermission(mapped) {
-    // Ensure we have an in-process way to reply to OpenCode permissions.
-    if (!internalFetch) {
-      await sendToSocket(mapped.permission);
-      return;
-    }
-
-    await sendToSocket(mapped.pre);
-    const response = await sendAndWaitResponse(mapped.permission);
-    if (!response) return;
-
-    const decision = response.decision;
-    const reason = response.reason;
-    if (!decision) return;
-
-    // Vibe Hub sends { decision: allow|deny|always|ask }.
-    // OpenCode expects { reply: once|always|reject }.
-    const reply =
-      decision === "allow" ? "once" :
-      decision === "always" ? "always" :
-      decision === "deny" ? "reject" :
-      null;
-    if (!reply) return;
-
-    const requestId = mapped.permission._opencode_request_id;
-    if (!requestId) return;
-
-    try {
-      await internalFetch(
-        new Request(`http://localhost:${serverPort}/permission/${requestId}/reply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reply, message: reason }),
-        })
-      );
-    } catch {
-      // Ignore
-    }
-
-    // Mark the permission placeholder as completed in Vibe Hub.
-    await sendToSocket(
-      base(mapped.permission.session_id, {
-        event: "PostToolUse",
-        status: "processing",
-        cwd: mapped.permission.cwd || "",
-        tool: mapped.permission.tool,
-        tool_input: mapped.permission.tool_input || {},
-        tool_use_id: requestId,
-      })
-    );
-  }
-
-  async function handleQuestion(mapped) {
-    if (!internalFetch) {
-      await sendToSocket(mapped.event);
-      return;
-    }
-
-    const response = await sendAndWaitResponse(mapped.event);
-    if (!response) return;
-
-    const decision = response.decision;
-    const answers = response.answers;
-    if (decision === "ask" || !answers || !Array.isArray(answers)) {
-      return;
-    }
-
-    try {
-      await internalFetch(
-        new Request(`http://localhost:${serverPort}/question/${mapped.requestId}/reply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answers }),
-        })
-      );
-    } catch {
-      // Ignore
-    }
-
-    await sendToSocket(
-      base(mapped.event.session_id, {
-        event: "PostToolUse",
-        status: "processing",
-        cwd: mapped.event.cwd || "",
-        tool: "AskUserQuestion",
-        tool_use_id: mapped.requestId,
-      })
-    );
-  }
-
-  return {
-    event: async ({ event }) => {
-      const mapped = mapEvent(event);
-      if (!mapped) return;
-      if (mapped._kind === "permission") {
-        await handlePermission(mapped);
-        return;
-      }
-      if (mapped._kind === "question") {
-        await handleQuestion(mapped);
-        return;
-      }
-      await sendToSocket(mapped);
-    },
-    "shell.env": async (_input, output) => {
-      // Inject terminal-related context into spawned shells.
-      for (const v of [
-        "TERM_PROGRAM",
-        "ITERM_SESSION_ID",
-        "TERM_SESSION_ID",
-        "TMUX",
-        "TMUX_PANE",
-        "KITTY_WINDOW_ID",
-        "__CFBundleIdentifier",
-        "CMUX_WORKSPACE_ID",
-        "CMUX_SURFACE_ID",
-        "CMUX_SOCKET_PATH",
-      ]) {
-        if (process.env[v]) output.env["_CI_" + v] = process.env[v];
-      }
-    },
-  };
+      },
+    };
   },
 };
