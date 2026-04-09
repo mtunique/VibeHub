@@ -133,12 +133,6 @@ struct NotchView: View {
         let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 18 : 0
         let sessionBadgeWidth: CGFloat = (showClosedActivity && sessionCount > 0) ? countBadgeWidth : 0
 
-        // When we show a title (running only), give it extra breathing room.
-        let titleExtra: CGFloat = {
-            guard viewModel.status != .opened, isAnyProcessing, let label = activeSessionLabel else { return 0 }
-            return min(140, max(70, CGFloat(label.count) * 4))
-        }()
-
         // Music-only mode: just show the media widget, no Claude base width
         if hasNowPlaying && !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && sessionCount == 0 {
             return mediaWidgetWidth
@@ -148,6 +142,18 @@ struct NotchView: View {
         if !isAnyProcessing && !hasPendingPermission && !hasWaitingForInput && !hasNowPlaying {
             return 0
         }
+
+        // When not hovering, keep the closed pill compact — just indicators, no title/project text.
+        // The full expansion appears on hover before the notch auto-opens.
+        guard isHovering else {
+            return permissionIndicatorWidth + sessionBadgeWidth + mediaWidgetWidth
+        }
+
+        // When hovering, show the title (running only) with extra breathing room.
+        let titleExtra: CGFloat = {
+            guard viewModel.status != .opened, isAnyProcessing, let label = activeSessionLabel else { return 0 }
+            return min(140, max(70, CGFloat(label.count) * 4))
+        }()
 
         let baseWidth = 2 * max(0, closedNotchSize.height - 12) + 20
         return baseWidth + permissionIndicatorWidth + sessionBadgeWidth + titleExtra + mediaWidgetWidth
@@ -346,8 +352,8 @@ struct NotchView: View {
                             .matchedGeometryEffect(id: "status-indicator", in: activityNamespace, isSource: showClosedActivity)
                     }
 
-                    // On physical notch closed state, show project name next to crab (left wing)
-                    if viewModel.hasPhysicalNotch && viewModel.status != .opened {
+                    // On physical notch closed state, show project name next to crab (left wing) on hover
+                    if viewModel.hasPhysicalNotch && viewModel.status != .opened && isHovering {
                         if let project = activeSessionProjectLabel {
                             Text(project)
                                 .font(.system(size: 10, weight: .semibold))
@@ -378,8 +384,8 @@ struct NotchView: View {
                 if viewModel.hasPhysicalNotch {
                     // Physical notch: empty center to avoid camera housing
                     Spacer(minLength: 0)
-                 } else if let label = activeSessionLabel {
-                      // Non-notch: show project name + scrolling title
+                 } else if isHovering, let label = activeSessionLabel {
+                      // Non-notch: show project name + scrolling title (only on hover)
                       let availableWidth = max(0, closedContentWidth - 2 * closedHeaderEdgeInset)
                       let leftWidth = sideWidth + (hasPendingPermission ? 18 : 0)
                       let showBadge = (viewModel.status != .opened && sessionCount > 0)
