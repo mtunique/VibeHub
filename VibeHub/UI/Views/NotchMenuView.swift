@@ -244,7 +244,7 @@ struct UpdateRow: View {
         case .idle:
             Text(appVersion)
                 .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(.primary.opacity(0.4))
 
         case .upToDate:
             HStack(spacing: 6) {
@@ -306,7 +306,7 @@ struct UpdateRow: View {
         case .error:
             Text(L10n.retry)
                 .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
         }
     }
 
@@ -338,9 +338,9 @@ struct UpdateRow: View {
     private var iconColor: Color {
         switch updateManager.state {
         case .idle:
-            return .white.opacity(isHovered ? 1.0 : 0.7)
+            return .primary.opacity(isHovered ? 1.0 : 0.7)
         case .checking:
-            return .white.opacity(0.7)
+            return .primary.opacity(0.7)
         case .upToDate:
             return TerminalColors.green
         case .found, .readyToInstall:
@@ -382,9 +382,9 @@ struct UpdateRow: View {
     private var labelColor: Color {
         switch updateManager.state {
         case .idle, .upToDate:
-            return .white.opacity(isHovered ? 1.0 : 0.7)
+            return .primary.opacity(isHovered ? 1.0 : 0.7)
         case .checking, .downloading, .extracting, .installing:
-            return .white.opacity(0.9)
+            return .primary.opacity(0.9)
         case .found, .readyToInstall:
             return TerminalColors.green
         case .error:
@@ -453,17 +453,17 @@ struct AccessibilityRow: View {
 
                 Text(L10n.on)
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.primary.opacity(0.4))
             } else {
                 Button(action: openAccessibilitySettings) {
                     Text(L10n.enable)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(Color.white)
+                                .fill(Color.accentColor)
                         )
                 }
                 .buttonStyle(.plain)
@@ -482,7 +482,7 @@ struct AccessibilityRow: View {
     }
 
     private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
+        .primary.opacity(isHovered ? 1.0 : 0.7)
     }
 
     private func openAccessibilitySettings() {
@@ -531,7 +531,7 @@ struct MenuRow: View {
         if isDestructive {
             return Color(red: 1.0, green: 0.4, blue: 0.4)
         }
-        return .white.opacity(isHovered ? 1.0 : 0.7)
+        return .primary.opacity(isHovered ? 1.0 : 0.7)
     }
 }
 
@@ -548,11 +548,11 @@ struct DisplayModePicker: View {
         HStack(spacing: 6) {
             Image(systemName: "display")
                 .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
                 .frame(width: 20, alignment: .center)
             Text(L10n.displayModeLabel)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundColor(.primary.opacity(0.8))
             Spacer()
             HStack(spacing: 2) {
                 ForEach(modes, id: \.0) { mode, icon, label in
@@ -565,7 +565,7 @@ struct DisplayModePicker: View {
                             Image(systemName: icon).font(.system(size: 9))
                             Text(label).font(.system(size: 10, weight: .medium))
                         }
-                        .foregroundColor(currentMode == mode ? .white : .white.opacity(0.4))
+                        .foregroundColor(currentMode == mode ? .primary : .primary.opacity(0.4))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         .background(
@@ -610,7 +610,7 @@ struct MenuToggleRow: View {
 
                 Text(isOn ? L10n.on : L10n.off)
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.primary.opacity(0.4))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
@@ -626,7 +626,7 @@ struct MenuToggleRow: View {
     }
 
     private var textColor: Color {
-        .white.opacity(isHovered ? 1.0 : 0.7)
+        .primary.opacity(isHovered ? 1.0 : 0.7)
     }
 }
 
@@ -639,7 +639,7 @@ struct NotifySectionHeader: View {
         HStack {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white.opacity(0.35))
+                .foregroundColor(.primary.opacity(0.35))
                 .textCase(.uppercase)
             Spacer()
         }
@@ -667,12 +667,12 @@ struct NotifyModePicker: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.primary.opacity(0.7))
                 .frame(width: 16)
 
             Text(label)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.primary.opacity(0.7))
 
             Spacer()
 
@@ -684,7 +684,7 @@ struct NotifyModePicker: View {
                     } label: {
                         Text(title)
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(mode == m ? colorForMode(m) : .white.opacity(0.35))
+                            .foregroundColor(mode == m ? colorForMode(m) : .primary.opacity(0.35))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(

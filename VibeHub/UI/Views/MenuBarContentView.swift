@@ -8,12 +8,11 @@ struct MenuBarContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().background(Color.white.opacity(0.1))
+            Divider()
             content
         }
         .frame(width: 400, height: 520)
-        .background(Color.black)
-        .preferredColorScheme(.dark)
+        .environment(\.isNotchMode, false)
     }
 
     // MARK: - Header
@@ -23,7 +22,7 @@ struct MenuBarContentView: View {
             ClaudeCrabIcon(size: 14)
             Text("Vibe Hub")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
             Spacer()
             headerButtons
         }
@@ -37,7 +36,7 @@ struct MenuBarContentView: View {
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 12))
-                .foregroundColor(.gray)
+                .foregroundColor(.secondary)
                 .frame(width: 24, height: 24)
                 .background(Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -60,6 +59,7 @@ struct MenuBarContentView: View {
                 sessionMonitor: sessionMonitor,
                 viewModel: viewModel
             )
+            .padding(.horizontal, 8)
         case .menu:
             NotchMenuView(viewModel: viewModel)
         case .remote:

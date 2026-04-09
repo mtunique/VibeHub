@@ -9,6 +9,19 @@ import AppKit
 import Combine
 import SwiftUI
 
+// MARK: - Display Context Environment
+
+struct IsNotchModeKey: EnvironmentKey {
+    static let defaultValue: Bool = true
+}
+
+extension EnvironmentValues {
+    var isNotchMode: Bool {
+        get { self[IsNotchModeKey.self] }
+        set { self[IsNotchModeKey.self] = newValue }
+    }
+}
+
 struct ChatView: View {
     let sessionId: String
     let initialSession: SessionState
@@ -207,12 +220,12 @@ struct ChatView: View {
             HStack(spacing: 8) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.6))
+                    .foregroundColor(.primary.opacity(isHeaderHovered ? 1.0 : 0.6))
                     .frame(width: 24, height: 24)
 
                 Text(session.displayTitle)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(isHeaderHovered ? 1.0 : 0.85))
+                    .foregroundColor(.primary.opacity(isHeaderHovered ? 1.0 : 0.85))
                     .lineLimit(1)
 
                 // Tags
@@ -258,10 +271,10 @@ struct ChatView: View {
         .onHover { isHeaderHovered = $0 }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.black.opacity(0.2))
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
         .overlay(alignment: .bottom) {
             LinearGradient(
-                colors: [fadeColor.opacity(0.7), fadeColor.opacity(0)],
+                colors: [fadeColor.opacity(fadeOpacity), fadeColor.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -296,7 +309,7 @@ struct ChatView: View {
                 .scaleEffect(0.8)
             Text(L10n.loadingMessages)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(.primary.opacity(0.4))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -307,10 +320,10 @@ struct ChatView: View {
         VStack(spacing: 8) {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 24))
-                .foregroundColor(.white.opacity(0.2))
+                .foregroundColor(.primary.opacity(0.2))
             Text(L10n.noMessagesYet)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(.primary.opacity(0.4))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -318,7 +331,9 @@ struct ChatView: View {
     // MARK: - Message List
 
     /// Background color for fade gradients
-    private let fadeColor = Color(red: 0.00, green: 0.00, blue: 0.00)
+    @Environment(\.isNotchMode) private var isNotchMode
+    private var fadeColor: Color { Color.black }
+    private var fadeOpacity: Double { isNotchMode ? 0.7 : 0.0 }
 
     private var messageList: some View {
         ScrollViewReader { proxy in
@@ -441,7 +456,7 @@ struct ChatView: View {
             )
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
-                .foregroundColor(canSendMessages ? .white : .white.opacity(0.4))
+                .foregroundColor(canSendMessages ? .primary : .primary.opacity(0.4))
                 .focused($isInputFocused)
                 .onChange(of: isInputFocused) { _, isFocused in
                     if isFocused {
@@ -475,7 +490,7 @@ struct ChatView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(!canSendMessages || inputText.isEmpty ? .white.opacity(0.2) : .white.opacity(0.9))
+                    .foregroundColor(!canSendMessages || inputText.isEmpty ? .primary.opacity(0.2) : Color.accentColor)
             }
             .buttonStyle(.plain)
             .disabled(!canSendMessages || inputText.isEmpty)
@@ -484,10 +499,10 @@ struct ChatView: View {
             if let inputHintText {
                 Text(inputHintText)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.black.opacity(0.85))
+                    .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.9))
+                    .background(Color.accentColor)
                     .clipShape(Capsule())
                     .offset(x: 18, y: -10)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -496,10 +511,10 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.black.opacity(0.2))
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
         .overlay(alignment: .top) {
             LinearGradient(
-                colors: [fadeColor.opacity(0), fadeColor.opacity(0.7)],
+                colors: [fadeColor.opacity(0), fadeColor.opacity(fadeOpacity)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -907,7 +922,7 @@ struct UserMessageView: View {
         HStack {
             Spacer(minLength: 60)
 
-            MarkdownText(text, color: .white, fontSize: 13)
+            MarkdownText(text, color: .primary, fontSize: 13)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(
@@ -931,7 +946,7 @@ struct AssistantMessageView: View {
                 .frame(width: 6, height: 6)
                 .padding(.top, 5)
 
-            MarkdownText(text, color: .white.opacity(0.9), fontSize: 13)
+            MarkdownText(text, color: .primary.opacity(0.9), fontSize: 13)
 
             Spacer(minLength: 60)
         }
@@ -989,7 +1004,7 @@ struct ToolCallView: View {
     private var statusColor: Color {
         switch tool.status {
         case .running:
-            return Color.white
+            return Color.primary
         case .waitingForApproval:
             return Color.orange
         case .success:
@@ -1002,11 +1017,11 @@ struct ToolCallView: View {
     private var textColor: Color {
         switch tool.status {
         case .running:
-            return .white.opacity(0.6)
+            return .primary.opacity(0.6)
         case .waitingForApproval:
             return Color.orange.opacity(0.9)
         case .success:
-            return .white.opacity(0.7)
+            return .primary.opacity(0.7)
         case .error, .interrupted:
             return Color.red.opacity(0.8)
         }
@@ -1032,7 +1047,7 @@ struct ToolCallView: View {
             if MCPToolFormatter.isMCPTool(tool.name) {
                 return Color.teal
             }
-            return .white.opacity(0.8)
+            return .primary.opacity(0.8)
         }
     }
 
@@ -1110,7 +1125,7 @@ struct ToolCallView: View {
                 if canExpand && tool.status != .running && tool.status != .waitingForApproval {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
                 }
@@ -1191,7 +1206,7 @@ struct SubagentToolsList: View {
             if hiddenCount > 0 {
                 Text(L10n.moreToolUses(hiddenCount))
                     .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.primary.opacity(0.4))
             }
 
             // Show last 2 tools (most recent activity)
@@ -1247,12 +1262,12 @@ struct SubagentToolRow: View {
             // Tool name
             Text(tool.name)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.primary.opacity(0.6))
 
             // Status text (same format as regular tools)
             Text(statusText)
                 .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -1275,17 +1290,17 @@ struct SubagentToolsSummary: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(L10n.subagentUsedTools(tools.count))
                 .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
 
             HStack(spacing: 8) {
                 ForEach(toolCounts.prefix(5), id: \.0) { name, count in
                     HStack(spacing: 2) {
                         Text(name)
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.4))
+                            .foregroundColor(.primary.opacity(0.4))
                         Text("×\(count)")
                             .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.3))
+                            .foregroundColor(.primary.opacity(0.3))
                     }
                 }
             }
@@ -1369,6 +1384,7 @@ struct ClaudeCodeQuestionBar: View {
     let onSubmit: (String) -> Void
     let onGoToTerminal: () -> Void
 
+    @Environment(\.isNotchMode) private var isNotchMode
     @State private var answerText: String = ""
     @State private var selectedOption: Int? = nil
     @FocusState private var isFocused: Bool
@@ -1381,14 +1397,14 @@ struct ClaudeCodeQuestionBar: View {
             if let question, !question.isEmpty {
                 Text(question)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
+                    .foregroundColor(.primary.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
                     .lineLimit(4)
                     .padding(.horizontal, 16)
             } else {
                 Text(L10n.claudeCodeNeedsInput)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.primary.opacity(0.6))
                     .padding(.horizontal, 16)
             }
 
@@ -1432,10 +1448,10 @@ struct ClaudeCodeQuestionBar: View {
                     } label: {
                         Text(L10n.submit)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(selectedOption != nil ? .black : .white.opacity(0.3))
+                            .foregroundColor(selectedOption != nil ? .white : .secondary)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(selectedOption != nil ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
+                            .background(selectedOption != nil ? Color.accentColor : Color.white.opacity(0.1))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -1460,9 +1476,9 @@ struct ClaudeCodeQuestionBar: View {
                     Button { submitFreeText() } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(trimmedAnswer.isEmpty ? .white.opacity(0.3) : .black)
+                            .foregroundColor(trimmedAnswer.isEmpty ? .secondary : .white)
                             .frame(width: 30, height: 30)
-                            .background(trimmedAnswer.isEmpty ? Color.white.opacity(0.1) : Color.white.opacity(0.95))
+                            .background(trimmedAnswer.isEmpty ? Color.white.opacity(0.1) : Color.accentColor)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
@@ -1472,7 +1488,7 @@ struct ClaudeCodeQuestionBar: View {
             }
         }
         .padding(.vertical, 12)
-        .background(Color.black.opacity(0.2))
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
         .onAppear { if !hasOptions { isFocused = true } }
     }
 
@@ -1480,7 +1496,7 @@ struct ClaudeCodeQuestionBar: View {
         Button { onGoToTerminal() } label: {
             Image(systemName: "terminal")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.primary.opacity(0.6))
                 .frame(width: 30, height: 30)
                 .background(Color.white.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1507,6 +1523,7 @@ struct ChatApprovalBar: View {
     let onAlways: () -> Void
     let onDeny: () -> Void
 
+    @Environment(\.isNotchMode) private var isNotchMode
     @State private var showContent = false
     @State private var showAllowButton = false
     @State private var showAlwaysButton = false
@@ -1522,7 +1539,7 @@ struct ChatApprovalBar: View {
                 if let input = toolInput {
                     Text(input)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.primary.opacity(0.5))
                         .lineLimit(1)
                 }
             }
@@ -1539,7 +1556,7 @@ struct ChatApprovalBar: View {
                 } label: {
                     Text(L10n.deny)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.primary.opacity(0.7))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(Color.white.opacity(0.1))
@@ -1555,7 +1572,7 @@ struct ChatApprovalBar: View {
                     } label: {
                         Text(L10n.always)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(.primary.opacity(0.8))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                             .background(Color.white.opacity(0.14))
@@ -1572,10 +1589,10 @@ struct ChatApprovalBar: View {
                 } label: {
                     Text(L10n.allow)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.black)
+                        .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.95))
+                        .background(Color.accentColor)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -1585,7 +1602,7 @@ struct ChatApprovalBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.black.opacity(0.2))
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
         .onAppear {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.05)) {
                 showContent = true

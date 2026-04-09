@@ -157,10 +157,10 @@ struct WriteResultContent: View {
             HStack(spacing: 4) {
                 Text(result.type == .create ? "Created" : "Wrote")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
                 Text(result.filename)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.primary.opacity(0.7))
             }
 
             // Content preview for new files
@@ -195,7 +195,7 @@ struct BashResultContent: View {
             if let interpretation = result.returnCodeInterpretation {
                 Text(interpretation)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
             }
 
             // Stdout
@@ -220,7 +220,7 @@ struct BashResultContent: View {
             if !result.hasOutput && result.backgroundTaskId == nil && result.returnCodeInterpretation == nil {
                 Text("(No content)")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
             }
         }
     }
@@ -239,7 +239,7 @@ struct GrepResultContent: View {
                 if result.filenames.isEmpty {
                     Text("No matches found")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                 } else {
                     FileListView(files: result.filenames, limit: 10)
                 }
@@ -251,13 +251,13 @@ struct GrepResultContent: View {
                 } else {
                     Text("No matches found")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                 }
 
             case .count:
                 Text("\(result.numFiles) files with matches")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
             }
         }
     }
@@ -273,14 +273,14 @@ struct GlobResultContent: View {
             if result.filenames.isEmpty {
                 Text("No files found")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
             } else {
                 FileListView(files: result.filenames, limit: 10)
 
                 if result.truncated {
                     Text("... and more (truncated)")
                         .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                 }
             }
         }
@@ -304,7 +304,7 @@ struct TodoWriteResultContent: View {
 
                     Text(todo.content)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(todo.status == "completed" ? 0.4 : 0.7))
+                        .foregroundColor(.primary.opacity(todo.status == "completed" ? 0.4 : 0.7))
                         .strikethrough(todo.status == "completed")
                         .lineLimit(2)
                 }
@@ -324,7 +324,7 @@ struct TodoWriteResultContent: View {
         switch status {
         case "completed": return .green.opacity(0.7)
         case "in_progress": return .orange.opacity(0.7)
-        default: return .white.opacity(0.4)
+        default: return .primary.opacity(0.4)
         }
     }
 }
@@ -345,13 +345,13 @@ struct TaskResultContent: View {
                 if let duration = result.totalDurationMs {
                     Text("\(formatDuration(duration))")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.primary.opacity(0.4))
                 }
 
                 if let tools = result.totalToolUseCount {
                     Text("\(tools) tools")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.primary.opacity(0.4))
                 }
             }
 
@@ -359,7 +359,7 @@ struct TaskResultContent: View {
             if !result.content.isEmpty {
                 Text(result.content.prefix(200) + (result.content.count > 200 ? "..." : ""))
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.primary.opacity(0.6))
                     .lineLimit(5)
             }
         }
@@ -370,7 +370,7 @@ struct TaskResultContent: View {
         case "completed": return .green.opacity(0.7)
         case "in_progress": return .orange.opacity(0.7)
         case "failed", "error": return .red.opacity(0.7)
-        default: return .white.opacity(0.5)
+        default: return .primary.opacity(0.5)
         }
     }
 
@@ -399,7 +399,7 @@ struct WebFetchResultContent: View {
 
                 Text(truncateUrl(result.url))
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
                     .lineLimit(1)
             }
 
@@ -407,7 +407,7 @@ struct WebFetchResultContent: View {
             if !result.result.isEmpty {
                 Text(result.result.prefix(300) + (result.result.count > 300 ? "..." : ""))
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.primary.opacity(0.6))
                     .lineLimit(8)
             }
         }
@@ -431,7 +431,7 @@ struct WebSearchResultContent: View {
             if result.results.isEmpty {
                 Text("No results found")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
             } else {
                 ForEach(Array(result.results.prefix(5).enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 2) {
@@ -443,7 +443,7 @@ struct WebSearchResultContent: View {
                         if !item.snippet.isEmpty {
                             Text(item.snippet)
                                 .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(.primary.opacity(0.5))
                                 .lineLimit(2)
                         }
                     }
@@ -452,7 +452,7 @@ struct WebSearchResultContent: View {
                 if result.results.count > 5 {
                     Text("... and \(result.results.count - 5) more results")
                         .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                 }
             }
         }
@@ -471,7 +471,7 @@ struct AskUserQuestionResultContent: View {
                     // Question
                     Text(question.question)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
 
                     // Answer
                     if let answer = result.answers["\(index)"] {
@@ -500,7 +500,7 @@ struct BashOutputResultContent: View {
             HStack(spacing: 6) {
                 Text("Status: \(result.status)")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
 
                 if let exitCode = result.exitCode {
                     Text("Exit: \(exitCode)")
@@ -537,7 +537,7 @@ struct KillShellResultContent: View {
 
             Text(result.message.isEmpty ? "Shell \(result.shellId) terminated" : result.message)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
         }
     }
 }
@@ -556,13 +556,13 @@ struct ExitPlanModeResultContent: View {
                     Text(URL(fileURLWithPath: path).lastPathComponent)
                         .font(.system(size: 11, design: .monospaced))
                 }
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.primary.opacity(0.6))
             }
 
             if let plan = result.plan, !plan.isEmpty {
                 Text(plan.prefix(200) + (plan.count > 200 ? "..." : ""))
                     .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
                     .lineLimit(6)
             }
         }
@@ -590,10 +590,10 @@ struct MCPResultContent: View {
                 HStack(alignment: .top, spacing: 4) {
                     Text("\(key):")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.primary.opacity(0.4))
                     Text("\(String(describing: value).prefix(100))")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
                         .lineLimit(2)
                 }
             }
@@ -612,7 +612,7 @@ struct GenericResultContent: View {
         } else {
             Text("Completed")
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.3))
+                .foregroundColor(.primary.opacity(0.3))
         }
     }
 }
@@ -623,7 +623,7 @@ struct GenericTextContent: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11, design: .monospaced))
-            .foregroundColor(.white.opacity(0.5))
+            .foregroundColor(.primary.opacity(0.5))
             .lineLimit(15)
     }
 }
@@ -660,10 +660,10 @@ struct FileCodeView: View {
             HStack(spacing: 6) {
                 Image(systemName: "doc.text")
                     .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.4))
+                    .foregroundColor(.primary.opacity(0.4))
                 Text(filename)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.primary.opacity(0.7))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
@@ -675,7 +675,7 @@ struct FileCodeView: View {
             if hasLinesBefore {
                 Text("...")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
@@ -697,7 +697,7 @@ struct FileCodeView: View {
             if hasMoreAfter {
                 Text("... (\(lines.count - maxLines) more lines)")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
@@ -717,14 +717,14 @@ struct FileCodeView: View {
                 // Line number
                 Text("\(lineNumber)")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .frame(width: 28, alignment: .trailing)
                     .padding(.trailing, 8)
 
                 // Line content
                 Text(line.isEmpty ? " " : line)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.primary.opacity(0.7))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -749,13 +749,13 @@ struct CodePreview: View {
             ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
                 Text(line.isEmpty ? " " : line)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.primary.opacity(0.5))
             }
 
             if hasMore {
                 Text("... (\(lines.count - maxLines) more lines)")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .padding(.top, 2)
             }
         }
@@ -772,10 +772,10 @@ struct FileListView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "doc")
                         .font(.system(size: 9))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.primary.opacity(0.3))
                     Text(URL(fileURLWithPath: file).lastPathComponent)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
                         .lineLimit(1)
                 }
             }
@@ -783,7 +783,7 @@ struct FileListView: View {
             if files.count > limit {
                 Text("... and \(files.count - limit) more files")
                     .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
             }
         }
     }
@@ -809,7 +809,7 @@ struct DiffView: View {
                     if patch.lines.count > 10 {
                         Text("... (\(patch.lines.count - 10) more lines)")
                             .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.3))
+                            .foregroundColor(.primary.opacity(0.3))
                     }
                 }
             }
@@ -817,7 +817,7 @@ struct DiffView: View {
             if patches.count > 3 {
                 Text("... and \(patches.count - 3) more hunks")
                     .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
             }
         }
     }
@@ -855,7 +855,7 @@ private enum DiffLineType {
         switch self {
         case .added: return Color(red: 0.4, green: 0.8, blue: 0.4)
         case .removed: return Color(red: 0.9, green: 0.5, blue: 0.5)
-        case .context: return .white.opacity(0.5)
+        case .context: return .primary.opacity(0.5)
         }
     }
 
@@ -968,10 +968,10 @@ struct SimpleDiffView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text")
                         .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.primary.opacity(0.4))
                     Text(name)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.7))
+                        .foregroundColor(.primary.opacity(0.7))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
@@ -984,7 +984,7 @@ struct SimpleDiffView: View {
             if hasLinesBefore {
                 Text("...")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
@@ -1009,7 +1009,7 @@ struct SimpleDiffView: View {
             if hasMoreChanges {
                 Text("...")
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 46)
                     .padding(.vertical, 3)
