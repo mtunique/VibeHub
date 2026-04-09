@@ -347,16 +347,14 @@ private struct AboutSection: View {
                         Text("Vibe Hub").font(.headline)
                         Text(appVersion).font(.subheadline).foregroundColor(.secondary)
                     }
+                    Spacer()
+                    #if !APP_STORE
+                    SettingsUpdateButton()
+                    #endif
                 }
             }
 
             Section {
-                #if !APP_STORE
-                Button(L10n.checkForUpdates) {
-                    UpdateManager.shared.checkForUpdates()
-                }
-                #endif
-
                 Link(destination: URL(string: "https://github.com/mtunique/VibeHub")!) {
                     Label(L10n.starOnGitHub, systemImage: "star")
                 }
@@ -366,3 +364,89 @@ private struct AboutSection: View {
         .scrollContentBackground(.hidden)
     }
 }
+
+// MARK: - Settings Update Button
+
+#if !APP_STORE
+private struct SettingsUpdateButton: View {
+    @ObservedObject private var updateManager = UpdateManager.shared
+
+    var body: some View {
+        Button(action: handleTap) {
+            HStack(spacing: 6) {
+                switch updateManager.state {
+                case .checking, .installing:
+                    ProgressView()
+                        .controlSize(.small)
+                case .downloading(let progress):
+                    ProgressView(value: progress)
+                        .frame(width: 40)
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption)
+                case .extracting(let progress):
+                    ProgressView(value: progress)
+                        .frame(width: 40)
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption)
+                default:
+                    Text(label)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!isInteractive)
+        .tint(tintColor)
+    }
+
+    private var label: String {
+        switch updateManager.state {
+        case .idle:
+            return L10n.checkForUpdates
+        case .upToDate:
+            return L10n.upToDate
+        case .found(let version, _):
+            return "\(L10n.downloadUpdate) v\(version)"
+        case .readyToInstall:
+            return L10n.installAndRelaunch
+        case .error:
+            return L10n.retry
+        default:
+            return ""
+        }
+    }
+
+    private var tintColor: Color? {
+        switch updateManager.state {
+        case .found, .readyToInstall:
+            return .accentColor
+        case .error:
+            return .red
+        default:
+            return nil
+        }
+    }
+
+    private var isInteractive: Bool {
+        switch updateManager.state {
+        case .idle, .upToDate, .found, .readyToInstall, .error:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleTap() {
+        switch updateManager.state {
+        case .idle, .upToDate, .error:
+            updateManager.checkForUpdates()
+        case .found:
+            updateManager.downloadAndInstall()
+        case .readyToInstall:
+            updateManager.installAndRelaunch()
+        default:
+            break
+        }
+    }
+}
+#endif

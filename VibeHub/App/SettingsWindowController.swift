@@ -20,7 +20,6 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
             return
         }
 
-        // Create window shell immediately (fast)
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
@@ -40,22 +39,20 @@ class SettingsWindowController: NSObject, NSToolbarDelegate {
 
         w.isReleasedWhenClosed = false
 
-        // Center on the screen where the mouse cursor is
-        let mouseScreen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
-            ?? NSScreen.main
-        if let screen = mouseScreen {
-            let screenFrame = screen.visibleFrame
-            let windowSize = w.frame.size
-            let x = screenFrame.midX - windowSize.width / 2
-            let y = screenFrame.midY - windowSize.height / 2
-            w.setFrameOrigin(NSPoint(x: x, y: y))
-        } else {
-            w.center()
-        }
-
         let contentView = SettingsContentView()
             .frame(width: 680, height: 520)
         w.contentViewController = NSHostingController(rootView: contentView)
+
+        // Center on the screen where the mouse cursor is.
+        // Use setFrame to enforce size after contentViewController may have resized the window.
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main
+        let size = NSSize(width: 680, height: 520)
+        if let visibleFrame = screen?.visibleFrame {
+            let x = visibleFrame.midX - size.width / 2
+            let y = visibleFrame.midY - size.height / 2
+            w.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        }
+
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = w

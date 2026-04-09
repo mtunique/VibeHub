@@ -363,7 +363,7 @@ struct UpdateRow: View {
         case .checking:
             return L10n.checking
         case .upToDate:
-            return L10n.checkForUpdates
+            return L10n.upToDate
         case .found:
             return L10n.downloadUpdate
         case .downloading:

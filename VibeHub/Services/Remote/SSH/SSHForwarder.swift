@@ -29,13 +29,10 @@ final class SSHForwarder: ObservableObject {
         status = .connecting
 
         let args = buildArgs(host: host)
-        let sshCmd = (["/usr/bin/ssh"] + args)
-            .map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-            .joined(separator: " ")
 
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", sshCmd]
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        p.arguments = args
         p.environment = RemoteInstaller.getSSHEnvironment()
 
         let errPipe = Pipe()
@@ -66,21 +63,13 @@ final class SSHForwarder: ObservableObject {
         startStderrMonitor(errPipe, generation: gen)
 
         // Mark connected after a short delay (ssh doesn't signal when the tunnel is ready).
-        // NOTE: We check the ControlMaster socket instead of p.isRunning because
-        // the Process wraps /bin/zsh which execs into ssh — after exec, the original
-        // Process object reports isRunning=false even though ssh is alive.
-        let controlDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vibehub", isDirectory: true)
+        // Don't check p.isRunning: ControlMaster=auto forks a background master and the
+        // original process exits with code 0, which is normal and expected.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
             guard let self, self.generation == gen else { return }
-            // Check if the ControlMaster socket exists as proof the ssh process is alive.
-            let hasControlSocket = (try? FileManager.default.contentsOfDirectory(atPath: controlDir.path))?
-                .contains(where: { $0.hasPrefix("ssh-") }) ?? false
-            guard hasControlSocket else {
-                self.status = .failed("ssh process died")
-                return
+            if case .connecting = self.status {
+                self.status = .connected
             }
-            self.status = .connected
         }
     }
 
@@ -155,7 +144,12 @@ final class SSHForwarder: ObservableObject {
         let hostId = host?.id
         handle.readabilityHandler = { [weak self] h in
             let data = h.availableData
-            guard !data.isEmpty, let s = String(data: data, encoding: .utf8) else { return }
+            if data.isEmpty {
+                // EOF — pipe closed. Stop monitoring to avoid busy-loop.
+                h.readabilityHandler = nil
+                return
+            }
+            guard let s = String(data: data, encoding: .utf8) else { return }
             let msg = s.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !msg.isEmpty else { return }
 
@@ -166,21 +160,33 @@ final class SSHForwarder: ObservableObject {
 
                 let lower = msg.lowercased()
 
-                // Allowlist of fatal SSH errors. Anything NOT on this list is
-                // treated as noise (jump proxy banners, warnings, host key
-                // notices, etc.) and safely ignored.
-                let isFatal =
-                    lower.contains("permission denied") ||
-                    lower.contains("connection refused") ||
-                    lower.contains("connection timed out") ||
-                    lower.contains("no route to host") ||
-                    lower.contains("could not resolve hostname") ||
-                    lower.contains("host key verification failed") ||
-                    lower.contains("remote port forwarding failed") ||
-                    (lower.contains("remote forwarding") && lower.contains("failed"))
+                if case .connecting = self.status {
+                    // During connecting, only treat known fatal errors as failures.
+                    // SSH outputs many informational messages to stderr (host key warnings,
+                    // GSSAPI negotiation, banners, etc.) that are not errors.
+                    // Real connection failures will cause the process to exit with non-zero,
+                    // which is handled by terminationHandler.
+                    let isFatalError =
+                        lower.contains("permission denied") ||
+                        lower.contains("no route to host") ||
+                        lower.contains("connection refused") ||
+                        lower.contains("connection timed out") ||
+                        lower.contains("could not resolve hostname") ||
+                        lower.contains("host key verification failed") ||
+                        lower.contains("no matching host key") ||
+                        lower.contains("remote port forwarding failed") ||
+                        lower.contains("remote forwarding") && lower.contains("failed")
+                    if isFatalError {
+                        self.status = .failed(msg)
+                    }
+                    return
+                }
 
-                if isFatal {
-                    self.status = .failed(msg)
+                if case .connected = self.status {
+                    if lower.contains("remote port forwarding failed") ||
+                        lower.contains("remote forwarding") && lower.contains("failed") {
+                        self.status = .failed(msg)
+                    }
                 }
             }
         }

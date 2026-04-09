@@ -413,29 +413,8 @@ print('ok')
         args.append(host.sshTarget)
         args.append(command)
 
-        // Run via login shell so ssh inherits the same environment as Terminal
-        // (eg SSH_AUTH_SOCK / corp auth envs), which often fixes jump-proxy auth.
-        let cmd = shellJoin([sshPath] + args)
-        return await runShellResult(cmd, timeoutSeconds: timeoutSeconds)
-    }
-
-    // Upload a local file to the remote by base64-encoding its content and piping it through SSH.
-    // This avoids SCP/SFTP entirely and works with any standard SSH connection.
-    private static func uploadFileViaSSH(host: RemoteHost, localURL: URL, remotePath: String, timeoutSeconds: Int) async -> ProcessResult {
-        guard let data = try? Data(contentsOf: localURL) else {
-            return ProcessResult(output: "", exitCode: 1, stderr: "failed to read local file: \(localURL.path)")
-        }
-        // base64 output uses only A-Za-z0-9+/= — safe inside single quotes on the remote shell
-        let encoded = data.base64EncodedString()
-        let command = "printf '%s' '\(encoded)' | base64 -d > \(remotePath)"
-        return await runSSHResult(host: host, command: command, timeoutSeconds: timeoutSeconds)
-    }
-
-    private static func runShellResult(_ command: String, timeoutSeconds: Int) async -> ProcessResult {
-        let zsh = "/bin/zsh"
-        let args = ["-lc", command]
         let env = getSSHEnvironment()
-        let res = await ProcessExecutor.shared.runWithResult(zsh, arguments: args, timeoutSeconds: timeoutSeconds, environment: env)
+        let res = await ProcessExecutor.shared.runWithResult(sshPath, arguments: args, timeoutSeconds: timeoutSeconds, environment: env)
         switch res {
         case .success(let r):
             return r
@@ -444,13 +423,57 @@ print('ok')
         }
     }
 
-    nonisolated private static func shellJoin(_ args: [String]) -> String {
-        args.map(shellQuote).joined(separator: " ")
+    // Upload a local file to the remote by piping base64-encoded content through SSH stdin.
+    // This avoids SCP/SFTP and command-line length limits.
+    private static func uploadFileViaSSH(host: RemoteHost, localURL: URL, remotePath: String, timeoutSeconds: Int) async -> ProcessResult {
+        guard let data = try? Data(contentsOf: localURL) else {
+            return ProcessResult(output: "", exitCode: 1, stderr: "failed to read local file: \(localURL.path)")
+        }
+        let encoded = data.base64EncodedString()
+
+        var args = sshBaseArgs(host: host)
+        args.append(host.sshTarget)
+        args.append("base64 -d > \(remotePath)")
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        p.arguments = args
+        p.environment = getSSHEnvironment()
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        p.standardInput = stdinPipe
+        p.standardOutput = stdoutPipe
+        p.standardError = stderrPipe
+
+        do {
+            try p.run()
+        } catch {
+            return ProcessResult(output: "", exitCode: 1, stderr: "failed to start ssh: \(error.localizedDescription)")
+        }
+
+        // Write base64 data to stdin then close
+        if let inputData = encoded.data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(inputData)
+        }
+        stdinPipe.fileHandleForWriting.closeFile()
+
+        // Wait with timeout
+        let deadline = Date().addingTimeInterval(Double(timeoutSeconds))
+        while p.isRunning && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if p.isRunning {
+            p.terminate()
+            return ProcessResult(output: "", exitCode: 1, stderr: "upload timed out")
+        }
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ProcessResult(output: stdout, exitCode: p.terminationStatus, stderr: stderr.isEmpty ? nil : stderr)
     }
 
-    nonisolated private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 
     static func getSSHEnvironment() -> [String: String] {
         var env = Foundation.ProcessInfo.processInfo.environment
