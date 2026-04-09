@@ -181,6 +181,11 @@ private struct AppearanceSection: View {
     var body: some View {
         Form {
             Section(L10n.displayModeLabel) {
+                DisplayModePreview(mode: WindowManager.resolveMode(displayMode), showDetail: menuBarShowDetail)
+                    .frame(height: 80)
+                    .frame(maxWidth: .infinity)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+
                 Picker(L10n.displayModeLabel, selection: $displayMode) {
                     Text(L10n.displayModeAuto).tag(DisplayMode.auto)
                     Text(L10n.displayModeNotch).tag(DisplayMode.notch)
@@ -219,6 +224,124 @@ private struct AppearanceSection: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+}
+
+// MARK: - Display Mode Preview
+
+private struct DisplayModePreview: View {
+    let mode: DisplayMode
+    var showDetail: Bool = true
+    @ObservedObject private var sessionMonitor = ClaudeSessionMonitor.shared
+    @State private var wallpaperImage: NSImage?
+
+    private let barHeight: CGFloat = 23
+
+    private var sampleProject: String {
+        sessionMonitor.instances.first?.projectName ?? "proj"
+    }
+
+    private var sampleTitle: String {
+        sessionMonitor.instances.first?.compactDisplayTitle ?? "fixing bug..."
+    }
+
+    private var sessionCount: Int {
+        let count = sessionMonitor.instances.count
+        return count > 0 ? count : 2
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // Desktop wallpaper background
+            Group {
+                if let image = wallpaperImage {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    LinearGradient(
+                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+
+            // Fixed menu bar — always at top, never moves
+            HStack(spacing: 0) {
+                Spacer()
+
+                HStack(spacing: 4) {
+                    if showDetail {
+                        Text("\(sampleProject) · \(sampleTitle)")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(.primary.opacity(mode == .menuBar ? 0.6 : 0.25))
+                            .lineLimit(1)
+                    }
+                    ClaudeCrabIcon(
+                        size: 11,
+                        color: mode == .menuBar ? .green : Color.secondary.opacity(0.4),
+                        animateLegs: mode == .menuBar
+                    )
+                }
+                .padding(.trailing, 10)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: barHeight)
+            .background(.ultraThinMaterial)
+
+            // Notch overlay
+            NotchShape(topCornerRadius: 4, bottomCornerRadius: 8)
+                .fill(.black)
+                .frame(width: 200, height: barHeight)
+                .overlay(
+                    HStack(spacing: 5) {
+                        ClaudeCrabIcon(size: 11, animateLegs: true)
+
+                        Text(sampleProject)
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.45))
+                        Text("·")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.35))
+                        Text(sampleTitle)
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.white.opacity(0.6))
+                            .lineLimit(1)
+
+                        Spacer(minLength: 2)
+
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.5)
+                            .frame(width: 10, height: 10)
+
+                        Text("\(sessionCount)")
+                            .font(.system(size: 7, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                            .frame(width: 12, height: 12)
+                            .background(Circle().fill(.white.opacity(0.15)))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 2)
+                )
+                .opacity(mode == .notch ? 1 : 0)
+                .scaleEffect(mode == .notch ? 1 : 0.8, anchor: .top)
+        }
+        .frame(maxWidth: .infinity, minHeight: barHeight, alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .animation(.easeInOut(duration: 0.3), value: mode)
+        .animation(.easeInOut(duration: 0.3), value: showDetail)
+        .onAppear { loadWallpaper() }
+    }
+
+    private func loadWallpaper() {
+        guard let screen = NSScreen.main,
+              let url = NSWorkspace.shared.desktopImageURL(for: screen),
+              let image = NSImage(contentsOf: url) else { return }
+        wallpaperImage = image
     }
 }
 
@@ -392,6 +515,7 @@ private struct SettingsUpdateButton: View {
                     Text(label)
                 }
             }
+            .frame(minWidth: 120)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

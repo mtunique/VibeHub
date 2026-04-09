@@ -46,7 +46,7 @@ struct SessionPhaseHelpers {
     static func timeAgo(_ date: Date, now: Date = Date()) -> String {
         let seconds = Int(now.timeIntervalSince(date))
         if seconds < 5 { return L10n.now }
-        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 60 { return "<1m" }
         if seconds < 3600 { return "\(seconds / 60)m" }
         if seconds < 86400 { return "\(seconds / 3600)h" }
         return "\(seconds / 86400)d"
