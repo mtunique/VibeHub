@@ -26,6 +26,8 @@ struct NotchView: View {
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @State private var previousPendingIds: Set<String> = []
+    @State private var previousApprovalIds: Set<String> = []
+    @State private var openedForApproval: Bool = false
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
     @State private var pendingCompletionOpenWork: DispatchWorkItem? = nil
@@ -554,6 +556,13 @@ struct NotchView: View {
         let currentIds = Set(sessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
+        // Track approval-only set separately: pendingInstances also includes
+        // waitingForInput, which would mask "all approvals resolved" transitions.
+        let currentApprovalIds = Set(
+            sessions.filter { $0.phase.isWaitingForApproval }.map { $0.stableId }
+        )
+        let newApprovalIds = currentApprovalIds.subtracting(previousApprovalIds)
+
         // If a session transitions into an approval state, proactively open the notch so the UI is immediately available.
         // (Completion is handled separately by handleWaitingForInputChange to avoid stealing focus.)
         if !newPendingIds.isEmpty,
@@ -562,8 +571,9 @@ struct NotchView: View {
                 .filter { newPendingIds.contains($0.stableId) }
                 .filter { $0.phase.isWaitingForApproval }
 
-            guard !newlyPendingSessions.isEmpty else {
+            if newlyPendingSessions.isEmpty {
                 previousPendingIds = currentIds
+                previousApprovalIds = currentApprovalIds
                 return
             }
 
@@ -577,16 +587,25 @@ struct NotchView: View {
                 NotchLog.log("handlePending: opening for approval, sessions=\(newlyPendingSessions.map { String($0.sessionId.prefix(12)) })")
                 viewModel.notchOpen(reason: .interaction)
             }
+            openedForApproval = true
+        } else if !newApprovalIds.isEmpty, viewModel.status == .opened {
+            // Notch was already open (user clicked / hovered) when the approval arrived.
+            // Mark it so the auto-collapse path still fires once the approval is resolved externally.
+            openedForApproval = true
         }
 
-        // Auto-collapse: notch was opened for approvals but all were resolved in the terminal
-        if !previousPendingIds.isEmpty, currentIds.isEmpty,
-           viewModel.status == .opened, viewModel.openReason == .interaction {
+        // Auto-collapse: any previously-pending approvals are all gone and nothing new is pending.
+        // Requires the notch to have been opened for an approval in some form — either originally
+        // (.interaction) or by the elif branch above when an approval arrived into an already-open notch.
+        if !previousApprovalIds.isEmpty, currentApprovalIds.isEmpty,
+           viewModel.status == .opened,
+           (viewModel.openReason == .interaction || openedForApproval) {
             NotchLog.log("handlePending: all approvals resolved externally, auto-closing")
             viewModel.notchClose()
         }
 
         previousPendingIds = currentIds
+        previousApprovalIds = currentApprovalIds
     }
 
     private func handleWaitingForInputChange(_ instances: [SessionState]) {
