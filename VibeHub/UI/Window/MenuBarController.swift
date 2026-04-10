@@ -81,10 +81,14 @@ class MenuBarController {
     }
 
     private func setupEventMonitor() {
+        // .transient popover auto-closes on outside clicks;
+        // global monitor only needed as a safety net.
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self else { return }
-            if self.popover.isShown {
-                self.popover.performClose(nil)
+            guard let self, self.popover.isShown else { return }
+            self.popover.performClose(nil)
+            // Return focus to the frontmost app so clicks aren't swallowed
+            if let frontApp = NSWorkspace.shared.frontmostApplication {
+                frontApp.activate()
             }
         }
     }
@@ -203,6 +207,10 @@ class MenuBarController {
     @objc private func togglePopover(_ sender: Any?) {
         if popover.isShown {
             popover.performClose(sender)
+            // Return focus so other apps aren't stuck
+            if let frontApp = NSWorkspace.shared.frontmostApplication {
+                frontApp.activate()
+            }
         } else {
             showPopover()
         }
