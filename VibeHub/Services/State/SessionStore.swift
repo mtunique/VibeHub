@@ -1145,8 +1145,13 @@ actor SessionStore {
             structuredResults = [:]
             conversationInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
         } else if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
-            // OpenCode: load from SQLite database
-            let result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+            // OpenCode: load from SQLite database (local) or remote helper (SSH).
+            let result: OpenCodeDBParser.ParseResult
+            if let session = sessions[sessionId], session.isRemote, let hostId = session.remoteHostId {
+                result = await loadRemoteOpenCodeHistory(opencodeSessionId: opencodeId, hostId: hostId)
+            } else {
+                result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+            }
             messages = result.messages
             completedTools = result.completedToolIds
             toolResults = result.toolResults
@@ -1176,6 +1181,39 @@ actor SessionStore {
             structuredResults: structuredResults,
             conversationInfo: conversationInfo
         ))
+    }
+
+    /// Pull OpenCode conversation history from a remote host by invoking the
+    /// installed `~/.vibehub/vibehub-state.py --opencode-db <sid>` helper over
+    /// the existing SSH ControlMaster session. Falls back to an empty result
+    /// on any failure (session id validation, SSH error, invalid JSON).
+    private func loadRemoteOpenCodeHistory(opencodeSessionId: String, hostId: String) async -> OpenCodeDBParser.ParseResult {
+        // Whitelist-validate the session id before it crosses the shell boundary.
+        // OpenCode session ids are always nanoid-like (alphanumeric + `_`/`-`).
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard !opencodeSessionId.isEmpty,
+              opencodeSessionId.unicodeScalars.allSatisfy({ allowed.contains($0) })
+        else {
+            await RemoteLog.shared.log(.warn, "opencode db query: invalid session id", hostId: hostId)
+            return await OpenCodeDBParser.shared.parseRemoteJSON(opencodeSessionId: opencodeSessionId, jsonString: "")
+        }
+
+        let command = "python3 ~/.vibehub/vibehub-state.py --opencode-db '\(opencodeSessionId)'"
+        let result = await RemoteManager.shared.exec(hostId: hostId, command: command)
+
+        guard result.exitCode == 0, !result.output.isEmpty else {
+            await RemoteLog.shared.log(
+                .warn,
+                "opencode db query failed: exit=\(result.exitCode) sid=\(opencodeSessionId.prefix(8))...",
+                hostId: hostId
+            )
+            return await OpenCodeDBParser.shared.parseRemoteJSON(opencodeSessionId: opencodeSessionId, jsonString: "")
+        }
+
+        return await OpenCodeDBParser.shared.parseRemoteJSON(
+            opencodeSessionId: opencodeSessionId,
+            jsonString: result.output
+        )
     }
 
     private func processHistoryLoaded(

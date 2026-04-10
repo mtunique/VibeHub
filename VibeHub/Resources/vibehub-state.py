@@ -365,16 +365,102 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 # Detect Codex context: prefer explicit env var (set by hook command),
 # fall back to __file__ path detection (unreliable with symlinks).
 IS_CODEX = os.environ.get("VIBEHUB_SOURCE") == "codex" or "/.codex/" in os.path.abspath(__file__)
 
+
+def _query_opencode_db(session_id):
+    """Query the OpenCode SQLite database for a session's messages and parts.
+
+    Output shape on stdout (exit 0):
+        {"session": {...} | null, "messages": [...], "parts": [...]}
+
+    `message.data` and `part.data` in the DB are JSON text; we forward them
+    verbatim as strings so the Swift side can parse them with the same logic
+    used for the local SQLite path (avoids double decode + keeps fidelity).
+
+    Errors go to stderr with exit 1. Missing DB / session returns an empty
+    payload with exit 0.
+    """
+    import sqlite3
+    db_path = os.path.expanduser("~/.local/share/opencode/opencode.db")
+    if not os.path.exists(db_path):
+        print(json.dumps({"session": None, "messages": [], "parts": []}))
+        return 0
+    try:
+        conn = sqlite3.connect("file:" + db_path + "?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT title, directory, time_created FROM session WHERE id = ? LIMIT 1",
+            (session_id,),
+        )
+        row = cur.fetchone()
+        session_obj = None
+        if row is not None:
+            session_obj = {
+                "title": row["title"],
+                "directory": row["directory"],
+                "time_created": row["time_created"],
+            }
+
+        cur.execute(
+            "SELECT id, data, time_created FROM message "
+            "WHERE session_id = ? ORDER BY time_created ASC, id ASC",
+            (session_id,),
+        )
+        messages = [
+            {
+                "id": r["id"],
+                "data": r["data"],
+                "time_created": r["time_created"],
+            }
+            for r in cur.fetchall()
+        ]
+
+        cur.execute(
+            "SELECT id, message_id, data, time_created FROM part "
+            "WHERE session_id = ? ORDER BY time_created ASC, id ASC",
+            (session_id,),
+        )
+        parts = [
+            {
+                "id": r["id"],
+                "message_id": r["message_id"],
+                "data": r["data"],
+                "time_created": r["time_created"],
+            }
+            for r in cur.fetchall()
+        ]
+
+        conn.close()
+        print(json.dumps({
+            "session": session_obj,
+            "messages": messages,
+            "parts": parts,
+        }))
+        sys.stdout.flush()
+        return 0
+    except Exception as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        return 1
+
+
 def main():
     if "--version" in sys.argv:
         print(VERSION)
         sys.exit(0)
+
+    if "--opencode-db" in sys.argv:
+        idx = sys.argv.index("--opencode-db")
+        if idx + 1 >= len(sys.argv):
+            print(json.dumps({"error": "missing session id"}), file=sys.stderr)
+            sys.exit(2)
+        sys.exit(_query_opencode_db(sys.argv[idx + 1]))
 
     if "--install" in sys.argv:
         ok = install_all()

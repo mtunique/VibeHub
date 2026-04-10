@@ -65,11 +65,11 @@ enum RemoteInstaller {
         // Check if already up to date via the shared copy.
         let checkCmd = "python3 ~/.vibehub/vibehub-state.py --version"
         let checkResult = await runSSHResult(host: host, command: checkCmd, timeoutSeconds: 8)
-        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.5") {
+        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.6") {
             if let progress { await progress("shared hook up to date") }
             steps.append(RemoteInstallStep(
                 name: "check shared hook version", command: checkCmd,
-                ok: true, exitCode: 0, stdout: "Up to date (1.0.5)", stderr: ""
+                ok: true, exitCode: 0, stdout: "Up to date (1.0.6)", stderr: ""
             ))
             return (steps, true)
         }

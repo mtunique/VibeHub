@@ -28,12 +28,7 @@ actor OpenCodeDBParser {
 
     func parse(opencodeSessionId: String) -> ParseResult {
         guard let db = openDB() else {
-            return ParseResult(
-                messages: [],
-                completedToolIds: [],
-                toolResults: [:],
-                conversationInfo: ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
-            )
+            return Self.emptyResult
         }
         defer { sqlite3_close(db) }
 
@@ -41,6 +36,97 @@ actor OpenCodeDBParser {
         let rawMessages = queryMessages(db: db, sessionId: opencodeSessionId)
         let rawParts = queryParts(db: db, sessionId: opencodeSessionId)
 
+        return buildParseResult(sessionInfo: sessionInfo, rawMessages: rawMessages, rawParts: rawParts)
+    }
+
+    /// Parse the JSON payload produced by the remote helper
+    /// (`vibehub-state.py --opencode-db <sid>`) and reuse the same result
+    /// builder as the local SQLite path. See `Resources/vibehub-state.py`
+    /// `_query_opencode_db` for the exact shape.
+    func parseRemoteJSON(opencodeSessionId: String, jsonString: String) -> ParseResult {
+        guard let data = jsonString.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return Self.emptyResult
+        }
+
+        // Session metadata (nullable)
+        let sessionInfo: SessionInfo
+        if let s = root["session"] as? [String: Any] {
+            sessionInfo = SessionInfo(
+                title: (s["title"] as? String) ?? "",
+                directory: (s["directory"] as? String) ?? "",
+                timeCreated: Self.int64(s["time_created"]) ?? 0
+            )
+        } else {
+            sessionInfo = SessionInfo(title: "", directory: "", timeCreated: 0)
+        }
+
+        // Messages: data column is JSON text, decode to extract role
+        var rawMessages: [RawMessage] = []
+        if let msgs = root["messages"] as? [[String: Any]] {
+            for m in msgs {
+                guard let id = m["id"] as? String else { continue }
+                let timeCreated = Self.int64(m["time_created"]) ?? 0
+                var role = "assistant"
+                if let dataStr = m["data"] as? String,
+                   let jsonData = dataStr.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                   let r = json["role"] as? String {
+                    role = r
+                }
+                rawMessages.append(RawMessage(id: id, role: role, timeCreated: timeCreated))
+            }
+        }
+
+        // Parts: data column is JSON text, decode into [String: Any]
+        var rawParts: [RawPart] = []
+        if let ps = root["parts"] as? [[String: Any]] {
+            for p in ps {
+                guard let id = p["id"] as? String,
+                      let messageId = p["message_id"] as? String
+                else { continue }
+                let timeCreated = Self.int64(p["time_created"]) ?? 0
+                var partData: [String: Any] = [:]
+                if let dataStr = p["data"] as? String,
+                   let jsonData = dataStr.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    partData = json
+                }
+                rawParts.append(RawPart(id: id, messageId: messageId, data: partData, timeCreated: timeCreated))
+            }
+        }
+
+        return buildParseResult(sessionInfo: sessionInfo, rawMessages: rawMessages, rawParts: rawParts)
+    }
+
+    // MARK: - Shared ParseResult builder
+
+    private static let emptyResult = ParseResult(
+        messages: [],
+        completedToolIds: [],
+        toolResults: [:],
+        conversationInfo: ConversationInfo(
+            summary: nil, lastMessage: nil, lastMessageRole: nil,
+            lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil
+        )
+    )
+
+    private static func int64(_ value: Any?) -> Int64? {
+        if let i = value as? Int64 { return i }
+        if let i = value as? Int { return Int64(i) }
+        if let d = value as? Double { return Int64(d) }
+        if let s = value as? String { return Int64(s) }
+        return nil
+    }
+
+    /// Shared conversion from raw DB rows → ParseResult. Used by both the
+    /// local SQLite path (`parse`) and the remote JSON path (`parseRemoteJSON`).
+    private func buildParseResult(
+        sessionInfo: SessionInfo,
+        rawMessages: [RawMessage],
+        rawParts: [RawPart]
+    ) -> ParseResult {
         // Group parts by message_id
         var partsByMessage: [String: [(id: String, data: [String: Any], timeCreated: Int64)]] = [:]
         for part in rawParts {
