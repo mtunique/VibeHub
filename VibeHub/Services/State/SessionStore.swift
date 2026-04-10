@@ -1137,13 +1137,28 @@ actor SessionStore {
         let structuredResults: [String: ToolResultData]
         let conversationInfo: ConversationInfo
 
-        if sessions[sessionId]?.codexRawSessionId != nil {
-            // Codex: no JSONL or SQLite history available, rely on real-time events only
-            messages = []
-            completedTools = []
-            toolResults = [:]
-            structuredResults = [:]
-            conversationInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil, lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+        if let codexId = sessions[sessionId]?.codexRawSessionId {
+            // Codex: load from local rollout JSONL under ~/.codex/sessions/.
+            // Remote Codex sessions do not have a local rollout file on this
+            // machine; continue returning empty history for them (follow-up
+            // work will add a remote helper mirroring the OpenCode path).
+            if let session = sessions[sessionId], session.isRemote {
+                messages = []
+                completedTools = []
+                toolResults = [:]
+                structuredResults = [:]
+                conversationInfo = ConversationInfo(
+                    summary: nil, lastMessage: nil, lastMessageRole: nil,
+                    lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil
+                )
+            } else {
+                let result = await CodexRolloutParser.shared.parse(codexSessionId: codexId)
+                messages = result.messages
+                completedTools = result.completedToolIds
+                toolResults = result.toolResults
+                structuredResults = [:]
+                conversationInfo = result.conversationInfo
+            }
         } else if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
             // OpenCode: load from SQLite database (local) or remote helper (SSH).
             let result: OpenCodeDBParser.ParseResult
@@ -1243,10 +1258,11 @@ actor SessionStore {
             lastUserMessageDate: lastUserMessageDate
         )
 
-        // For OpenCode sessions, clear real-time items before loading from SQLite.
-        // The SQLite DB has the complete history; real-time items (with "opencode-" IDs)
-        // would otherwise duplicate the DB content since IDs differ.
-        if session.opencodeRawSessionId != nil {
+        // For OpenCode and Codex sessions, clear real-time items before loading
+        // authoritative history from disk. The on-disk record has the complete
+        // conversation; real-time items (with "opencode-*"/"codex-*" synthetic
+        // IDs) would otherwise duplicate content since IDs differ.
+        if session.opencodeRawSessionId != nil || session.codexRawSessionId != nil {
             session.chatItems.removeAll()
             session.toolTracker = ToolTracker()
         }
