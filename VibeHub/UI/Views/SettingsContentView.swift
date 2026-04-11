@@ -136,6 +136,7 @@ struct SettingsContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .focusEffectDisabled()
     }
 
     private func sidebarRow(_ section: SettingsSection) -> some View {

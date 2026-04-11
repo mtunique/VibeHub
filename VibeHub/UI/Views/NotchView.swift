@@ -282,6 +282,7 @@ struct NotchView: View {
                     )
             }
         }
+        .focusEffectDisabled()
     }
 
     // MARK: - Header Row (persists across states)

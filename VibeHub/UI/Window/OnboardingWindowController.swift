@@ -84,6 +84,7 @@ private struct OnboardingStandaloneView: View {
         .frame(width: 480, height: 520)
         .background(Color.black)
         .preferredColorScheme(.dark)
+        .focusEffectDisabled()
     }
 
     // MARK: - Step 0: Mode Selection

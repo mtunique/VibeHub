@@ -13,6 +13,7 @@ struct MenuBarContentView: View {
         }
         .frame(width: 400, height: 520)
         .environment(\.isNotchMode, false)
+        .focusEffectDisabled()
     }
 
     // MARK: - Header
