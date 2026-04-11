@@ -490,7 +490,12 @@ struct ChatView: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(!canSendMessages || inputText.isEmpty ? .primary.opacity(0.2) : Color.accentColor)
+                    .foregroundColor({
+                        if !canSendMessages || inputText.isEmpty {
+                            return isNotchMode ? Color.white.opacity(0.2) : Color.primary.opacity(0.2)
+                        }
+                        return isNotchMode ? Color.white.opacity(0.9) : Color.accentColor
+                    }())
             }
             .buttonStyle(.plain)
             .disabled(!canSendMessages || inputText.isEmpty)
@@ -499,10 +504,10 @@ struct ChatView: View {
             if let inputHintText {
                 Text(inputHintText)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(isNotchMode ? .black.opacity(0.85) : .white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.accentColor)
+                    .background(isNotchMode ? Color.white.opacity(0.9) : Color.accentColor)
                     .clipShape(Capsule())
                     .offset(x: 18, y: -10)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1680,10 +1685,20 @@ struct ClaudeCodeQuestionBar: View {
                     } label: {
                         Text(L10n.submit)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(selectedOption != nil ? .white : .secondary)
+                            .foregroundColor({
+                                if selectedOption == nil {
+                                    return isNotchMode ? Color.white.opacity(0.3) : Color.secondary
+                                }
+                                return isNotchMode ? .black : .white
+                            }())
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(selectedOption != nil ? Color.accentColor : Color.white.opacity(0.1))
+                            .background({
+                                if selectedOption == nil {
+                                    return Color.white.opacity(0.1)
+                                }
+                                return isNotchMode ? Color.white.opacity(0.95) : Color.accentColor
+                            }())
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -1708,9 +1723,19 @@ struct ClaudeCodeQuestionBar: View {
                     Button { submitFreeText() } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(trimmedAnswer.isEmpty ? .secondary : .white)
+                            .foregroundColor({
+                                if trimmedAnswer.isEmpty {
+                                    return isNotchMode ? Color.white.opacity(0.3) : Color.secondary
+                                }
+                                return isNotchMode ? .black : .white
+                            }())
                             .frame(width: 30, height: 30)
-                            .background(trimmedAnswer.isEmpty ? Color.white.opacity(0.1) : Color.accentColor)
+                            .background({
+                                if trimmedAnswer.isEmpty {
+                                    return Color.white.opacity(0.1)
+                                }
+                                return isNotchMode ? Color.white.opacity(0.95) : Color.accentColor
+                            }())
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
@@ -1821,10 +1846,10 @@ struct ChatApprovalBar: View {
                 } label: {
                     Text(L10n.allow)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(isNotchMode ? .black : .white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.accentColor)
+                        .background(isNotchMode ? Color.white.opacity(0.95) : Color.accentColor)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)

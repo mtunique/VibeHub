@@ -383,6 +383,7 @@ struct InlineApprovalButtons: View {
     let allowAlways: Bool
     let onAlways: (() -> Void)?
 
+    @Environment(\.isNotchMode) private var isNotchMode
     @State private var showChatButton = false
     @State private var showDenyButton = false
     @State private var showAllowButton = false
@@ -436,10 +437,10 @@ struct InlineApprovalButtons: View {
             } label: {
                 Text(L10n.allow)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(isNotchMode ? .black : .white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color.accentColor)
+                    .background(isNotchMode ? Color.white.opacity(0.9) : Color.accentColor)
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -530,6 +531,8 @@ struct TerminalButton: View {
     let isEnabled: Bool
     let onTap: () -> Void
 
+    @Environment(\.isNotchMode) private var isNotchMode
+
     var body: some View {
         Button {
             if isEnabled {
@@ -542,10 +545,20 @@ struct TerminalButton: View {
                 Text(L10n.terminal)
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(isEnabled ? .white : .primary.opacity(0.4))
+            .foregroundColor({
+                if !isEnabled {
+                    return isNotchMode ? Color.white.opacity(0.4) : Color.primary.opacity(0.4)
+                }
+                return isNotchMode ? .black : .white
+            }())
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(isEnabled ? Color.accentColor : Color.white.opacity(0.1))
+            .background({
+                if !isEnabled {
+                    return Color.white.opacity(0.1)
+                }
+                return isNotchMode ? Color.white.opacity(0.95) : Color.accentColor
+            }())
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
