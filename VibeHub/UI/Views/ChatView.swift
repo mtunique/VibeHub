@@ -355,8 +355,8 @@ struct ChatView: View {
                             ))
                     }
 
-                    ForEach(history.reversed()) { item in
-                        MessageItemView(item: item, sessionId: sessionId)
+                    ForEach(groupChatItems(history).reversed()) { displayItem in
+                        ChatDisplayItemView(displayItem: displayItem, sessionId: sessionId)
                             .padding(.horizontal, 16)
                             .scaleEffect(x: 1, y: -1)
                             .transition(.asymmetric(
@@ -891,6 +891,76 @@ except Exception as e:
     }
 }
 
+// MARK: - Display Grouping
+
+/// Display unit for the chat list. Either a single history item, or a merged
+/// group of consecutive same-name tool calls.
+enum ChatDisplayItem: Identifiable {
+    case single(ChatHistoryItem)
+    case mergedTools(id: String, name: String, items: [ChatHistoryItem])
+
+    var id: String {
+        switch self {
+        case .single(let item): return item.id
+        case .mergedTools(let id, _, _): return id
+        }
+    }
+}
+
+/// Merge consecutive tool calls of the same name. Running / waiting-for-approval
+/// tools and Task tools are excluded — they always render as their own entry.
+func groupChatItems(_ items: [ChatHistoryItem]) -> [ChatDisplayItem] {
+    var result: [ChatDisplayItem] = []
+    var buffer: [ChatHistoryItem] = []
+    var bufferName: String? = nil
+
+    func flush() {
+        if buffer.count >= 2, let name = bufferName, let first = buffer.first {
+            result.append(.mergedTools(id: "merged-\(name)-\(first.id)", name: name, items: buffer))
+        } else {
+            for item in buffer { result.append(.single(item)) }
+        }
+        buffer.removeAll(keepingCapacity: true)
+        bufferName = nil
+    }
+
+    for item in items {
+        if case .toolCall(let tool) = item.type,
+           tool.status != .running,
+           tool.status != .waitingForApproval,
+           tool.name != "Task" {
+            if tool.name == bufferName {
+                buffer.append(item)
+            } else {
+                flush()
+                buffer.append(item)
+                bufferName = tool.name
+            }
+        } else {
+            flush()
+            result.append(.single(item))
+        }
+    }
+    flush()
+    return result
+}
+
+// MARK: - Display Item Dispatcher
+
+struct ChatDisplayItemView: View {
+    let displayItem: ChatDisplayItem
+    let sessionId: String
+
+    var body: some View {
+        switch displayItem {
+        case .single(let item):
+            MessageItemView(item: item, sessionId: sessionId)
+        case .mergedTools(_, _, let items):
+            MergedToolCallView(items: items, sessionId: sessionId)
+        }
+    }
+}
+
 // MARK: - Message Item View
 
 struct MessageItemView: View {
@@ -1181,6 +1251,151 @@ struct ToolCallView: View {
         ) {
             pulseOpacity = 0.15
         }
+    }
+}
+
+// MARK: - Merged Tool Call View
+
+/// Renders a group of consecutive same-name tool calls as a single collapsible
+/// row ("Read × 3"). Expanded state shows each tool's preview and result in
+/// chronological order.
+struct MergedToolCallView: View {
+    let items: [ChatHistoryItem]
+    let sessionId: String
+
+    @State private var isExpanded: Bool = false
+    @State private var isHovering: Bool = false
+
+    private var tools: [ToolCallItem] {
+        items.compactMap {
+            if case .toolCall(let tool) = $0.type { return tool }
+            return nil
+        }
+    }
+
+    private var toolName: String { tools.first?.name ?? "" }
+
+    /// Worst-case status across all merged tools.
+    private var aggregatedStatus: ToolStatus {
+        if tools.contains(where: { $0.status == .error }) { return .error }
+        if tools.contains(where: { $0.status == .interrupted }) { return .interrupted }
+        return .success
+    }
+
+    private var statusColor: Color {
+        switch aggregatedStatus {
+        case .success: return Color.green
+        case .error, .interrupted: return Color.red
+        default: return Color.primary
+        }
+    }
+
+    private var textColor: Color {
+        switch aggregatedStatus {
+        case .success: return .primary.opacity(0.7)
+        case .error, .interrupted: return Color.red.opacity(0.8)
+        default: return .primary.opacity(0.7)
+        }
+    }
+
+    private var toolNameColor: Color {
+        switch toolName {
+        case "Read": return Color.cyan
+        case "Edit", "Write", "NotebookEdit": return Color.orange
+        case "Bash": return Color.green
+        case "Grep", "Glob": return Color.yellow
+        case "Agent", "Task": return Color.indigo.opacity(0.8)
+        case "WebSearch", "WebFetch": return Color.blue
+        case "AskUserQuestion": return Color.mint
+        default:
+            if MCPToolFormatter.isMCPTool(toolName) {
+                return Color.teal
+            }
+            return .primary.opacity(0.8)
+        }
+    }
+
+    private func subItemDotColor(_ status: ToolStatus) -> Color {
+        switch status {
+        case .success: return Color.green
+        case .error, .interrupted: return Color.red
+        default: return Color.primary
+        }
+    }
+
+    private func hasContent(_ tool: ToolCallItem) -> Bool {
+        tool.result != nil || tool.structuredResult != nil || tool.name == "Edit"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor.opacity(0.6))
+                    .frame(width: 6, height: 6)
+
+                Text(MCPToolFormatter.formatToolName(toolName))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(aggregatedStatus == .error || aggregatedStatus == .interrupted ? textColor : toolNameColor)
+                    .fixedSize()
+
+                Text("× \(tools.count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(textColor.opacity(0.7))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.primary.opacity(0.3))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
+            }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(tools.enumerated()), id: \.offset) { _, tool in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(subItemDotColor(tool.status).opacity(0.6))
+                                    .frame(width: 4, height: 4)
+                                Text(tool.statusDisplay.text)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.primary.opacity(0.65))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 0)
+                            }
+                            if hasContent(tool) {
+                                ToolResultContent(tool: tool)
+                                    .padding(.leading, 10)
+                                    .padding(.top, 2)
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.top, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovering ? Color.white.opacity(0.05) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .onTapGesture {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                isExpanded.toggle()
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isExpanded)
     }
 }
 
