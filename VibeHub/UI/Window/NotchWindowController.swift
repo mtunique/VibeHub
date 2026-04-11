@@ -16,6 +16,9 @@ class NotchWindowController: NSWindowController {
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
     private var previouslyActiveApp: NSRunningApplication?
+    /// Whether the notch panel currently captures mouse events. False means
+    /// clicks pass through to whatever is behind the panel.
+    private var isNotchInteractive: Bool = false
     
     init(screen: NSScreen) {
         self.screen = screen
@@ -64,20 +67,48 @@ class NotchWindowController: NSWindowController {
 
         notchWindow.setFrame(windowFrame, display: true)
 
-        // Dynamically toggle mouse event handling based on notch state:
-        // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)
-        // - Opened: ignoresMouseEvents = false (buttons inside panel work)
-        viewModel.$status
+        // Dynamically toggle mouse event handling based on notch state.
+        //
+        // Rules:
+        // - Closed / popping: ignoresMouseEvents = true (clicks pass through)
+        // - Opened via passive notification (.notification / .boot): stay
+        //   pass-through — the notch is only a visual cue, it must not capture
+        //   mouse events from whatever app the user is working in. Upgrade to
+        //   interactive only once the user hovers the notch area (detected via
+        //   the global mouse monitor, unaffected by ignoresMouseEvents).
+        // - Opened for any other reason (click / hover / interaction / unknown):
+        //   ignoresMouseEvents = false (buttons inside panel work).
+        //
+        // `isInteractive` tracks the current mouse-event routing so the hover
+        // upgrade fires at most once per opened session.
+        Publishers.CombineLatest(viewModel.$status, viewModel.$openReason)
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow] status in
+            .sink { [weak self, weak notchWindow] status, reason in
+                guard let self = self, let notchWindow = notchWindow else { return }
                 switch status {
                 case .opened:
-                    // Accept mouse events when opened so buttons work
-                    notchWindow?.ignoresMouseEvents = false
+                    let passive = (reason == .notification || reason == .boot)
+                    self.isNotchInteractive = !passive
+                    notchWindow.ignoresMouseEvents = passive
                 case .closed, .popping:
-                    // Ignore mouse events when closed so clicks pass through
-                    notchWindow?.ignoresMouseEvents = true
+                    self.isNotchInteractive = false
+                    notchWindow.ignoresMouseEvents = true
                 }
+            }
+            .store(in: &cancellables)
+
+        // Upgrade a passively-opened notch to interactive the moment the user
+        // actually hovers over it. isHovering is driven by the global mouse
+        // monitor in NotchViewModel.handleMouseMove, so it still fires even
+        // while ignoresMouseEvents = true.
+        viewModel.$isHovering
+            .filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak notchWindow] _ in
+                guard let self = self, let notchWindow = notchWindow else { return }
+                guard self.viewModel.status == .opened, !self.isNotchInteractive else { return }
+                self.isNotchInteractive = true
+                notchWindow.ignoresMouseEvents = false
             }
             .store(in: &cancellables)
 
