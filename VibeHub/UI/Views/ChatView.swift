@@ -907,9 +907,26 @@ enum ChatDisplayItem: Identifiable {
     }
 }
 
+/// Whether a history item has no user-visible content and should be hidden
+/// entirely (e.g., empty assistant text blocks emitted between tool calls).
+private func isEmptyTextItem(_ item: ChatHistoryItem) -> Bool {
+    func isBlank(_ s: String) -> Bool {
+        s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    switch item.type {
+    case .user(let t), .assistant(let t), .thinking(let t):
+        return isBlank(t)
+    case .toolCall, .interrupted:
+        return false
+    }
+}
+
 /// Merge consecutive tool calls of the same name. Running / waiting-for-approval
 /// tools and Task tools are excluded — they always render as their own entry.
+/// Empty text items are dropped so they neither render as blank rows nor break
+/// the merging of tools that surround them.
 func groupChatItems(_ items: [ChatHistoryItem]) -> [ChatDisplayItem] {
+    let visible = items.filter { !isEmptyTextItem($0) }
     var result: [ChatDisplayItem] = []
     var buffer: [ChatHistoryItem] = []
     var bufferName: String? = nil
@@ -924,7 +941,7 @@ func groupChatItems(_ items: [ChatHistoryItem]) -> [ChatDisplayItem] {
         bufferName = nil
     }
 
-    for item in items {
+    for item in visible {
         if case .toolCall(let tool) = item.type,
            tool.status != .running,
            tool.status != .waitingForApproval,
