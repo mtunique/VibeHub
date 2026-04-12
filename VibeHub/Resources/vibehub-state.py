@@ -365,7 +365,7 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 # Detect Codex context: prefer explicit env var (set by hook command),
 # fall back to __file__ path detection (unreliable with symlinks).
@@ -496,6 +496,16 @@ def main():
         "pid": claude_pid,
         "tty": tty,
     }
+
+    # Detect multiplexer and report how to reach this session
+    if os.environ.get("ZELLIJ_SESSION_NAME"):
+        state["multiplexer"] = "zellij"
+        state["zellij_session"] = os.environ["ZELLIJ_SESSION_NAME"]
+        zellij_pane = os.environ.get("ZELLIJ_PANE_ID")
+        if zellij_pane:
+            state["zellij_pane_id"] = zellij_pane
+    elif os.environ.get("TMUX"):
+        state["multiplexer"] = "tmux"
 
     # Include SSH client source port for remote tab matching
     ssh_client = os.environ.get("SSH_CLIENT")

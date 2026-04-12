@@ -156,7 +156,19 @@ actor SessionStore {
             session.pid = sourcePid
         }
 
-        if let pid = session.pid {
+        // Detect multiplexer: prefer hook-reported value, fall back to local process tree
+        if let mux = event.multiplexer {
+            switch mux {
+            case "zellij":
+                session.multiplexer = .zellij
+                session.zellijSession = event.zellijSession
+                session.zellijPaneId = event.zellijPaneId
+            case "tmux":
+                session.multiplexer = .tmux
+            default:
+                break
+            }
+        } else if let pid = session.pid, !session.isRemote {
             let tree = ProcessTreeBuilder.shared.buildTree()
             session.multiplexer = ProcessTreeBuilder.shared.detectMultiplexer(pid: pid, tree: tree)
         }

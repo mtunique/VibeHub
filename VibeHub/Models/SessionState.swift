@@ -29,6 +29,9 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var multiplexer: MultiplexerKind
+    /// Zellij session name and pane ID (reported by hook on remote, read from env locally)
+    var zellijSession: String?
+    var zellijPaneId: String?
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?

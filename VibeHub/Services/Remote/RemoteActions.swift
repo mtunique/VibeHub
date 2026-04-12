@@ -13,15 +13,21 @@ enum RemoteActions {
             return (false, "no pid")
         }
 
-        // Strategy: try tmux send-keys first (most reliable), then fallback to TTY injection.
+        // Dispatch based on known multiplexer, fall back to TTY.
+        switch session.multiplexer {
+        case .tmux:
+            let result = await sendClaudeViaTmux(host: host, pid: pid, text: text)
+            if result.ok { return result }
 
-        // 1. Try tmux: find pane containing the claude pid.
-        let tmuxResult = await sendClaudeViaTmux(host: host, pid: pid, text: text)
-        if tmuxResult.ok {
-            return tmuxResult
+        case .zellij:
+            let result = await sendClaudeViaZellij(host: host, session: session, text: text)
+            if result.ok { return result }
+
+        case .none:
+            break
         }
 
-        // 2. Fallback: inject text via TIOCSTI ioctl on the session's TTY.
+        // Fallback: inject text via TIOCSTI ioctl on the session's TTY.
         if let tty = session.tty {
             let ttyResult = await sendClaudeViaTTY(host: host, tty: tty, text: text)
             if ttyResult.ok {
@@ -30,7 +36,7 @@ enum RemoteActions {
         }
 
         await RemoteLog.shared.log(.warn, "sendClaudeMessage: all methods failed for pid=\(pid)")
-        return (false, tmuxResult.hint ?? "could not reach session")
+        return (false, "could not reach session")
     }
 
     /// Try sending via tmux send-keys on remote.
@@ -97,6 +103,28 @@ sys.exit(1)
             return (false, r.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil ?? "ssh/tmux failed")
         }
         await RemoteLog.shared.log(.info, "sendClaudeMessage: ok via tmux target=\(target)")
+        return (true, nil)
+    }
+
+    /// Try sending via zellij write-chars on remote.
+    private static func sendClaudeViaZellij(host: RemoteHost, session: SessionState, text: String) async -> (ok: Bool, hint: String?) {
+        guard let sessionName = session.zellijSession else {
+            await RemoteLog.shared.log(.info, "sendClaudeMessage: no zellij session name for pid=\(session.pid ?? -1)")
+            return (false, "zellij session name not reported by hook")
+        }
+        guard let paneId = session.zellijPaneId else {
+            await RemoteLog.shared.log(.info, "sendClaudeMessage: no zellij pane id for pid=\(session.pid ?? -1)")
+            return (false, "zellij pane id not reported by hook")
+        }
+
+        let escaped = text.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "ZELLIJ_SESSION_NAME=\(shellQuote(sessionName)) zellij action write-chars --pane-id \(paneId) -- '\(escaped)\r'"
+        let r = await RemoteInstaller.runSSHResult(host: host, command: cmd, timeoutSeconds: 12)
+        if r.exitCode != 0 {
+            await RemoteLog.shared.log(.warn, "sendClaudeMessage: zellij write-chars failed exit=\(r.exitCode) stderr=\(r.stderr ?? "")")
+            return (false, r.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil ?? "zellij write-chars failed")
+        }
+        await RemoteLog.shared.log(.info, "sendClaudeMessage: ok via zellij session=\(sessionName) pane=\(paneId)")
         return (true, nil)
     }
 
