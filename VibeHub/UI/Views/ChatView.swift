@@ -439,7 +439,7 @@ struct ChatView: View {
         if session.isRemote {
             return true
         }
-        // Claude Code / Codex: either tmux or raw TTY is sufficient
+        // Claude Code / Codex: multiplexer or raw TTY is sufficient
         if !isOpenCodeSession && !isCodexSession {
             return session.tty != nil
         }
@@ -686,8 +686,16 @@ struct ChatView: View {
             return
         }
 
-        guard session.isInTmux else {
-            // Not in tmux - try TTY injection directly
+        switch session.multiplexer {
+        case .tmux:
+            guard let tty = session.tty else { return }
+            if let target = await findTmuxTarget(tty: tty) {
+                _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            }
+        case .zellij:
+            _ = await ZellijController.shared.sendMessage(text, forClaudePid: session.pid ?? -1)
+        case .none:
+            // No multiplexer - try TTY injection directly
             if let tty = session.tty {
                 let ok = await sendViaTTY(text, tty: tty)
                 if !ok {
@@ -708,12 +716,6 @@ struct ChatView: View {
                     }
                 }
             }
-            return
-        }
-        guard let tty = session.tty else { return }
-
-        if let target = await findTmuxTarget(tty: tty) {
-            _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
         }
     }
 

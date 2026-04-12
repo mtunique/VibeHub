@@ -8,6 +8,13 @@
 
 import Foundation
 
+/// Terminal multiplexer detected in a session's process tree
+enum MultiplexerKind: Equatable, Sendable {
+    case none
+    case tmux
+    case zellij
+}
+
 /// Complete state for a single Claude session
 /// This is the single source of truth - all state reads and writes go through SessionStore
 struct SessionState: Equatable, Identifiable, Sendable {
@@ -21,7 +28,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     var pid: Int?
     var tty: String?
-    var isInTmux: Bool
+    var multiplexer: MultiplexerKind
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?
@@ -32,6 +39,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var sshClientPort: String?
 
     nonisolated var isRemote: Bool { remoteHostId != nil }
+    nonisolated var isInMultiplexer: Bool { multiplexer != .none }
 
     nonisolated var opencodeRawSessionId: String? {
         guard let range = sessionId.range(of: "opencode-") else { return nil }
@@ -109,7 +117,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         projectName: String? = nil,
         pid: Int? = nil,
         tty: String? = nil,
-        isInTmux: Bool = false,
+        multiplexer: MultiplexerKind = .none,
         serverPort: Int? = nil,
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
@@ -131,7 +139,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.projectName = projectName ?? URL(fileURLWithPath: cwd).lastPathComponent
         self.pid = pid
         self.tty = tty
-        self.isInTmux = isInTmux
+        self.multiplexer = multiplexer
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId

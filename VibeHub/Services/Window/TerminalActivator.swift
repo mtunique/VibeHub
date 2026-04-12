@@ -22,16 +22,19 @@ actor TerminalActivator {
     /// Returns true if the terminal was successfully activated.
     @discardableResult
     func activateTerminal(for session: SessionState) async -> Bool {
-        log("activateTerminal: remote=\(session.isRemote) tmux=\(session.isInTmux) pid=\(session.pid ?? -1)")
+        log("activateTerminal: remote=\(session.isRemote) mux=\(session.multiplexer) pid=\(session.pid ?? -1)")
         if session.isRemote {
             return await activateRemoteSession(session)
         }
 
-        if session.isInTmux {
+        switch session.multiplexer {
+        case .tmux:
             return await activateTmuxSession(session)
+        case .zellij:
+            return await activateZellijSession(session)
+        case .none:
+            return await activateLocalSession(session)
         }
-
-        return await activateLocalSession(session)
     }
 
     /// Check if a session's terminal is currently focused.
@@ -73,7 +76,7 @@ actor TerminalActivator {
             return false
         }
 
-        log("activateLocalSession pid=\(pid) tty=\(session.tty ?? "nil") isInTmux=\(session.isInTmux)")
+        log("activateLocalSession pid=\(pid) tty=\(session.tty ?? "nil") mux=\(session.multiplexer)")
         let tree = ProcessTreeBuilder.shared.buildTree()
         log("tree has \(tree.count) entries")
 
@@ -131,6 +134,22 @@ actor TerminalActivator {
         }
 
         return nil
+    }
+
+    // MARK: - Local Zellij Session
+
+    private func activateZellijSession(_ session: SessionState) async -> Bool {
+        guard let pid = session.pid else { return false }
+
+        // Switch to the correct zellij pane
+        await ZellijController.shared.focusPane(forClaudePid: pid)
+
+        let tree = ProcessTreeBuilder.shared.buildTree()
+        guard let terminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: pid, tree: tree) else {
+            return false
+        }
+
+        return await activateApp(pid: terminalPid)
     }
 
     // MARK: - Local Tmux Session
