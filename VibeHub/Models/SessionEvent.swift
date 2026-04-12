@@ -167,10 +167,14 @@ extension HookEvent {
         event == "PreToolUse" || event == "PostToolUse" || event == "PermissionRequest"
     }
 
-    /// Whether this event should trigger a file sync
+    /// Whether this event should trigger a file sync.
+    ///
+    /// Only CLIs whose history adapter is `.jsonl` (Claude and its forks)
+    /// participate in the debounced JSONL sync path. OpenCode uses SQLite
+    /// and Codex uses its own rollout parser, so both skip this entirely.
     nonisolated var shouldSyncFile: Bool {
-        // OpenCode and Codex sessions do not use Claude JSONL files.
-        if sessionId.contains("opencode-") || sessionId.hasPrefix("codex-") {
+        let cli = supportedCLI
+        guard CLIConfig.forSource(cli).capability.historyKind == .jsonl else {
             return false
         }
         switch event {

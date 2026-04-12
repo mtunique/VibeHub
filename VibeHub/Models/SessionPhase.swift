@@ -88,6 +88,14 @@ enum SessionPhase: Sendable {
             return true  // Direct permission request on idle session
         case (.idle, .compacting):
             return true
+        case (.idle, .waitingForInput):
+            // SessionStart/Stop/SubagentStop all ship status="waiting_for_input".
+            // When VibeHub catches a session mid-flight (e.g. restart while a
+            // Claude session was already idle) the first event received may
+            // directly request this transition; rejecting it would leave the
+            // session stuck in .idle and silently break the completion
+            // checkmark + notifications path.
+            return true
 
         // Processing transitions
         case (.processing, .waitingForInput):

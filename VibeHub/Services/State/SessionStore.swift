@@ -126,9 +126,10 @@ actor SessionStore {
         // If an event arrives with an unknown session ID but we already have
         // an OpenCode session from the same process (same _ppid), redirect
         // the event to the existing session to prevent phantom duplicates.
+        let eventCLI = event.supportedCLI
         let sessionId: String = {
             let rawId = event.sessionId
-            guard rawId.hasPrefix("opencode-"), sessions[rawId] == nil else {
+            guard eventCLI == .opencode, sessions[rawId] == nil else {
                 return rawId
             }
             let effectivePid = event.pid ?? event.sourcePid
@@ -169,6 +170,12 @@ actor SessionStore {
         }
         if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
             session.serverHostname = serverHostname
+        }
+        if let cmuxWorkspaceId = event.cmuxWorkspaceId, !cmuxWorkspaceId.isEmpty {
+            session.cmuxWorkspaceId = cmuxWorkspaceId
+        }
+        if let cmuxSurfaceId = event.cmuxSurfaceId, !cmuxSurfaceId.isEmpty {
+            session.cmuxSurfaceId = cmuxSurfaceId
         }
 
         if let remoteHostId = event.remoteHostId {
@@ -227,42 +234,38 @@ actor SessionStore {
             session.subagentState = SubagentState()
         }
 
-        sessions[sessionId] = session
-        publishState()
-
+        // For remote sessions the hook streams JSONL lines in the event
+        // itself. Parse + merge the resulting conversationInfo BEFORE the
+        // single publish below so subscribers only re-render once per hook
+        // event (previously we published twice — pre-parse and post-parse).
+        var parsedRemoteLines: ConversationParser.IncrementalParseResult?
         if let newLines = event.newJsonlLines, !newLines.isEmpty {
             Self.logger.debug("Received \(newLines.count) new JSONL lines from remote hook")
             let result = await ConversationParser.shared.parseLines(
                 sessionId: sessionId,
                 lines: newLines
             )
-            
-            // Extract remote conversation info (title/summary) from new lines
-            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
-            let summary = newInfo.summary ?? session.conversationInfo.summary
-            let lastMessage = newInfo.lastMessage ?? session.conversationInfo.lastMessage
-            let lastMessageRole = newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
-            let lastToolName = newInfo.lastToolName ?? session.conversationInfo.lastToolName
-            let firstUserMessage = newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
-            let lastUserMessageDate = newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
+            parsedRemoteLines = result
 
+            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
             session.conversationInfo = ConversationInfo(
-                summary: summary,
-                lastMessage: lastMessage,
-                lastMessageRole: lastMessageRole,
-                lastToolName: lastToolName,
-                firstUserMessage: firstUserMessage,
-                lastUserMessageDate: lastUserMessageDate
+                summary: newInfo.summary ?? session.conversationInfo.summary,
+                lastMessage: newInfo.lastMessage ?? session.conversationInfo.lastMessage,
+                lastMessageRole: newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole,
+                lastToolName: newInfo.lastToolName ?? session.conversationInfo.lastToolName,
+                firstUserMessage: newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage,
+                lastUserMessageDate: newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
             )
-            sessions[sessionId] = session
-            publishState()
-            
+        }
+
+        sessions[sessionId] = session
+
+        if let result = parsedRemoteLines {
             if result.clearDetected {
                 await processClearDetected(sessionId: sessionId)
             }
-            
             if !result.newMessages.isEmpty || result.clearDetected {
-                let payload = FileUpdatePayload(
+                await processFileUpdate(FileUpdatePayload(
                     sessionId: sessionId,
                     cwd: event.cwd,
                     messages: result.newMessages,
@@ -270,8 +273,7 @@ actor SessionStore {
                     completedToolIds: result.completedToolIds,
                     toolResults: result.toolResults,
                     structuredResults: result.structuredResults
-                )
-                await processFileUpdate(payload)
+                ))
             }
         }
 
@@ -282,7 +284,7 @@ actor SessionStore {
 
     private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
         // Use forwarded metadata for OpenCode or as fallback for Claude
-        let isOpenCode = session.opencodeRawSessionId != nil
+        let isOpenCode = session.source == .opencode
 
         var summary = session.conversationInfo.summary
         var lastMessage = session.conversationInfo.lastMessage
@@ -291,12 +293,17 @@ actor SessionStore {
         var firstUserMessage = session.conversationInfo.firstUserMessage
         var lastUserMessageDate = session.conversationInfo.lastUserMessageDate
 
+        // Larger upper bound on lastMessage so the 2-line description row
+        // in ClaudeInstancesView actually has content to wrap into — 80 was
+        // barely enough for 1 line and baked a literal "..." suffix into
+        // the data, which killed the second line. Downstream views clamp
+        // tighter if they need it.
         if let title = event.sessionTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             summary = truncateInline(title, maxLength: 80)
         }
 
         if let prompt = event.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let clean = truncateInline(prompt, maxLength: 80)
+            let clean = truncateInline(prompt, maxLength: 240)
             lastMessage = clean
             lastMessageRole = "user"
             lastUserMessageDate = Date()
@@ -312,7 +319,7 @@ actor SessionStore {
         }
 
         if let assistant = event.lastAssistantMessage, !assistant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lastMessage = truncateInline(assistant, maxLength: 80)
+            lastMessage = truncateInline(assistant, maxLength: 240)
             lastMessageRole = "assistant"
         }
 
@@ -330,7 +337,7 @@ actor SessionStore {
     }
 
     private func applyOpenCodeChatItems(event: HookEvent, session: inout SessionState) {
-        guard session.opencodeRawSessionId != nil else { return }
+        guard session.source == .opencode else { return }
 
         let now = Date()
 
@@ -417,6 +424,7 @@ actor SessionStore {
             sessionId: sessionId ?? event.sessionId,
             cwd: event.cwd,
             projectName: URL(fileURLWithPath: event.cwd).lastPathComponent,
+            source: event.supportedCLI,
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
             isInTmux: false,  // Will be updated
@@ -758,9 +766,11 @@ actor SessionStore {
         guard var session = sessions[payload.sessionId] else { return }
 
         // Update conversationInfo from JSONL (summary, lastMessage, etc.)
+        let projectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
         let conversationInfo = await ConversationParser.shared.parse(
             sessionId: payload.sessionId,
-            cwd: session.cwd
+            cwd: session.cwd,
+            projectsDirRelative: projectsDir
         )
         
         let summary = conversationInfo.summary ?? session.conversationInfo.summary
@@ -938,9 +948,11 @@ actor SessionStore {
                 session.subagentState.agentDescriptions[taskResult.agentId] = description
             }
 
+            let subagentProjectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
             let subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
                 agentId: taskResult.agentId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: subagentProjectsDir
             )
 
             guard !subagentToolInfos.isEmpty else { continue }
@@ -1137,54 +1149,101 @@ actor SessionStore {
         let structuredResults: [String: ToolResultData]
         let conversationInfo: ConversationInfo
 
-        if let codexId = sessions[sessionId]?.codexRawSessionId {
+        let emptyInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil,
+                                         lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+
+        guard let session = sessions[sessionId] else {
+            messages = []
+            completedTools = []
+            toolResults = [:]
+            structuredResults = [:]
+            conversationInfo = emptyInfo
+            await process(.historyLoaded(
+                sessionId: sessionId,
+                messages: messages,
+                completedTools: completedTools,
+                toolResults: toolResults,
+                structuredResults: structuredResults,
+                conversationInfo: conversationInfo
+            ))
+            return
+        }
+
+        let kind = session.historyKind
+        let config = CLIConfig.forSource(session.source)
+
+        switch kind {
+        case .codexRollout:
             // Codex: load from local rollout JSONL under ~/.codex/sessions/.
             // Remote Codex sessions do not have a local rollout file on this
             // machine; continue returning empty history for them (follow-up
             // work will add a remote helper mirroring the OpenCode path).
-            if let session = sessions[sessionId], session.isRemote {
+            if session.isRemote {
                 messages = []
                 completedTools = []
                 toolResults = [:]
                 structuredResults = [:]
-                conversationInfo = ConversationInfo(
-                    summary: nil, lastMessage: nil, lastMessageRole: nil,
-                    lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil
-                )
-            } else {
+                conversationInfo = emptyInfo
+            } else if let codexId = session.codexRawSessionId {
                 let result = await CodexRolloutParser.shared.parse(codexSessionId: codexId)
                 messages = result.messages
                 completedTools = result.completedToolIds
                 toolResults = result.toolResults
                 structuredResults = [:]
                 conversationInfo = result.conversationInfo
-            }
-        } else if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
-            // OpenCode: load from SQLite database (local) or remote helper (SSH).
-            let result: OpenCodeDBParser.ParseResult
-            if let session = sessions[sessionId], session.isRemote, let hostId = session.remoteHostId {
-                result = await loadRemoteOpenCodeHistory(opencodeSessionId: opencodeId, hostId: hostId)
             } else {
-                result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+                messages = []
+                completedTools = []
+                toolResults = [:]
+                structuredResults = [:]
+                conversationInfo = emptyInfo
             }
-            messages = result.messages
-            completedTools = result.completedToolIds
-            toolResults = result.toolResults
-            structuredResults = [:]
-            conversationInfo = result.conversationInfo
-        } else {
-            // Claude Code: load from JSONL file
+
+        case .sqlite:
+            // OpenCode: load from SQLite database (local) or remote helper (SSH).
+            if let opencodeId = session.opencodeRawSessionId {
+                let result: OpenCodeDBParser.ParseResult
+                if session.isRemote, let hostId = session.remoteHostId {
+                    result = await loadRemoteOpenCodeHistory(opencodeSessionId: opencodeId, hostId: hostId)
+                } else {
+                    result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+                }
+                messages = result.messages
+                completedTools = result.completedToolIds
+                toolResults = result.toolResults
+                structuredResults = [:]
+                conversationInfo = result.conversationInfo
+            } else {
+                messages = []
+                completedTools = []
+                toolResults = [:]
+                structuredResults = [:]
+                conversationInfo = emptyInfo
+            }
+
+        case .jsonl:
+            // Claude Code and its forks: per-config projects directory.
+            let projectsDir = config.jsonlProjectsDirRelative ?? ".claude/projects"
             messages = await ConversationParser.shared.parseFullConversation(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
             completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
             toolResults = await ConversationParser.shared.toolResults(for: sessionId)
             structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
             conversationInfo = await ConversationParser.shared.parse(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
+
+        case .realtimeOnly:
+            messages = []
+            completedTools = []
+            toolResults = [:]
+            structuredResults = [:]
+            conversationInfo = emptyInfo
         }
 
         // Process loaded history
@@ -1262,7 +1321,7 @@ actor SessionStore {
         // authoritative history from disk. The on-disk record has the complete
         // conversation; real-time items (with "opencode-*"/"codex-*" synthetic
         // IDs) would otherwise duplicate content since IDs differ.
-        if session.opencodeRawSessionId != nil || session.codexRawSessionId != nil {
+        if session.source == .opencode || session.source == .codex {
             session.chatItems.removeAll()
             session.toolTracker = ToolTracker()
         }
@@ -1301,6 +1360,12 @@ actor SessionStore {
         // Cancel existing sync
         cancelPendingSync(sessionId: sessionId)
 
+        // Look up the current session's projects dir so forks with non-.claude
+        // JSONL storage read from the right path.
+        let projectsDir = sessions[sessionId]
+            .flatMap { CLIConfig.forSource($0.source).jsonlProjectsDirRelative }
+            ?? ".claude/projects"
+
         // Schedule new debounced sync
         pendingSyncs[sessionId] = Task { [weak self, syncDebounceNs] in
             try? await Task.sleep(nanoseconds: syncDebounceNs)
@@ -1309,7 +1374,8 @@ actor SessionStore {
             // Parse incrementally - only get NEW messages since last call
             let result = await ConversationParser.shared.parseIncremental(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
 
             if result.clearDetected {
@@ -1456,7 +1522,7 @@ actor SessionStore {
     /// Returns the session ID if found, nil otherwise.
     private func findExistingOpenCodeSession(forPid pid: Int, excluding sessionId: String) -> String? {
         for (id, session) in sessions where id != sessionId {
-            if session.opencodeRawSessionId != nil && session.pid == pid {
+            if session.source == .opencode && session.pid == pid {
                 return id
             }
         }

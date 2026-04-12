@@ -1,6 +1,10 @@
 import Foundation
 
 enum RemoteInstaller {
+    /// Install hooks/plugins for every CLI in `CLIConfig.all` that has
+    /// `supportsRemoteInstall == true`. Each CLI is first probed for its
+    /// config directory on the remote; missing CLIs are skipped with a
+    /// clear "not installed on remote" step.
     static func installAll(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> RemoteInstallReport {
         let startedAt = Date()
         var steps: [RemoteInstallStep] = []
@@ -9,14 +13,18 @@ enum RemoteInstaller {
         let (sharedSteps, _) = await uploadSharedScript(host: host, progress: progress)
         steps.append(contentsOf: sharedSteps)
 
-        steps.append(contentsOf: await installClaudeHooks(host: host, progress: progress))
-        let opencodeSteps = await installOpenCodePlugin(host: host, progress: progress)
-        steps.append(contentsOf: opencodeSteps)
-        // opencode was actually installed if more than just the config-check step ran
-        let opencodeInstalled = opencodeSteps.count > 1
-        let codexSteps = await installCodexHooks(host: host, progress: progress)
-        steps.append(contentsOf: codexSteps)
-        let codexInstalled = codexSteps.count > 1
+        // Track which CLIs we actually installed so verify can skip missing ones.
+        var installed: [SupportedCLI] = []
+
+        for config in CLIConfig.all where config.capability.supportsRemoteInstall {
+            let (cliSteps, didInstall) = await installRemote(
+                host: host, config: config, progress: progress
+            )
+            steps.append(contentsOf: cliSteps)
+            if didInstall {
+                installed.append(config.source)
+            }
+        }
 
         if let progress { await progress("verify files") }
 
@@ -28,30 +36,51 @@ enum RemoteInstaller {
             result: await runSSHResult(host: host, command: tunnelCheck, timeoutSeconds: 8)
         ))
 
-        steps.append(await step(
-            name: "verify claude hook",
-            command: "test -f ~/.claude/hooks/vibehub-state.py && echo ok || echo missing",
-            result: await runSSHResult(host: host, command: "test -f ~/.claude/hooks/vibehub-state.py && echo ok || echo missing", timeoutSeconds: 12)
-        ))
-
-        if opencodeInstalled {
+        for config in CLIConfig.all where config.capability.supportsRemoteInstall && installed.contains(config.source) {
+            let name: String
+            let cmd: String
+            switch config.installKind {
+            case .claudeStyleHook, .codexStyleHook:
+                let hooksSubdir = config.hooksSubdirRelative ?? "hooks"
+                let path = "~/\(config.configDirRelative)/\(hooksSubdir)/vibehub-state.py"
+                name = "verify \(config.source.rawValue) hook"
+                cmd = "test -f \(path) && echo ok || echo missing"
+            case .opencodePlugin:
+                let path = "~/\(config.configDirRelative)/plugins/vibehub.js"
+                name = "verify \(config.source.rawValue) plugin"
+                cmd = "test -f \(path) && echo ok || echo missing"
+            }
             steps.append(await step(
-                name: "verify opencode plugin",
-                command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing",
-                result: await runSSHResult(host: host, command: "test -f ~/.config/opencode/plugins/vibehub.js && echo ok || echo missing", timeoutSeconds: 12)
-            ))
-        }
-
-        if codexInstalled {
-            steps.append(await step(
-                name: "verify codex hook",
-                command: "test -f ~/.codex/hooks/vibehub-state.py && echo ok || echo missing",
-                result: await runSSHResult(host: host, command: "test -f ~/.codex/hooks/vibehub-state.py && echo ok || echo missing", timeoutSeconds: 12)
+                name: name,
+                command: cmd,
+                result: await runSSHResult(host: host, command: cmd, timeoutSeconds: 12)
             ))
         }
 
         return RemoteInstallReport(startedAt: startedAt, finishedAt: Date(), steps: steps)
     }
+
+    // MARK: - Per-config dispatch
+
+    /// Returns (steps, didInstall). `didInstall` is true only when the CLI's
+    /// config directory exists on the remote AND at least one install step
+    /// was executed beyond the "check" step.
+    static func installRemote(
+        host: RemoteHost,
+        config: CLIConfig,
+        progress: (@Sendable (String) async -> Void)? = nil
+    ) async -> (steps: [RemoteInstallStep], didInstall: Bool) {
+        switch config.installKind {
+        case .claudeStyleHook:
+            return await installClaudeStyleRemote(host: host, config: config, progress: progress)
+        case .codexStyleHook:
+            return await installCodexStyleRemote(host: host, config: config, progress: progress)
+        case .opencodePlugin:
+            return await installOpenCodePluginRemote(host: host, config: config, progress: progress)
+        }
+    }
+
+    // MARK: - Shared script upload
 
     /// Upload the shared script once to ~/.vibehub/vibehub-state.py on the remote.
     /// Returns the steps and whether the upload was skipped (already up to date).
@@ -65,11 +94,12 @@ enum RemoteInstaller {
         // Check if already up to date via the shared copy.
         let checkCmd = "python3 ~/.vibehub/vibehub-state.py --version"
         let checkResult = await runSSHResult(host: host, command: checkCmd, timeoutSeconds: 8)
-        if checkResult.exitCode == 0 && checkResult.output.contains("1.0.6") {
+        if checkResult.exitCode == 0 && checkResult.output.contains(CLIInstaller.sharedScriptVersion) {
             if let progress { await progress("shared hook up to date") }
             steps.append(RemoteInstallStep(
                 name: "check shared hook version", command: checkCmd,
-                ok: true, exitCode: 0, stdout: "Up to date (1.0.6)", stderr: ""
+                ok: true, exitCode: 0,
+                stdout: "Up to date (\(CLIInstaller.sharedScriptVersion))", stderr: ""
             ))
             return (steps, true)
         }
@@ -96,27 +126,196 @@ enum RemoteInstaller {
         return (steps, false)
     }
 
-    static func installClaudeHooks(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> [RemoteInstallStep] {
+    // MARK: - Claude-style remote install
+
+    static func installClaudeStyleRemote(
+        host: RemoteHost,
+        config: CLIConfig,
+        progress: (@Sendable (String) async -> Void)? = nil
+    ) async -> (steps: [RemoteInstallStep], didInstall: Bool) {
+        await installHookStyleRemote(
+            host: host,
+            config: config,
+            defaultSettingsFile: "settings.json",
+            progress: progress,
+            snippetFn: pythonMergeClaudeStyleSnippet(config:hookScriptPath:settingsPathRelative:remoteSocketPath:)
+        )
+    }
+
+    // MARK: - Codex-style remote install
+
+    static func installCodexStyleRemote(
+        host: RemoteHost,
+        config: CLIConfig,
+        progress: (@Sendable (String) async -> Void)? = nil
+    ) async -> (steps: [RemoteInstallStep], didInstall: Bool) {
+        await installHookStyleRemote(
+            host: host,
+            config: config,
+            defaultSettingsFile: "hooks.json",
+            progress: progress,
+            snippetFn: pythonMergeCodexStyleSnippet(config:hookScriptPath:settingsPathRelative:remoteSocketPath:)
+        )
+    }
+
+    /// Shared remote install flow for any CLI whose hook is a symlink +
+    /// JSON/TOML settings file merged via a Python snippet. The only
+    /// per-style differences are the default settings filename and the
+    /// snippet generator — everything else (probe, mkdir, symlink, run
+    /// snippet) is identical.
+    private static func installHookStyleRemote(
+        host: RemoteHost,
+        config: CLIConfig,
+        defaultSettingsFile: String,
+        progress: (@Sendable (String) async -> Void)?,
+        snippetFn: (_ config: CLIConfig, _ hookScriptPath: String, _ settingsPathRelative: String, _ remoteSocketPath: String) -> String
+    ) async -> (steps: [RemoteInstallStep], didInstall: Bool) {
         var steps: [RemoteInstallStep] = []
 
-        // Symlink from ~/.claude/hooks/ to the shared script
-        steps.append(await step(
-            name: "mkdir ~/.claude/hooks",
-            command: "mkdir -p ~/.claude/hooks",
-            result: await runSSHResult(host: host, command: "mkdir -p ~/.claude/hooks", timeoutSeconds: 12)
+        let probeCmd = "test -d ~/\(config.configDirRelative)"
+        let checkResult = await runSSHResult(host: host, command: probeCmd, timeoutSeconds: 12)
+        let found = checkResult.exitCode == 0
+        steps.append(RemoteInstallStep(
+            name: found ? "check \(config.source.rawValue)" : "\(config.source.rawValue) not installed on remote",
+            command: probeCmd,
+            ok: true, exitCode: 0,
+            stdout: found ? "found" : "not found (skipped)", stderr: ""
         ))
+        guard found else { return (steps, false) }
+
+        let hooksSubdir = config.hooksSubdirRelative ?? "hooks"
+        let hookScriptPath = "~/\(config.configDirRelative)/\(hooksSubdir)/vibehub-state.py"
+        let settingsRel = config.settingsFileRelative ?? defaultSettingsFile
+        let settingsPathRelative = "\(config.configDirRelative)/\(settingsRel)"
+
+        let mkdirCmd = "mkdir -p ~/\(config.configDirRelative)/\(hooksSubdir)"
         steps.append(await step(
-            name: "symlink claude hook",
-            command: "ln -sf ~/.vibehub/vibehub-state.py ~/.claude/hooks/vibehub-state.py",
-            result: await runSSHResult(host: host, command: "ln -sf ~/.vibehub/vibehub-state.py ~/.claude/hooks/vibehub-state.py", timeoutSeconds: 12)
+            name: "mkdir ~/\(config.configDirRelative)/\(hooksSubdir)",
+            command: mkdirCmd,
+            result: await runSSHResult(host: host, command: mkdirCmd, timeoutSeconds: 12)
         ))
 
-        // Merge hook config into ~/.claude/settings.json (best effort)
-        let py = """
+        if let progress { await progress("symlink \(config.source.rawValue) hook") }
+        let symlinkCmd = "ln -sf ~/.vibehub/vibehub-state.py \(hookScriptPath)"
+        steps.append(await step(
+            name: "symlink \(config.source.rawValue) hook",
+            command: symlinkCmd,
+            result: await runSSHResult(host: host, command: symlinkCmd, timeoutSeconds: 12)
+        ))
+
+        let py = snippetFn(config, hookScriptPath, settingsPathRelative, host.remoteSocketPath)
+        steps.append(await step(
+            name: "update ~/\(settingsPathRelative)",
+            command: "python3 (merge hook settings via base64)",
+            result: await runSSHPython(host: host, script: py)
+        ))
+
+        return (steps, true)
+    }
+
+    // MARK: - OpenCode plugin remote install
+
+    static func installOpenCodePluginRemote(
+        host: RemoteHost,
+        config: CLIConfig,
+        progress: (@Sendable (String) async -> Void)? = nil
+    ) async -> (steps: [RemoteInstallStep], didInstall: Bool) {
+        guard let plugin = Bundle.main.url(forResource: "vibehub-opencode", withExtension: "js") else {
+            return ([], false)
+        }
+
+        var steps: [RemoteInstallStep] = []
+
+        // Use exit code (not stdout parsing) to avoid false negatives from MOTD/banner noise.
+        // Also check for the opencode binary as a fallback when no config file exists yet.
+        let checkResult = await runSSHResult(
+            host: host,
+            command: "test -d ~/\(config.configDirRelative) || which opencode >/dev/null 2>&1",
+            timeoutSeconds: 12
+        )
+        let found = checkResult.exitCode == 0
+        steps.append(RemoteInstallStep(
+            name: found ? "check opencode" : "opencode not installed on remote",
+            command: "test -d ~/\(config.configDirRelative) || which opencode",
+            ok: true,
+            exitCode: 0,
+            stdout: found ? "found" : "not found (skipped)",
+            stderr: ""
+        ))
+        guard found else { return (steps, false) }
+
+        let pluginPath = "~/\(config.configDirRelative)/plugins/vibehub.js"
+        let checkVersionCommand = "grep 'VERSION = \"1.0.2\"' \(pluginPath)"
+        let versionCheckResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
+        if versionCheckResult.exitCode == 0 {
+            if let progress { await progress("opencode plugin up to date") }
+            steps.append(RemoteInstallStep(
+                name: "check opencode plugin version",
+                command: checkVersionCommand,
+                ok: true,
+                exitCode: 0,
+                stdout: "Up to date (1.0.2)",
+                stderr: ""
+            ))
+            return (steps, true)
+        }
+
+        steps.append(await step(
+            name: "mkdir ~/\(config.configDirRelative)/plugins",
+            command: "mkdir -p ~/\(config.configDirRelative)/plugins",
+            result: await runSSHResult(
+                host: host,
+                command: "mkdir -p ~/\(config.configDirRelative)/plugins",
+                timeoutSeconds: 12
+            )
+        ))
+        if let progress { await progress("upload opencode plugin") }
+        steps.append(await step(
+            name: "upload opencode plugin",
+            command: "base64 -d > \(pluginPath)",
+            result: await uploadFileViaSSH(host: host, localURL: plugin, remotePath: pluginPath, timeoutSeconds: 20)
+        ))
+
+        return (steps, true)
+    }
+
+    // MARK: - Python snippet generators
+
+    /// Build the Python snippet that merges Claude-style hook entries into
+    /// a JSON settings file. Events/matchers/timeouts come from CLIConfig so
+    /// every Claude-compatible fork reuses the same code path.
+    private static func pythonMergeClaudeStyleSnippet(
+        config: CLIConfig,
+        hookScriptPath: String,
+        settingsPathRelative: String,
+        remoteSocketPath: String
+    ) -> String {
+        // Each event row is (name, bucket) where bucket is one of:
+        //   "with_matcher"          -> [{"matcher": "*", "hooks": [cmd]}]
+        //   "with_matcher_timeout"  -> [{"matcher": "*", "hooks": [cmd(timeout)]}]
+        //   "without_matcher"       -> [{"hooks": [cmd]}]
+        //   "precompact"            -> [{"matcher": "auto", ...}, {"matcher": "manual", ...}]
+        var rows: [String] = []
+        for evt in config.hookEvents {
+            let bucket: String
+            if evt.preCompactMatchers != nil {
+                bucket = "precompact"
+            } else if let _ = evt.timeoutSeconds, evt.matcher != nil {
+                bucket = "with_matcher_timeout"
+            } else if evt.matcher != nil {
+                bucket = "with_matcher"
+            } else {
+                bucket = "without_matcher"
+            }
+            rows.append("    '\(evt.name)': \(bucket),")
+        }
+        let eventsDict = rows.joined(separator: "\n")
+
+        return """
 import json, os, pathlib, subprocess
 
 home = pathlib.Path.home()
-settings_path = home / '.claude' / 'settings.json'
+settings_path = home / '\(settingsPathRelative)'
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 
 data = {}
@@ -138,7 +337,7 @@ def detect_python():
     return 'python3'
 
 python = detect_python()
-cmd = f'VIBEHUB_SOCKET_PATH="/tmp/vibehub.sock" {python} ~/.claude/hooks/vibehub-state.py'
+cmd = f'VIBEHUB_SOURCE=\(config.envSource) VIBEHUB_SOCKET_PATH="\(remoteSocketPath)" {python} \(hookScriptPath)'
 hook_entry = [{"type": "command", "command": cmd}]
 hook_entry_with_timeout = [{"type": "command", "command": cmd, "timeout": 86400}]
 
@@ -151,16 +350,7 @@ precompact = [
 ]
 
 events = {
-    'UserPromptSubmit': without_matcher,
-    'PreToolUse': with_matcher,
-    'PostToolUse': with_matcher,
-    'PermissionRequest': with_matcher_timeout,
-    'Notification': with_matcher,
-    'Stop': without_matcher,
-    'SubagentStop': without_matcher,
-    'SessionStart': without_matcher,
-    'SessionEnd': without_matcher,
-    'PreCompact': precompact,
+\(eventsDict)
 }
 
 def has_our_hook(entry):
@@ -187,46 +377,47 @@ for ev, config in events.items():
 data['hooks'] = hooks
 settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
 """
-
-        steps.append(await step(
-            name: "update ~/.claude/settings.json",
-            command: "python3 (merge claude hook settings)",
-            result: await runSSHPython(host: host, script: py)
-        ))
-
-        return steps
     }
 
-    static func installCodexHooks(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> [RemoteInstallStep] {
-        var steps: [RemoteInstallStep] = []
+    /// Codex-style merger: flat hook entries in hooks.json + optional TOML toggle.
+    private static func pythonMergeCodexStyleSnippet(
+        config: CLIConfig,
+        hookScriptPath: String,
+        settingsPathRelative: String,
+        remoteSocketPath: String
+    ) -> String {
+        let eventNames = config.hookEvents.map { "'\($0.name)'" }.joined(separator: ", ")
+        let toggle = config.tomlFeatureToggle
+        let tomlBlock: String
+        if let toggle {
+            tomlBlock = """
 
-        // Only install if Codex is available on the remote.
-        let checkResult = await runSSHResult(host: host, command: "test -d ~/.codex", timeoutSeconds: 12)
-        let codexFound = checkResult.exitCode == 0
-        steps.append(RemoteInstallStep(
-            name: codexFound ? "check codex" : "codex not installed on remote",
-            command: "test -d ~/.codex",
-            ok: true, exitCode: 0,
-            stdout: codexFound ? "found" : "not found (skipped)", stderr: ""
-        ))
-        guard codexFound else { return steps }
+# Enable feature toggle in \(toggle.file)
+config_path = home / '\(config.configDirRelative)/\(toggle.file)'
+contents = config_path.read_text() if config_path.exists() else ''
+import re
+if not re.search(r'(?m)^\\s*\(toggle.key)\\s*=\\s*true', contents):
+    if re.search(r'(?m)^\\s*\(toggle.key)\\s*=\\s*false', contents):
+        contents = re.sub(r'(?m)^\\s*\(toggle.key)\\s*=\\s*false', '\(toggle.key) = true', contents)
+    else:
+        lines = contents.split('\\n')
+        feat_idx = next((i for i, l in enumerate(lines) if l.strip() == '[\(toggle.section)]'), None)
+        if feat_idx is not None:
+            lines.insert(feat_idx + 1, '\(toggle.key) = true')
+        else:
+            if lines and lines[-1]:
+                lines.append('')
+            lines.append('[\(toggle.section)]')
+            lines.append('\(toggle.key) = true')
+        contents = '\\n'.join(lines)
+    config_path.write_text(contents)
+"""
+        } else {
+            tomlBlock = ""
+        }
 
-        // Symlink from ~/.codex/hooks/ to the shared script
-        steps.append(await step(
-            name: "mkdir ~/.codex/hooks",
-            command: "mkdir -p ~/.codex/hooks",
-            result: await runSSHResult(host: host, command: "mkdir -p ~/.codex/hooks", timeoutSeconds: 12)
-        ))
-        if let progress { await progress("symlink codex hook") }
-        steps.append(await step(
-            name: "symlink codex hook",
-            command: "ln -sf ~/.vibehub/vibehub-state.py ~/.codex/hooks/vibehub-state.py",
-            result: await runSSHResult(host: host, command: "ln -sf ~/.vibehub/vibehub-state.py ~/.codex/hooks/vibehub-state.py", timeoutSeconds: 12)
-        ))
-
-        // Update ~/.codex/hooks.json and enable codex_hooks in config.toml
-        let py = """
-import json, os, pathlib, re, subprocess
+        return """
+import json, os, pathlib, subprocess
 
 home = pathlib.Path.home()
 
@@ -240,10 +431,9 @@ def detect_python():
     return 'python3'
 
 python = detect_python()
-cmd = f'VIBEHUB_SOURCE=codex VIBEHUB_SOCKET_PATH="/tmp/vibehub.sock" {python} ~/.codex/hooks/vibehub-state.py'
+cmd = f'VIBEHUB_SOURCE=\(config.envSource) VIBEHUB_SOCKET_PATH="\(remoteSocketPath)" {python} \(hookScriptPath)'
 
-# Update hooks.json
-hooks_path = home / '.codex' / 'hooks.json'
+hooks_path = home / '\(settingsPathRelative)'
 data = {}
 if hooks_path.exists():
     try:
@@ -259,7 +449,7 @@ def has_our_hook(entry):
             return True
     return False
 
-for ev in ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']:
+for ev in [\(eventNames)]:
     entries = hooks.get(ev, [])
     if not isinstance(entries, list):
         entries = []
@@ -269,93 +459,12 @@ for ev in ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Sto
 
 data['hooks'] = hooks
 hooks_path.write_text(json.dumps(data, indent=2, sort_keys=True))
-
-# Enable codex_hooks in config.toml
-config_path = home / '.codex' / 'config.toml'
-contents = config_path.read_text() if config_path.exists() else ''
-if not re.search(r'(?m)^\\s*codex_hooks\\s*=\\s*true', contents):
-    if re.search(r'(?m)^\\s*codex_hooks\\s*=\\s*false', contents):
-        contents = re.sub(r'(?m)^\\s*codex_hooks\\s*=\\s*false', 'codex_hooks = true', contents)
-    else:
-        lines = contents.split('\\n')
-        feat_idx = next((i for i, l in enumerate(lines) if l.strip() == '[features]'), None)
-        if feat_idx is not None:
-            lines.insert(feat_idx + 1, 'codex_hooks = true')
-        else:
-            if lines and lines[-1]:
-                lines.append('')
-            lines.append('[features]')
-            lines.append('codex_hooks = true')
-        contents = '\\n'.join(lines)
-    config_path.write_text(contents)
-
+\(tomlBlock)
 print('ok')
 """
-
-        steps.append(await step(
-            name: "update ~/.codex/hooks.json + config.toml",
-            command: "python3 (merge codex hook settings)",
-            result: await runSSHPython(host: host, script: py)
-        ))
-
-        return steps
     }
 
-    static func installOpenCodePlugin(host: RemoteHost, progress: (@Sendable (String) async -> Void)? = nil) async -> [RemoteInstallStep] {
-        guard let plugin = Bundle.main.url(forResource: "vibehub-opencode", withExtension: "js") else {
-            return []
-        }
-
-        var steps: [RemoteInstallStep] = []
-
-        // Only install if OpenCode is available on the remote.
-        // Use exit code (not stdout parsing) to avoid false negatives from MOTD/banner noise.
-        // Also check for the opencode binary as a fallback when no config file exists yet.
-        let checkResult = await runSSHResult(host: host, command: "test -d ~/.config/opencode || which opencode >/dev/null 2>&1", timeoutSeconds: 12)
-        let opencodeFound = checkResult.exitCode == 0
-        // Build step manually so the name clearly reflects whether opencode is installed.
-        // ok=true in both cases: not having opencode on the remote is not a failure.
-        steps.append(RemoteInstallStep(
-            name: opencodeFound ? "check opencode" : "opencode not installed on remote",
-            command: "test -d ~/.config/opencode || which opencode",
-            ok: true,
-            exitCode: 0,
-            stdout: opencodeFound ? "found" : "not found (skipped)",
-            stderr: ""
-        ))
-        guard opencodeFound else {
-            return steps
-        }
-
-        let checkVersionCommand = "grep 'VERSION = \"1.0.2\"' ~/.config/opencode/plugins/vibehub.js"
-        let versionCheckResult = await runSSHResult(host: host, command: checkVersionCommand, timeoutSeconds: 8)
-        if versionCheckResult.exitCode == 0 {
-            if let progress { await progress("opencode plugin up to date") }
-            steps.append(RemoteInstallStep(
-                name: "check opencode plugin version",
-                command: checkVersionCommand,
-                ok: true,
-                exitCode: 0,
-                stdout: "Up to date (1.0.3)",
-                stderr: ""
-            ))
-            return steps
-        }
-
-        steps.append(await step(
-            name: "mkdir ~/.config/opencode/plugins",
-            command: "ssh \(host.sshTarget) 'mkdir -p ~/.config/opencode/plugins'",
-            result: await runSSHResult(host: host, command: "mkdir -p ~/.config/opencode/plugins", timeoutSeconds: 12)
-        ))
-        if let progress { await progress("upload opencode plugin") }
-        steps.append(await step(
-            name: "upload opencode plugin",
-            command: "ssh \(host.sshTarget) 'base64 -d > ~/.config/opencode/plugins/vibehub.js'",
-            result: await uploadFileViaSSH(host: host, localURL: plugin, remotePath: "~/.config/opencode/plugins/vibehub.js", timeoutSeconds: 20)
-        ))
-
-        return steps
-    }
+    // MARK: - SSH plumbing
 
     private static func sshBaseArgs(host: RemoteHost) -> [String] {
         var args: [String] = []
@@ -371,17 +480,12 @@ print('ok')
 
         args += [
             "-o", "BatchMode=yes",
-            // Avoid hanging forever on network issues.
             "-o", "ConnectTimeout=8",
             "-o", "ServerAliveInterval=10",
             "-o", "ServerAliveCountMax=2",
-            // Avoid interactive host key prompts; accept new hosts and still protect against MITM changes.
             "-o", "StrictHostKeyChecking=accept-new",
         ]
 
-        // Reuse the ControlMaster socket from SSHForwarder when available.
-        // In App Store builds ControlMaster is disabled (sandbox cannot create
-        // Unix sockets outside the container), so each command opens its own connection.
         #if !APP_STORE
         let controlPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
@@ -389,7 +493,6 @@ print('ok')
             .path
         args += ["-o", "ControlPath=\(controlPath)"]
         #endif
-        // GSSAPI authentication for jump hosts, Kerberos environments, etc.
         if host.useGSSAPI {
             args += ["-o", "PreferredAuthentications=gssapi-with-mic"]
         }
@@ -497,13 +600,22 @@ print('ok')
         )
     }
 
+    /// Shell-quote a single value using POSIX single-quote wrapping. Safe
+    /// for any content including spaces, double quotes, and special chars.
+    private static func shellQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     /// Run a Python script on the remote via SSH, encoding the script as base64 to avoid
     /// shell-specific syntax (e.g. fish does not support heredocs).
+    /// All `args` are shell-quoted before being appended to the command, so
+    /// values containing spaces or special characters are safe.
     static func runSSHPython(host: RemoteHost, script: String, args: [String] = [], timeoutSeconds: Int = 20) async -> ProcessResult {
         let b64 = Data(script.utf8).base64EncodedString()
         var cmd = "python3 -c \"import base64;exec(base64.b64decode('\(b64)'))\""
-        for arg in args {
-            cmd += " \(arg)"
+        if !args.isEmpty {
+            cmd += " " + args.map(shellQuote).joined(separator: " ")
         }
         return await runSSHResult(host: host, command: cmd, timeoutSeconds: timeoutSeconds)
     }

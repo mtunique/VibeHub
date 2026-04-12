@@ -40,7 +40,7 @@ class JSONLInterruptWatcher {
         "[Request interrupted by user"
     ]
 
-    init(sessionId: String, cwd: String) {
+    init(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") {
         self.sessionId = sessionId
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
@@ -49,7 +49,7 @@ class JSONLInterruptWatcher {
         #else
         let resolvedHome = NSHomeDirectory()
         #endif
-        self.filePath = resolvedHome + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        self.filePath = resolvedHome + "/" + projectsDirRelative + "/" + projectDir + "/" + sessionId + ".jsonl"
     }
 
     /// Start watching the JSONL file for interrupts
@@ -204,10 +204,14 @@ class InterruptWatcherManager {
 
     private init() {}
 
-    func startWatching(sessionId: String, cwd: String) {
+    func startWatching(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") {
         guard watchers[sessionId] == nil else { return }
 
-        let watcher = JSONLInterruptWatcher(sessionId: sessionId, cwd: cwd)
+        let watcher = JSONLInterruptWatcher(
+            sessionId: sessionId,
+            cwd: cwd,
+            projectsDirRelative: projectsDirRelative
+        )
         watcher.delegate = delegate
         watcher.start()
         watchers[sessionId] = watcher

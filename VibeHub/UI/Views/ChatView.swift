@@ -30,6 +30,12 @@ struct ChatView: View {
 
     @State private var inputText: String = ""
     @State private var history: [ChatHistoryItem] = []
+    /// Optimistic local echoes of user messages that have been sent via
+    /// `sendToSession` but haven't yet round-tripped back through the hook
+    /// + JSONL/SQLite sync. Merged into the displayed history so the user
+    /// sees their prompt immediately instead of waiting ~0.5-1s for the
+    /// real row to arrive.
+    @State private var pendingUserEchos: [ChatHistoryItem] = []
     @State private var session: SessionState
     @State private var isLoading: Bool = true
     @State private var hasLoadedOnce: Bool = false
@@ -156,6 +162,7 @@ struct ChatView: View {
                     }
 
                     history = newHistory
+                    pruneMatchedEchos()
 
                     // Auto-scroll to bottom only if autoscroll is NOT paused
                     if !isAutoscrollPaused && countChanged {
@@ -196,6 +203,17 @@ struct ChatView: View {
                 }
             }
         }
+        .onChange(of: isInputFocused) { _, focused in
+            // Focus gained → enter keyboard mode (activate VibeHub so text
+            // typing reaches the field). Focus lost → exit keyboard mode
+            // immediately so VibeHub releases frontmost and click-through
+            // to other apps resumes.
+            if focused {
+                viewModel.enterKeyboardMode()
+            } else {
+                viewModel.exitKeyboardMode()
+            }
+        }
         .onAppear {
             // Auto-focus input when chat opens and tmux messaging is available
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -230,15 +248,9 @@ struct ChatView: View {
 
                 // Tags
                 HStack(spacing: 4) {
-                    // Software tag
-                    let cliSourceColor: Color = {
-                        switch session.cliSource {
-                        case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
-                        case .opencode: return TerminalColors.green
-                        case .codex: return TerminalColors.blue
-                        }
-                    }()
-                    Text(session.cliSource.rawValue)
+                    // Software tag (pulled from SupportedCLI so forks inherit).
+                    let cliSourceColor = session.source.themeColor
+                    Text(session.source.displayName)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(cliSourceColor)
                         .padding(.horizontal, 5)
@@ -290,9 +302,43 @@ struct ChatView: View {
         session.phase == .processing || session.phase == .compacting
     }
 
+    /// History actually shown in the chat list — `history` from the store
+    /// plus any optimistic user echoes that haven't been matched yet.
+    /// Sorted by timestamp so an echo slots in at the bottom of the list.
+    private var displayedHistory: [ChatHistoryItem] {
+        guard !pendingUserEchos.isEmpty else { return history }
+        return (history + pendingUserEchos).sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Remove any optimistic echoes that have now been matched by a real
+    /// user message in `history`. Matching is by trimmed text contents and
+    /// timestamp window so text arriving slightly after the echo still
+    /// counts as the same submission.
+    private func pruneMatchedEchos() {
+        guard !pendingUserEchos.isEmpty else { return }
+        let now = Date()
+        // Drop echoes older than 30s even if unmatched — avoids unbounded
+        // accumulation if a send never round-trips back (session ended,
+        // network error, user navigated away before sync landed).
+        pendingUserEchos = pendingUserEchos.filter { echo in
+            guard now.timeIntervalSince(echo.timestamp) < 30 else { return false }
+            guard case .user(let echoText) = echo.type else { return false }
+            let echoTrimmed = echoText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cutoff = echo.timestamp.addingTimeInterval(-5)
+            let matched = history.contains { item in
+                guard item.timestamp >= cutoff else { return false }
+                if case .user(let text) = item.type {
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines) == echoTrimmed
+                }
+                return false
+            }
+            return !matched
+        }
+    }
+
     /// Get the last user message ID for stable text selection per turn
     private var lastUserMessageId: String {
-        for item in history.reversed() {
+        for item in displayedHistory.reversed() {
             if case .user = item.type {
                 return item.id
             }
@@ -355,7 +401,7 @@ struct ChatView: View {
                             ))
                     }
 
-                    ForEach(groupChatItems(history).reversed()) { displayItem in
+                    ForEach(groupChatItems(displayedHistory).reversed()) { displayItem in
                         ChatDisplayItemView(displayItem: displayItem, sessionId: sessionId)
                             .padding(.horizontal, 16)
                             .scaleEffect(x: 1, y: -1)
@@ -418,11 +464,11 @@ struct ChatView: View {
     // MARK: - Input Bar
 
     private var isOpenCodeSession: Bool {
-        session.opencodeRawSessionId != nil
+        session.source == .opencode
     }
 
     private var isCodexSession: Bool {
-        session.codexRawSessionId != nil
+        session.source == .codex
     }
 
     /// Display name of the remote host, if this is a remote session
@@ -433,13 +479,18 @@ struct ChatView: View {
     }
 
     /// Can send messages if we can reach the session.
-    /// - Claude Code: tmux send-keys (if in tmux) or TTY injection (if tty available).
-    /// - OpenCode: control socket / HTTP API / clipboard fallback.
+    /// - Remote: always (forwarded over SSH).
+    /// - cmux: always (we have a workspace/surface id to target via `cmux send`).
+    /// - OpenCode: always (control socket / HTTP / clipboard fallback).
+    /// - Claude Code / Codex / fork: tmux send-keys, AppleScript into Terminal.app or
+    ///   iTerm2, or TTY injection — all of which require a tty to identify the target.
     private var canSendMessages: Bool {
         if session.isRemote {
             return true
         }
-        // Claude Code / Codex: either tmux or raw TTY is sufficient
+        if session.isInCmux {
+            return true
+        }
         if !isOpenCodeSession && !isCodexSession {
             return session.tty != nil
         }
@@ -458,14 +509,12 @@ struct ChatView: View {
                 .font(.system(size: 13))
                 .foregroundColor(canSendMessages ? .primary : .primary.opacity(0.4))
                 .focused($isInputFocused)
-                .onChange(of: isInputFocused) { _, isFocused in
-                    if isFocused {
-                        viewModel.enterKeyboardMode()
-                    }
-                }
                 .simultaneousGesture(TapGesture().onEnded {
+                    // Explicit tap on the field: enter keyboard mode first
+                    // so VibeHub activates before the SwiftUI focus fires,
+                    // then nudge the focus state a beat later once the
+                    // window has become key.
                     viewModel.enterKeyboardMode()
-                    // Give the window a tiny moment to become key before forcing focus
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         isInputFocused = true
                     }
@@ -622,7 +671,20 @@ struct ChatView: View {
         resumeAutoscroll()
         shouldScrollToBottom = true
 
-        // Don't add to history here - it will be synced from JSONL when UserPromptSubmit event fires
+        // Immediately echo the user's prompt into the chat view so there's
+        // no visible lag between clicking send and seeing the message. The
+        // real row will arrive shortly via UserPromptSubmit → JSONL sync
+        // (Claude/forks) or applyOpenCodeChatItems (OpenCode); when it does,
+        // `pruneMatchedEchos` removes the optimistic copy.
+        let echo = ChatHistoryItem(
+            id: "optimistic-user-\(UUID().uuidString)",
+            type: .user(text),
+            timestamp: Date()
+        )
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            pendingUserEchos.append(echo)
+        }
+
         Task {
             await sendToSession(text)
         }
@@ -686,8 +748,49 @@ struct ChatView: View {
             return
         }
 
+        // cmux multiplexer: use the cmux CLI to write directly into the
+        // target surface. The CLI reads CMUX_WORKSPACE_ID / CMUX_SURFACE_ID
+        // from the hook's environment, and VibeHub forwards them via the
+        // socket payload — so we can target the exact cmux surface running
+        // this Claude session without fighting TIOCSTI or AppleScript.
+        if session.isInCmux {
+            let ok = await CmuxSender.send(
+                text: text,
+                workspaceId: session.cmuxWorkspaceId,
+                surfaceId: session.cmuxSurfaceId
+            )
+            if !ok {
+                // Surface a hint so the user knows the programmatic send
+                // failed; fall through to clipboard so they can paste.
+                await MainActor.run {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(text, forType: .string)
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        inputHintText = L10n.copiedPasteInTerminal
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        inputHintText = nil
+                    }
+                }
+            }
+            return
+        }
+
         guard session.isInTmux else {
-            // Not in tmux - try TTY injection directly
+            // Not in tmux. Prefer AppleScript-based sending (Terminal.app,
+            // iTerm2) because TIOCSTI is restricted on recent macOS and
+            // the TTY-injection path silently fails there. If the terminal
+            // doesn't expose a scriptable API or the tty can't be matched,
+            // fall through to the legacy TIOCSTI attempt, and finally to
+            // the clipboard+focus hint.
+            let sentViaAppleScript = await TerminalTextSender.send(text: text, session: session)
+            if sentViaAppleScript {
+                return
+            }
+
             if let tty = session.tty {
                 let ok = await sendViaTTY(text, tty: tty)
                 if !ok {
@@ -1120,27 +1223,7 @@ struct ToolCallView: View {
     }
 
     private var toolNameColor: Color {
-        switch tool.name {
-        case "Read":
-            return Color.cyan
-        case "Edit", "Write", "NotebookEdit":
-            return Color.orange
-        case "Bash":
-            return Color.green
-        case "Grep", "Glob":
-            return Color.yellow
-        case "Agent", "Task":
-            return Color.indigo.opacity(0.8)
-        case "WebSearch", "WebFetch":
-            return Color.blue
-        case "AskUserQuestion":
-            return Color.mint
-        default:
-            if MCPToolFormatter.isMCPTool(tool.name) {
-                return Color.teal
-            }
-            return .primary.opacity(0.8)
-        }
+        MCPToolFormatter.color(for: tool.name)
     }
 
     private var hasResult: Bool {
@@ -1197,12 +1280,16 @@ struct ToolCallView: View {
                         .foregroundColor(textColor.opacity(0.7))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                } else if MCPToolFormatter.isMCPTool(tool.name) && !tool.input.isEmpty {
-                    Text(MCPToolFormatter.formatArgs(tool.input))
-                        .font(.system(size: 11))
+                } else if let preview = MCPToolFormatter.previewText(toolName: tool.name, input: tool.input) {
+                    // Tool-specific preview (Bash command, Read path, Grep
+                    // pattern, MCP args, …). Shown even while the tool is
+                    // still running so realtime rows aren't just a generic
+                    // status label.
+                    Text(preview)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(textColor.opacity(0.7))
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .truncationMode(.middle)
                 } else {
                     Text(tool.statusDisplay.text)
                         .font(.system(size: 11))
@@ -1321,20 +1408,7 @@ struct MergedToolCallView: View {
     }
 
     private var toolNameColor: Color {
-        switch toolName {
-        case "Read": return Color.cyan
-        case "Edit", "Write", "NotebookEdit": return Color.orange
-        case "Bash": return Color.green
-        case "Grep", "Glob": return Color.yellow
-        case "Agent", "Task": return Color.indigo.opacity(0.8)
-        case "WebSearch", "WebFetch": return Color.blue
-        case "AskUserQuestion": return Color.mint
-        default:
-            if MCPToolFormatter.isMCPTool(toolName) {
-                return Color.teal
-            }
-            return .primary.opacity(0.8)
-        }
+        MCPToolFormatter.color(for: toolName)
     }
 
     private func subItemDotColor(_ status: ToolStatus) -> Color {

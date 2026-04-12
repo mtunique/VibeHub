@@ -287,12 +287,20 @@ def send_event(state):
             pass
 
 
+def _jsonl_path_for(session_id, cwd):
+    """Return the JSONL file path for SOURCE's project layout, or None."""
+    projects_rel = SOURCE_JSONL_PROJECTS.get(SOURCE)
+    if not projects_rel:
+        return None
+    home = os.path.expanduser("~")
+    project_dir = cwd.replace("/", "-").replace(".", "-")
+    return os.path.join(home, projects_rel, project_dir, f"{session_id}.jsonl")
+
+
 def get_session_title(session_id, cwd):
     try:
-        home = os.path.expanduser("~")
-        project_dir = cwd.replace("/", "-").replace(".", "-")
-        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
-        if not os.path.exists(jsonl_path):
+        jsonl_path = _jsonl_path_for(session_id, cwd)
+        if not jsonl_path or not os.path.exists(jsonl_path):
             return None
         
         first_user_message = None
@@ -321,12 +329,11 @@ def get_session_title(session_id, cwd):
 
 def get_new_jsonl_lines(session_id, cwd):
     try:
-        home = os.path.expanduser("~")
-        project_dir = cwd.replace("/", "-").replace(".", "-")
-        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
-        if not os.path.exists(jsonl_path):
+        jsonl_path = _jsonl_path_for(session_id, cwd)
+        if not jsonl_path or not os.path.exists(jsonl_path):
             return None
-        
+        home = os.path.expanduser("~")
+
         cursor_dir = os.path.join(home, ".vibehub", "cursors")
         _ensure_dir(cursor_dir)
         cursor_path = os.path.join(cursor_dir, f"{session_id}.cursor")
@@ -365,11 +372,30 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.6"
+VERSION = "1.0.8"
 
-# Detect Codex context: prefer explicit env var (set by hook command),
-# fall back to __file__ path detection (unreliable with symlinks).
-IS_CODEX = os.environ.get("VIBEHUB_SOURCE") == "codex" or "/.codex/" in os.path.abspath(__file__)
+# Explicit CLI source. Every CLI's hook command sets this via
+# `VIBEHUB_SOURCE=<name>`. When absent we fall back to `.codex/` path
+# detection for compatibility with older installs, and finally to "claude".
+SOURCE = os.environ.get("VIBEHUB_SOURCE")
+if not SOURCE:
+    if "/.codex/" in os.path.abspath(__file__):
+        SOURCE = "codex"
+    else:
+        SOURCE = "claude"
+
+# Home-relative projects dir for JSONL-backed sources. Keep in sync with
+# `CLIConfig.jsonlProjectsDirRelative` on the Swift side.
+SOURCE_JSONL_PROJECTS = {
+    "claude": ".claude/projects",
+    "qoder": ".qoder/projects",
+    "droid": ".factory/projects",
+    "codebuddy": ".codebuddy/projects",
+}
+
+# Legacy compat. Kept for any call sites below that still branch on it,
+# but new code should check SOURCE directly.
+IS_CODEX = SOURCE == "codex"
 
 
 def _query_opencode_db(session_id):
@@ -478,7 +504,11 @@ def main():
         sys.exit(1)
 
     session_id = data.get("session_id", "unknown")
-    if IS_CODEX:
+    # Preserve the legacy `codex-` prefix so older Swift builds that still
+    # rely on sessionId-prefix detection (plus any historical remote hooks)
+    # keep behaving. The authoritative source on the new Swift path is the
+    # `_source` field below.
+    if SOURCE == "codex" and not session_id.startswith("codex-"):
         session_id = "codex-" + session_id
     event = data.get("hook_event_name", "")
     cwd = data.get("cwd", "")
@@ -495,7 +525,19 @@ def main():
         "event": event,
         "pid": claude_pid,
         "tty": tty,
+        # Explicit CLI source (first-class field consumed by HookEvent._source).
+        "_source": SOURCE,
     }
+
+    # cmux multiplexer: every cmux-hosted terminal exports these env vars so
+    # the child Claude process inherits them. When present, VibeHub can inject
+    # text into the exact surface by shelling out to `cmux send`.
+    cmux_workspace_id = os.environ.get("CMUX_WORKSPACE_ID")
+    cmux_surface_id = os.environ.get("CMUX_SURFACE_ID")
+    if cmux_workspace_id:
+        state["_cmux_workspace_id"] = cmux_workspace_id
+    if cmux_surface_id:
+        state["_cmux_surface_id"] = cmux_surface_id
 
     # Include SSH client source port for remote tab matching
     ssh_client = os.environ.get("SSH_CLIENT")
@@ -504,9 +546,9 @@ def main():
         if len(parts) >= 2:
             state["ssh_client_port"] = parts[1]
 
-    # Fetch any new lines from the JSONL file to stream to the app
-    # Codex doesn't store JSONL in ~/.claude/projects/
-    if not IS_CODEX:
+    # Fetch any new lines from the JSONL file to stream to the app — only
+    # CLIs with a JSONL project directory participate (Claude + forks).
+    if SOURCE in SOURCE_JSONL_PROJECTS:
         new_lines = get_new_jsonl_lines(session_id, cwd)
         if new_lines:
             state["new_jsonl_lines"] = new_lines
@@ -515,7 +557,7 @@ def main():
     if event == "UserPromptSubmit":
         # User just sent a message - Claude is now processing
         state["status"] = "processing"
-        if not IS_CODEX:
+        if SOURCE in SOURCE_JSONL_PROJECTS:
             title = get_session_title(session_id, cwd)
             if title:
                 state["session_title"] = title

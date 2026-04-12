@@ -46,11 +46,19 @@ class ClaudeSessionMonitor: ObservableObject {
                 }
 
                 if event.sessionPhase == .processing {
-                    Task { @MainActor in
-                        InterruptWatcherManager.shared.startWatching(
-                            sessionId: event.sessionId,
-                            cwd: event.cwd
-                        )
+                    // Only CLIs with JSONL history (Claude + forks) participate
+                    // in the interrupt watcher — OpenCode/Codex have their own
+                    // history adapters and would watch the wrong file.
+                    let cfg = CLIConfig.forSource(event.supportedCLI)
+                    if cfg.capability.historyKind == .jsonl,
+                       let projectsDir = cfg.jsonlProjectsDirRelative {
+                        Task { @MainActor in
+                            InterruptWatcherManager.shared.startWatching(
+                                sessionId: event.sessionId,
+                                cwd: event.cwd,
+                                projectsDirRelative: projectsDir
+                            )
+                        }
                     }
                 }
 

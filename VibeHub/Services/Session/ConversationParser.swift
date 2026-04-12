@@ -109,8 +109,8 @@ actor ConversationParser {
 
     /// Parse a JSONL file to extract conversation info
     /// Uses caching based on file modification time
-    func parse(sessionId: String, cwd: String) -> ConversationInfo {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parse(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> ConversationInfo {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -237,9 +237,13 @@ actor ConversationParser {
             }
         }
 
+        // Cap lastMessage at 240 chars — roughly 3 lines of 11pt text in the
+        // notch row. Downstream consumers (displayTitle, compactDisplayTitle,
+        // description row) apply their own tighter limits; this upper bound
+        // is just there to keep memory predictable.
         return ConversationInfo(
             summary: summary,
-            lastMessage: Self.truncateMessage(lastMessage, maxLength: 80),
+            lastMessage: Self.truncateMessage(lastMessage, maxLength: 240),
             lastMessageRole: lastMessageRole,
             lastToolName: lastToolName,
             firstUserMessage: firstUserMessage,
@@ -304,8 +308,8 @@ actor ConversationParser {
     // MARK: - Full Conversation Parsing
 
     /// Parse full conversation history for chat view (returns ALL messages - use sparingly)
-    func parseFullConversation(sessionId: String, cwd: String) -> [ChatMessage] {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parseFullConversation(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [ChatMessage] {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -334,8 +338,8 @@ actor ConversationParser {
     }
 
     /// Parse only NEW messages since last call (efficient incremental updates)
-    func parseIncremental(sessionId: String, cwd: String) -> IncrementalParseResult {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parseIncremental(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> IncrementalParseResult {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -547,15 +551,16 @@ actor ConversationParser {
         return true
     }
 
-    /// Build session file path
-    private static func sessionFilePath(sessionId: String, cwd: String) -> String {
+    /// Build session file path for a given CLI's projects directory.
+    /// `projectsDirRelative` is home-relative (e.g. `.claude/projects`).
+    private static func sessionFilePath(sessionId: String, cwd: String, projectsDirRelative: String) -> String {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
         let homePath = HookInstaller.resolvedHomePath()
         #else
         let homePath = NSHomeDirectory()
         #endif
-        return homePath + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        return homePath + "/" + projectsDirRelative + "/" + projectDir + "/" + sessionId + ".jsonl"
     }
 
     private func parseMessageLine(_ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]) -> ChatMessage? {
@@ -988,7 +993,7 @@ actor ConversationParser {
     // MARK: - Subagent Tools Parsing
 
     /// Parse subagent tools from an agent JSONL file
-    func parseSubagentTools(agentId: String, cwd: String) -> [SubagentToolInfo] {
+    func parseSubagentTools(agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
@@ -997,7 +1002,7 @@ actor ConversationParser {
         #else
         let homePath = NSHomeDirectory()
         #endif
-        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = homePath + "/" + projectsDirRelative + "/" + projectDir + "/agent-" + agentId + ".jsonl"
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -1090,7 +1095,7 @@ struct SubagentToolInfo: Sendable {
 
 extension ConversationParser {
     /// Parse subagent tools from an agent JSONL file (static, synchronous version)
-    nonisolated static func parseSubagentToolsSync(agentId: String, cwd: String) -> [SubagentToolInfo] {
+    nonisolated static func parseSubagentToolsSync(agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
@@ -1099,7 +1104,7 @@ extension ConversationParser {
         #else
         let homePath = NSHomeDirectory()
         #endif
-        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = homePath + "/" + projectsDirRelative + "/" + projectDir + "/agent-" + agentId + ".jsonl"
 
         #if APP_STORE
         let _scope = SandboxScope()
