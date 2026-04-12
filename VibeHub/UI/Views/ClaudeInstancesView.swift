@@ -286,7 +286,7 @@ struct InstanceRow: View {
                 Spacer(minLength: 0)
 
                 if isWaitingForApproval && isInteractiveTool {
-                    IconButton(icon: "bubble.left") {
+                    IconButton(icon: "bubble.left", tooltip: L10n.openChat) {
                         onChat()
                     }
                     if session.pid != nil || session.isRemote {
@@ -294,6 +294,7 @@ struct InstanceRow: View {
                             isEnabled: true,
                             onTap: { onFocus() }
                         )
+                        .help(L10n.revealInTerminal)
                     }
                 } else if isWaitingForApproval {
                     InlineApprovalButtons(
@@ -304,16 +305,16 @@ struct InstanceRow: View {
                         onAlways: allowAlways ? onApproveAlways : nil
                     )
                 } else {
-                    IconButton(icon: "bubble.left") {
+                    IconButton(icon: "bubble.left", tooltip: L10n.openChat) {
                         onChat()
                     }
                     if session.pid != nil || session.isRemote {
-                        IconButton(icon: "eye") {
+                        IconButton(icon: "eye", tooltip: L10n.revealInTerminal) {
                             onFocus()
                         }
                     }
                     if session.phase == .idle || session.phase == .waitingForInput {
-                        IconButton(icon: "archivebox") {
+                        IconButton(icon: "archivebox", tooltip: L10n.archiveSession) {
                             onArchive()
                         }
                     }
@@ -392,7 +393,7 @@ struct InlineApprovalButtons: View {
     var body: some View {
         HStack(spacing: 6) {
             // Chat button
-            IconButton(icon: "bubble.left") {
+            IconButton(icon: "bubble.left", tooltip: L10n.openChat) {
                 onChat()
             }
             .opacity(showChatButton ? 1 : 0)
@@ -475,6 +476,7 @@ struct InlineApprovalButtons: View {
 
 struct IconButton: View {
     let icon: String
+    var tooltip: String? = nil
     let action: () -> Void
 
     @State private var isHovered = false
@@ -494,6 +496,7 @@ struct IconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .help(tooltip ?? "")
     }
 }
 
