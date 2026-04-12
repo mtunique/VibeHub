@@ -511,8 +511,7 @@ s.close()
 print(\"sent\", token)
 """
 
-            let cmd = "python3 - '\(token)' <<'PY'\n\(py)\nPY"
-            let r = await RemoteInstaller.runSSHResult(host: host, command: cmd, timeoutSeconds: 10)
+            let r = await RemoteInstaller.runSSHPython(host: host, script: py, args: ["'\(token)'"], timeoutSeconds: 10)
             if r.exitCode != 0 {
                 await RemoteLog.shared.log(.warn, "healthcheck ssh failed exit=\(r.exitCode) stderr=\(r.stderr ?? "")", hostId: id)
                 if r.exitCode == 255 {

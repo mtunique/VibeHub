@@ -190,8 +190,8 @@ settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
         steps.append(await step(
             name: "update ~/.claude/settings.json",
-            command: "python3 - <<'PY' ... PY",
-            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY", timeoutSeconds: 20)
+            command: "python3 (merge claude hook settings)",
+            result: await runSSHPython(host: host, script: py)
         ))
 
         return steps
@@ -294,8 +294,8 @@ print('ok')
 
         steps.append(await step(
             name: "update ~/.codex/hooks.json + config.toml",
-            command: "python3 - <<'PY' ... PY",
-            result: await runSSHResult(host: host, command: "python3 - <<'PY'\n\(py)\nPY", timeoutSeconds: 20)
+            command: "python3 (merge codex hook settings)",
+            result: await runSSHPython(host: host, script: py)
         ))
 
         return steps
@@ -495,6 +495,17 @@ print('ok')
             stdout: trim(result.output),
             stderr: trim(result.stderr ?? "")
         )
+    }
+
+    /// Run a Python script on the remote via SSH, encoding the script as base64 to avoid
+    /// shell-specific syntax (e.g. fish does not support heredocs).
+    static func runSSHPython(host: RemoteHost, script: String, args: [String] = [], timeoutSeconds: Int = 20) async -> ProcessResult {
+        let b64 = Data(script.utf8).base64EncodedString()
+        var cmd = "python3 -c \"import base64;exec(base64.b64decode('\(b64)'))\""
+        for arg in args {
+            cmd += " \(arg)"
+        }
+        return await runSSHResult(host: host, command: cmd, timeoutSeconds: timeoutSeconds)
     }
 
     private static func trim(_ s: String) -> String {
