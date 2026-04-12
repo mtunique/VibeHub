@@ -494,10 +494,28 @@ struct ChatView: View {
         if session.isInCmux {
             return true
         }
-        if !isOpenCodeSession && !isCodexSession {
-            return session.tty != nil
+
+        // OpenCode always has a path (control socket / HTTP / clipboard)
+        if isOpenCodeSession {
+            return true
         }
-        return true // OpenCode always has a path (control socket / HTTP / clipboard)
+
+        return session.tty != nil;
+
+        // TODO:
+        //
+        //  if session.tty == nil { return false; }
+        //
+        // if # appleScript {
+        //  return true;
+        // }
+        //
+        // if session.isInMultiplexer {
+        //.  returen true;
+        // }
+        //
+        // Otherwise we need tmux or a keystroke capable tty
+        // return TTYCapability.canInjectKeystrokes;
     }
 
     private var inputBar: some View {
