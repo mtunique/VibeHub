@@ -118,8 +118,11 @@ struct ChatView: View {
                                 removal: .opacity
                             ))
                     }
-                } else {
+                } else if canSendMessages {
                     inputBar
+                        .transition(.opacity)
+                } else {
+                    revealInTerminalBar
                         .transition(.opacity)
                 }
             }
@@ -577,6 +580,34 @@ struct ChatView: View {
             .allowsHitTesting(false)
         }
         .zIndex(1) // Render above message list
+    }
+
+    // MARK: - Reveal in Terminal Bar
+
+    private var revealInTerminalBar: some View {
+        HStack {
+            Spacer()
+            Button {
+                focusTerminal()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(L10n.revealInTerminal)
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(isNotchMode ? .black : .white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(isNotchMode ? Color.white.opacity(0.9) : Color.accentColor)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
     }
 
     // MARK: - Approval Bar
