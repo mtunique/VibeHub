@@ -343,22 +343,12 @@ enum CLIInstaller {
                 }
             }
 
-            if var existingEvent = hooks[event.name] as? [[String: Any]] {
-                // Strip any stale VibeHub entries (e.g. socket path changed across builds).
-                existingEvent.removeAll { entry in
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { h in
-                            let cmd = h["command"] as? String ?? ""
-                            return cmd.contains("vibehub-state.py")
-                        }
-                    }
-                    return false
-                }
-                existingEvent.append(contentsOf: entryConfig)
-                hooks[event.name] = existingEvent
-            } else {
-                hooks[event.name] = entryConfig
-            }
+            // Strip any stale VibeHub entries (e.g. socket path changed across
+            // builds) without disturbing user-owned hooks that happen to share
+            // the same matcher entry.
+            let existingEvent = hooks[event.name] as? [[String: Any]] ?? []
+            let cleanedEvent = existingEvent.compactMap { removingVibehubHooks(from: $0) }
+            hooks[event.name] = cleanedEvent + entryConfig
         }
 
         json["hooks"] = hooks
@@ -379,20 +369,12 @@ enum CLIInstaller {
         }
 
         for (event, value) in hooks {
-            if var entries = value as? [[String: Any]] {
-                entries.removeAll { entry in
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { hook in
-                            let cmd = hook["command"] as? String ?? ""
-                            return cmd.contains("vibehub-state.py")
-                        }
-                    }
-                    return false
-                }
-                if entries.isEmpty {
+            if let entries = value as? [[String: Any]] {
+                let cleaned = entries.compactMap { removingVibehubHooks(from: $0) }
+                if cleaned.isEmpty {
                     hooks.removeValue(forKey: event)
                 } else {
-                    hooks[event] = entries
+                    hooks[event] = cleaned
                 }
             }
         }
@@ -409,6 +391,23 @@ enum CLIInstaller {
         ) {
             try? out.write(to: settingsURL)
         }
+    }
+
+    /// Remove VibeHub-owned hooks from a single settings entry while
+    /// preserving any unrelated hooks the user added to the same matcher.
+    /// Returns `nil` if the entry becomes empty (caller drops it entirely).
+    private static func removingVibehubHooks(from entry: [String: Any]) -> [String: Any]? {
+        guard var entryHooks = entry["hooks"] as? [[String: Any]] else {
+            return entry
+        }
+        entryHooks.removeAll { hook in
+            let cmd = hook["command"] as? String ?? ""
+            return cmd.contains("vibehub-state.py")
+        }
+        guard !entryHooks.isEmpty else { return nil }
+        var updated = entry
+        updated["hooks"] = entryHooks
+        return updated
     }
 
     static func settingsContainsVibehub(at settingsURL: URL) -> Bool {
