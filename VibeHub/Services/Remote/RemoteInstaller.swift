@@ -353,26 +353,22 @@ events = {
 \(eventsDict)
 }
 
-def has_our_hook(entry):
-    for h in entry.get('hooks', []):
-        c = h.get('command', '')
-        if 'vibehub-state.py' in c:
-            return True
-    return False
+def strip_vibehub_from_entry(entry):
+    # Remove VibeHub-owned hooks from a single entry, preserving any
+    # user-owned hooks sharing the same matcher. Returns None if the
+    # entry becomes empty (caller drops it entirely).
+    hooks_list = entry.get('hooks', [])
+    kept = [h for h in hooks_list if 'vibehub-state.py' not in h.get('command', '')]
+    if not kept:
+        return None
+    new_entry = dict(entry)
+    new_entry['hooks'] = kept
+    return new_entry
 
 for ev, config in events.items():
-    existing = hooks.get(ev)
-    if isinstance(existing, list):
-        ok = False
-        for e in existing:
-            if isinstance(e, dict) and has_our_hook(e):
-                ok = True
-                break
-        if not ok:
-            existing.extend(config)
-            hooks[ev] = existing
-    else:
-        hooks[ev] = config
+    existing = hooks.get(ev) if isinstance(hooks.get(ev), list) else []
+    cleaned = [e for e in (strip_vibehub_from_entry(e) for e in existing) if e is not None]
+    hooks[ev] = cleaned + config
 
 data['hooks'] = hooks
 settings_path.write_text(json.dumps(data, indent=2, sort_keys=True))
@@ -443,17 +439,22 @@ if hooks_path.exists():
 
 hooks = data.get('hooks', {})
 
-def has_our_hook(entry):
-    for h in entry.get('hooks', []):
-        if 'vibehub-state.py' in h.get('command', ''):
-            return True
-    return False
+def strip_vibehub_from_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    kept = [h for h in entry.get('hooks', [])
+            if 'vibehub-state.py' not in h.get('command', '')]
+    if not kept:
+        return None
+    new_entry = dict(entry)
+    new_entry['hooks'] = kept
+    return new_entry
 
 for ev in [\(eventNames)]:
     entries = hooks.get(ev, [])
     if not isinstance(entries, list):
         entries = []
-    entries = [e for e in entries if isinstance(e, dict) and not has_our_hook(e)]
+    entries = [e for e in (strip_vibehub_from_entry(x) for x in entries) if e is not None]
     entries.append({'hooks': [{'type': 'command', 'command': cmd, 'timeout': 5}]})
     hooks[ev] = entries
 
