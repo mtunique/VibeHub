@@ -532,6 +532,33 @@ actor SessionStore {
                 let description = event.toolInput?["description"]?.value as? String
                 session.subagentState.startTask(taskToolId: toolUseId, description: description)
                 Self.logger.debug("Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
+            } else if let toolName = event.tool,
+                      let toolUseId = event.toolUseId,
+                      session.subagentState.hasActiveSubagent {
+                // A subagent's inner tool is starting. Add it to the parent
+                // Task/Agent's subagent list and sync to chatItems so the UI
+                // updates live (rather than only after the parent Agent finishes).
+                var input: [String: String] = [:]
+                if let hookInput = event.toolInput {
+                    for (key, value) in hookInput {
+                        if let str = value.value as? String {
+                            input[key] = str
+                        } else if let num = value.value as? Int {
+                            input[key] = String(num)
+                        } else if let bool = value.value as? Bool {
+                            input[key] = bool ? "true" : "false"
+                        }
+                    }
+                }
+                let subagentTool = SubagentToolCall(
+                    id: toolUseId,
+                    name: toolName,
+                    input: input,
+                    status: .running,
+                    timestamp: Date()
+                )
+                session.subagentState.addSubagentTool(subagentTool)
+                syncSubagentToolsToChatItems(session: &session)
             }
 
         case "PostToolUse":
@@ -541,6 +568,12 @@ actor SessionStore {
                 // attached to this dead task.
                 session.subagentState.stopTask(taskToolId: toolUseId)
                 Self.logger.debug("Stopped subagent tracking for \(toolUseId.prefix(12), privacy: .public)")
+            } else if let toolUseId = event.toolUseId,
+                      session.subagentState.hasActiveSubagent {
+                // A subagent's inner tool completed. Update its status in the
+                // parent's subagent list and sync.
+                session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .success)
+                syncSubagentToolsToChatItems(session: &session)
             }
 
         case "SubagentStop":
@@ -550,6 +583,26 @@ actor SessionStore {
 
         default:
             break
+        }
+    }
+
+    /// Push the current subagent tool lists from subagentState into the
+    /// corresponding ChatHistoryItem.subagentTools so the UI renders them live.
+    private func syncSubagentToolsToChatItems(session: inout SessionState) {
+        for (taskToolId, context) in session.subagentState.activeTasks {
+            guard !context.subagentTools.isEmpty else { continue }
+            for i in 0..<session.chatItems.count {
+                if session.chatItems[i].id == taskToolId,
+                   case .toolCall(var tool) = session.chatItems[i].type {
+                    tool.subagentTools = context.subagentTools
+                    session.chatItems[i] = ChatHistoryItem(
+                        id: taskToolId,
+                        type: .toolCall(tool),
+                        timestamp: session.chatItems[i].timestamp
+                    )
+                    break
+                }
+            }
         }
     }
 
