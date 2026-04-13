@@ -258,6 +258,17 @@ actor TerminalActivator {
             return false
         }
 
+        // Remote session hosted inside a local cmux surface: cmux env vars
+        // don't survive the SSH hop, so session.cmuxSurfaceId is nil and we
+        // fall through to here. Detect cmux by matching the SSH process's
+        // local TTY against `cmux debug.terminals`; focus the surface via
+        // RPC if we find a match. Returns false on any failure so the
+        // regular activateTerminalApp path below still runs as fallback.
+        if await activateCmuxSurfaceForTTY(chosen.tty) {
+            log("activateRemoteSession: focused cmux surface for tty=\(chosen.tty)")
+            return true
+        }
+
         if let bundleId = await activateTerminalApp(forProcess: chosen.pid, tree: tree) {
             log("activateRemoteSession: activating ssh pid=\(chosen.pid) tty=\(chosen.tty)")
             await TerminalTabSwitcher.switchToTab(bundleId: bundleId, tty: chosen.tty, cwd: nil)
@@ -265,6 +276,46 @@ actor TerminalActivator {
         }
 
         return false
+    }
+
+    /// Look up which cmux surface hosts the given local TTY (via
+    /// `cmux debug.terminals`) and focus it. Returns false if cmux isn't
+    /// installed, isn't running, or doesn't own this TTY.
+    private func activateCmuxSurfaceForTTY(_ tty: String) async -> Bool {
+        guard let binary = await CmuxSender.resolveBinary() else { return false }
+
+        let listResult: String?
+        do {
+            listResult = try await ProcessExecutor.shared.run(
+                binary, arguments: ["rpc", "debug.terminals", "{}"]
+            )
+        } catch {
+            return false
+        }
+        guard let jsonString = listResult,
+              let data = jsonString.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let terminals = root["terminals"] as? [[String: Any]] else {
+            return false
+        }
+
+        // cmux reports tty without "/dev/" (e.g. "ttys007"); our getLocalTTY
+        // returns the same format, so compare directly.
+        guard let match = terminals.first(where: { ($0["tty"] as? String) == tty }),
+              let surfaceId = match["surface_id"] as? String,
+              !surfaceId.isEmpty else {
+            return false
+        }
+
+        let params = #"{"surface_id":"\#(surfaceId)"}"#
+        do {
+            _ = try await ProcessExecutor.shared.run(
+                binary, arguments: ["rpc", "surface.focus", params]
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Find which local SSH candidate has a TCP connection with the given source port.
