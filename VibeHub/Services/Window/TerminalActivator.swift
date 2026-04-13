@@ -52,8 +52,7 @@ actor TerminalActivator {
         }
 
         // For local sessions, use the existing detector
-        guard let pid = session.pid else { return false }
-        return await TerminalVisibilityDetector.isSessionFocused(sessionPid: pid)
+        return await TerminalVisibilityDetector.isSessionFocused(session: session)
     }
 
     // MARK: - Local Non-Tmux Session
@@ -139,11 +138,10 @@ actor TerminalActivator {
     // MARK: - Local Zellij Session
 
     private func activateZellijSession(_ session: SessionState) async -> Bool {
-        guard let pid = session.pid else { return false }
-
         // Switch to the correct zellij pane
-        await ZellijController.shared.focusPane(forClaudePid: pid)
+        await ZellijController.shared.focusPane(session: session)
 
+        guard let pid = session.pid else { return false }
         let tree = ProcessTreeBuilder.shared.buildTree()
         guard let terminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: pid, tree: tree) else {
             return false

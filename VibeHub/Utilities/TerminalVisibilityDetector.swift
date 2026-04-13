@@ -41,9 +41,11 @@ struct TerminalVisibilityDetector {
     }
 
     /// Check if a Claude session is currently focused (user is looking at it)
-    /// - Parameter sessionPid: The PID of the Claude process
-    /// - Returns: true if the session's terminal is frontmost and (for tmux) the pane is active
-    static func isSessionFocused(sessionPid: Int) async -> Bool {
+    /// - Parameter session: The session state to check
+    /// - Returns: true if the session's terminal is frontmost and (for multiplexers) the pane is active
+    static func isSessionFocused(session: SessionState) async -> Bool {
+        guard let sessionPid = session.pid else { return false }
+
         // If no terminal is frontmost, session is definitely not focused
         guard isTerminalFrontmost() else {
             return false
@@ -57,8 +59,8 @@ struct TerminalVisibilityDetector {
             // For tmux sessions, check if the session's pane is active
             return await TmuxTargetFinder.shared.isSessionPaneActive(claudePid: sessionPid)
         case .zellij:
-            // For zellij sessions, check if the session's pane is focused
-            return await ZellijController.shared.isSessionPaneFocused(claudePid: sessionPid)
+            // TODO: zellij doesn't expose which pane is focused — assume focused when terminal is frontmost
+            return true
         case .none:
             // For non-multiplexer sessions, check if the session's terminal app is frontmost
             guard let sessionTerminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: sessionPid, tree: tree),

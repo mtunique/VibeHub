@@ -693,7 +693,7 @@ struct ChatView: View {
                 _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
             }
         case .zellij:
-            _ = await ZellijController.shared.sendMessage(text, forClaudePid: session.pid ?? -1)
+            _ = await ZellijController.shared.sendMessage(text, session: session)
         case .none:
             // No multiplexer - try TTY injection directly
             if let tty = session.tty {

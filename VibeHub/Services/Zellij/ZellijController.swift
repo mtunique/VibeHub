@@ -5,6 +5,7 @@
 //  Zellij multiplexer operations: pane discovery, focus, and message sending.
 //
 
+import Darwin
 import Foundation
 import os.log
 
@@ -45,85 +46,32 @@ actor ZellijController {
         #endif
     }
 
-    // MARK: - Pane Discovery
+    // MARK: - Zellij Environment
 
-    /// Find the zellij pane ID that contains the given Claude PID.
-    /// Uses `zellij action list-clients` if available, or falls back to
-    /// walking pane PIDs via `zellij action dump-layout`.
-    private func findPaneId(forClaudePid pid: Int) async -> String? {
-        guard zellijPath() != nil else { return nil }
-
-        // Claude inherits ZELLIJ_PANE_ID env var when spawned inside zellij.
-        // Read it from the process environment on macOS.
-        return readZellijPaneIdFromEnv(pid: pid)
-    }
-
-    /// Read ZELLIJ_PANE_ID from a process's environment (macOS).
-    private nonisolated func readZellijPaneIdFromEnv(pid: Int) -> String? {
-        // On macOS we can read the environment of a process via sysctl KERN_PROCARGS2
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
-        var size: Int = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-
-        var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
-
-        // Skip argc
-        var ptr = MemoryLayout<Int32>.size
-        var argc: Int32 = 0
-        memcpy(&argc, buffer, MemoryLayout<Int32>.size)
-
-        // Skip executable path
-        while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-        // Skip null padding
-        while ptr < size && buffer[ptr] == 0 { ptr += 1 }
-        // Skip argv strings
-        for _ in 0..<argc {
-            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-            ptr += 1
+    private func zellijEnv(session: SessionState) -> (zjPath: String, paneId: String, env: [String: String]?)? {
+        guard let zjPath = zellijPath() else { return nil }
+        guard let paneId = session.zellijPaneId else {
+            Self.logger.error("No zellij pane ID for session pid=\(session.pid ?? -1, privacy: .public)")
+            return nil
         }
-
-        // Now we're in the environment strings
-        let envPrefix = "ZELLIJ_PANE_ID="
-        let envPrefixBytes = [UInt8](envPrefix.utf8)
-        while ptr < size {
-            // Find start of next env string
-            let start = ptr
-            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-            let envBytes = Array(buffer[start..<ptr])
-            ptr += 1
-
-            if envBytes.isEmpty { continue }
-            if envBytes.starts(with: envPrefixBytes) {
-                let valueBytes = envBytes.dropFirst(envPrefixBytes.count)
-                return String(bytes: valueBytes, encoding: .utf8)
-            }
+        var env: [String: String]? = nil
+        if let sessionName = session.zellijSession {
+            env = ["ZELLIJ_SESSION_NAME": sessionName]
         }
-
-        return nil
+        return (zjPath, paneId, env)
     }
 
     // MARK: - Message Sending
 
-    /// Send a message to the zellij pane containing the given Claude PID.
-    func sendMessage(_ message: String, forClaudePid pid: Int) async -> Bool {
-        guard let zjPath = zellijPath() else { return false }
+    /// Send a message to the zellij pane for the given session.
+    func sendMessage(_ message: String, session: SessionState) async -> Bool {
+        guard let zj = zellijEnv(session: session) else { return false }
 
-        // `zellij action write-chars` writes to the focused pane of the current session.
-        // To target a specific pane we need the session name and pane ID.
-        // For now, write-chars with session targeting via ZELLIJ_SESSION_NAME.
-        let sessionName = readZellijSessionName(pid: pid)
-
-        var args = ["action", "write-chars", "--", message + "\n"]
-        var env: [String: String]? = nil
-        if let sessionName {
-            // When targeting a specific session, we can pass it via env
-            env = ["ZELLIJ_SESSION_NAME": sessionName]
-        }
+        let args = ["action", "write-chars", "--pane-id", zj.paneId, "--", message + "\n"]
 
         do {
-            Self.logger.debug("Sending message to zellij session=\(sessionName ?? "default", privacy: .public)")
-            _ = try await ProcessExecutor.shared.run(zjPath, arguments: args, environment: env)
+            Self.logger.debug("Sending message to zellij pane=\(zj.paneId, privacy: .public)")
+            _ = try await ProcessExecutor.shared.run(zj.zjPath, arguments: args, environment: zj.env)
             return true
         } catch {
             Self.logger.error("zellij write-chars failed: \(error.localizedDescription, privacy: .public)")
@@ -133,76 +81,19 @@ actor ZellijController {
 
     // MARK: - Pane Focus
 
-    /// Focus the zellij pane containing the given Claude PID.
-    func focusPane(forClaudePid pid: Int) async {
-        guard let zjPath = zellijPath() else { return }
-        guard let paneId = await findPaneId(forClaudePid: pid) else { return }
-
-        let sessionName = readZellijSessionName(pid: pid)
-        var env: [String: String]? = nil
-        if let sessionName {
-            env = ["ZELLIJ_SESSION_NAME": sessionName]
-        }
+    /// Focus the zellij pane for the given session.
+    func focusPane(session: SessionState) async {
+        guard let zj = zellijEnv(session: session) else { return }
 
         do {
             _ = try await ProcessExecutor.shared.run(
-                zjPath,
-                arguments: ["action", "focus-pane", "--pane-id", paneId],
-                environment: env
+                zj.zjPath,
+                arguments: ["action", "focus-pane", "--pane-id", zj.paneId],
+                environment: zj.env
             )
         } catch {
             Self.logger.error("zellij focus-pane failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    /// Check if the zellij pane containing the given Claude PID is currently focused.
-    func isSessionPaneFocused(claudePid: Int) async -> Bool {
-        // Heuristic: if we can find the pane ID, the session is active.
-        // A more precise check would require parsing zellij layout output,
-        // but for now this is a reasonable approximation — the terminal
-        // frontmost check in the caller already gates on the app being focused.
-        return await findPaneId(forClaudePid: claudePid) != nil
-    }
-
-    // MARK: - Helpers
-
-    /// Read ZELLIJ_SESSION_NAME from a process's environment.
-    private nonisolated func readZellijSessionName(pid: Int) -> String? {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
-        var size: Int = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-
-        var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
-
-        var ptr = MemoryLayout<Int32>.size
-        var argc: Int32 = 0
-        memcpy(&argc, buffer, MemoryLayout<Int32>.size)
-
-        // Skip executable path
-        while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-        while ptr < size && buffer[ptr] == 0 { ptr += 1 }
-        // Skip argv
-        for _ in 0..<argc {
-            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-            ptr += 1
-        }
-
-        let envPrefix = "ZELLIJ_SESSION_NAME="
-        let envPrefixBytes = [UInt8](envPrefix.utf8)
-        while ptr < size {
-            let start = ptr
-            while ptr < size && buffer[ptr] != 0 { ptr += 1 }
-            let envBytes = Array(buffer[start..<ptr])
-            ptr += 1
-
-            if envBytes.isEmpty { continue }
-            if envBytes.starts(with: envPrefixBytes) {
-                let valueBytes = envBytes.dropFirst(envPrefixBytes.count)
-                return String(bytes: valueBytes, encoding: .utf8)
-            }
-        }
-
-        return nil
-    }
 }

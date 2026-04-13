@@ -765,7 +765,7 @@ struct NotchView: View {
                 return true
             }
 
-            let isFocused = await TerminalVisibilityDetector.isSessionFocused(sessionPid: pid)
+            let isFocused = await TerminalVisibilityDetector.isSessionFocused(session: session)
             if AppSettings.shouldNotify(notifyMode, isFocused: isFocused) {
                 return true
             }
