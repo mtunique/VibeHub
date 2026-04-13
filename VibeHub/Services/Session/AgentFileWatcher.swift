@@ -47,12 +47,12 @@ class AgentFileWatcher {
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let resolvedHome = HookInstaller.resolvedHomePath()
-        #else
-        let resolvedHome = NSHomeDirectory()
-        #endif
-        self.filePath = resolvedHome + "/" + projectsDirRelative + "/" + projectDir + "/agent-" + agentId + ".jsonl"
+        self.filePath = ConversationParser.subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
     }
 
     /// Start watching the agent file
@@ -113,6 +113,7 @@ class AgentFileWatcher {
 
     private func parseTools() {
         let tools = ConversationParser.parseSubagentToolsSync(
+            sessionId: sessionId,
             agentId: agentId,
             cwd: cwd,
             projectsDirRelative: projectsDirRelative

@@ -272,7 +272,8 @@ actor ConversationParser {
             if let pattern = input["pattern"] as? String {
                 return pattern
             }
-        case "Task":
+        case "Task", "Agent":
+            // "Task" is the legacy name; Claude Code now uses "Agent"
             if let description = input["description"] as? String {
                 return description
             }
@@ -563,6 +564,38 @@ actor ConversationParser {
         return homePath + "/" + projectsDirRelative + "/" + projectDir + "/" + sessionId + ".jsonl"
     }
 
+    /// Build subagent JSONL file path.
+    ///
+    /// Current Claude Code nests subagent files under the parent session:
+    ///   projects/<project>/<sessionId>/subagents/agent-<agentId>.jsonl
+    ///
+    /// Older Claude Code versions stored them flat:
+    ///   projects/<project>/agent-<agentId>.jsonl
+    ///
+    /// Prefer the nested path; fall back to the flat path if only it exists
+    /// (cross-version compatibility). If neither exists yet (file still being
+    /// created) we return the nested path as the modern default.
+    nonisolated static func subagentFilePath(
+        sessionId: String,
+        agentId: String,
+        projectDir: String,
+        projectsDirRelative: String = ".claude/projects"
+    ) -> String {
+        #if APP_STORE
+        let homePath = HookInstaller.resolvedHomePath()
+        #else
+        let homePath = NSHomeDirectory()
+        #endif
+        let base = homePath + "/" + projectsDirRelative + "/" + projectDir
+        let nested = base + "/" + sessionId + "/subagents/agent-" + agentId + ".jsonl"
+        let flat = base + "/agent-" + agentId + ".jsonl"
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: nested) { return nested }
+        if fm.fileExists(atPath: flat) { return flat }
+        return nested
+    }
+
     private func parseMessageLine(_ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]) -> ChatMessage? {
         guard let type = json["type"] as? String,
               let uuid = json["uuid"] as? String else {
@@ -714,7 +747,7 @@ actor ConversationParser {
             return parseGlobResult(toolUseResult)
         case "TodoWrite":
             return parseTodoWriteResult(toolUseResult)
-        case "Task":
+        case "Task", "Agent":
             return parseTaskResult(toolUseResult)
         case "WebFetch":
             return parseWebFetchResult(toolUseResult)
@@ -993,16 +1026,16 @@ actor ConversationParser {
     // MARK: - Subagent Tools Parsing
 
     /// Parse subagent tools from an agent JSONL file
-    func parseSubagentTools(agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
+    func parseSubagentTools(sessionId: String, agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let homePath = HookInstaller.resolvedHomePath()
-        #else
-        let homePath = NSHomeDirectory()
-        #endif
-        let agentFile = homePath + "/" + projectsDirRelative + "/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = Self.subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -1095,16 +1128,16 @@ struct SubagentToolInfo: Sendable {
 
 extension ConversationParser {
     /// Parse subagent tools from an agent JSONL file (static, synchronous version)
-    nonisolated static func parseSubagentToolsSync(agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
+    nonisolated static func parseSubagentToolsSync(sessionId: String, agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let homePath = HookInstaller.resolvedHomePath()
-        #else
-        let homePath = NSHomeDirectory()
-        #endif
-        let agentFile = homePath + "/" + projectsDirRelative + "/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
 
         #if APP_STORE
         let _scope = SandboxScope()

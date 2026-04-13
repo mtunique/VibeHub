@@ -914,6 +914,7 @@ actor SessionStore {
         session.toolTracker.lastSyncTime = Date()
 
         await populateSubagentToolsFromAgentFiles(
+            sessionId: payload.sessionId,
             session: &session,
             cwd: payload.cwd,
             structuredResults: payload.structuredResults
@@ -930,8 +931,9 @@ actor SessionStore {
         )
     }
 
-    /// Populate subagent tools for Task tools using their agent JSONL files
+    /// Populate subagent tools for Task/Agent tools using their agent JSONL files
     private func populateSubagentToolsFromAgentFiles(
+        sessionId: String,
         session: inout SessionState,
         cwd: String,
         structuredResults: [String: ToolResultData]
@@ -954,6 +956,7 @@ actor SessionStore {
 
             let subagentProjectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
             let subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
+                sessionId: sessionId,
                 agentId: taskResult.agentId,
                 cwd: cwd,
                 projectsDirRelative: subagentProjectsDir
