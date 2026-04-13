@@ -443,7 +443,7 @@ actor SessionStore {
 
                 // Skip creating top-level placeholder for subagent tools
                 // They'll appear under their parent Task instead
-                let isSubagentTool = session.subagentState.hasActiveSubagent && toolName != "Task"
+                let isSubagentTool = session.subagentState.hasActiveSubagent && !ToolCallItem.isSubagentContainerName(toolName)
                 if isSubagentTool {
                     return
                 }
@@ -528,15 +528,19 @@ actor SessionStore {
     private func processSubagentTracking(event: HookEvent, session: inout SessionState) {
         switch event.event {
         case "PreToolUse":
-            if event.tool == "Task", let toolUseId = event.toolUseId {
+            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
                 let description = event.toolInput?["description"]?.value as? String
                 session.subagentState.startTask(taskToolId: toolUseId, description: description)
-                Self.logger.debug("Started Task subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
+                Self.logger.debug("Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
             }
 
         case "PostToolUse":
-            if event.tool == "Task" {
-                Self.logger.debug("PostToolUse for Task received (subagent still running)")
+            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
+                // Agent tool returned — the subagent has finished. Stop
+                // tracking so subsequent tools in the parent turn don't get
+                // attached to this dead task.
+                session.subagentState.stopTask(taskToolId: toolUseId)
+                Self.logger.debug("Stopped subagent tracking for \(toolUseId.prefix(12), privacy: .public)")
             }
 
         case "SubagentStop":
@@ -934,7 +938,7 @@ actor SessionStore {
     ) async {
         for i in 0..<session.chatItems.count {
             guard case .toolCall(var tool) = session.chatItems[i].type,
-                  tool.name == "Task",
+                  tool.isSubagentContainer,
                   let structuredResult = structuredResults[session.chatItems[i].id],
                   case .task(let taskResult) = structuredResult,
                   !taskResult.agentId.isEmpty else { continue }
@@ -1058,6 +1062,13 @@ actor SessionStore {
         case .thinking(let text):
             let itemId = "\(message.id)-thinking-\(blockIndex)"
             guard !existingIds.contains(itemId) else { return nil }
+
+            // Skip empty thinking blocks — streaming can briefly produce empty
+            // ones that would render as orphan grey dots.
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+
             return ChatHistoryItem(id: itemId, type: .thinking(text), timestamp: message.timestamp)
 
         case .interrupted:

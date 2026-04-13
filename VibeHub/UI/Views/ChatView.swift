@@ -1053,7 +1053,7 @@ func groupChatItems(_ items: [ChatHistoryItem]) -> [ChatDisplayItem] {
         if case .toolCall(let tool) = item.type,
            tool.status != .running,
            tool.status != .waitingForApproval,
-           tool.name != "Task" {
+           !tool.isSubagentContainer {
             if tool.name == bufferName {
                 buffer.append(item)
             } else {
@@ -1134,16 +1134,22 @@ struct AssistantMessageView: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            // White dot indicator
-            Circle()
-                .fill(Color.white.opacity(0.6))
-                .frame(width: 6, height: 6)
-                .padding(.top, 5)
+        // Skip rendering when text is empty — otherwise the dot indicator
+        // shows up alone (orphan dot) for tool-only assistant turns.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyView()
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                // White dot indicator
+                Circle()
+                    .fill(Color.white.opacity(0.6))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 5)
 
-            MarkdownText(text, color: .primary.opacity(0.9), fontSize: 13)
+                MarkdownText(text, color: .primary.opacity(0.9), fontSize: 13)
 
-            Spacer(minLength: 60)
+                Spacer(minLength: 60)
+            }
         }
     }
 }
@@ -1230,9 +1236,9 @@ struct ToolCallView: View {
         tool.result != nil || tool.structuredResult != nil
     }
 
-    /// Whether the tool can be expanded (has result, NOT Task tools, NOT Edit tools)
+    /// Whether the tool can be expanded (has result, NOT a subagent container, NOT Edit tools)
     private var canExpand: Bool {
-        tool.name != "Task" && tool.name != "Edit" && hasResult
+        !tool.isSubagentContainer && tool.name != "Edit" && hasResult
     }
 
     private var showContent: Bool {
@@ -1266,7 +1272,7 @@ struct ToolCallView: View {
                     .foregroundColor(tool.status == .error || tool.status == .interrupted ? textColor : toolNameColor)
                     .fixedSize()
 
-                if tool.name == "Task" && !tool.subagentTools.isEmpty {
+                if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
                     let taskDesc = tool.input["description"] ?? L10n.processing + "..."
                     Text(L10n.runningAgent(description: taskDesc, toolCount: tool.subagentTools.count))
                         .font(.system(size: 11))
@@ -1310,8 +1316,8 @@ struct ToolCallView: View {
                 }
             }
 
-            // Subagent tools list (for Task tools)
-            if tool.name == "Task" && !tool.subagentTools.isEmpty {
+            // Subagent tools list (for Task/Agent tools)
+            if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
                 SubagentToolsList(tools: tool.subagentTools)
                     .padding(.leading, 12)
                     .padding(.top, 2)
@@ -1319,7 +1325,7 @@ struct ToolCallView: View {
 
             // Result content (Edit always shows, others when expanded)
             // Edit tools bypass hasResult check - fallback in ToolResultContent renders from input params
-            if showContent && tool.status != .running && tool.name != "Task" && (hasResult || tool.name == "Edit") {
+            if showContent && tool.status != .running && !tool.isSubagentContainer && (hasResult || tool.name == "Edit") {
                 ToolResultContent(tool: tool)
                     .padding(.leading, 12)
                     .padding(.top, 4)
@@ -1637,39 +1643,45 @@ struct ThinkingView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Circle()
-                .fill(Color.gray.opacity(0.5))
-                .frame(width: 6, height: 6)
-                .padding(.top, 4)
+        // Skip rendering when text is empty — streaming thinking blocks can
+        // briefly arrive empty, which otherwise leaves an orphan grey dot.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyView()
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                Circle()
+                    .fill(Color.gray.opacity(0.5))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 4)
 
-            Text(isExpanded ? text : String(text.prefix(80)) + (canExpand ? "..." : ""))
-                .font(.system(size: 11))
-                .foregroundColor(.gray)
-                .italic()
-                .lineLimit(isExpanded ? nil : 1)
-                .multilineTextAlignment(.leading)
+                Text(isExpanded ? text : String(text.prefix(80)) + (canExpand ? "..." : ""))
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .italic()
+                    .lineLimit(isExpanded ? nil : 1)
+                    .multilineTextAlignment(.leading)
 
-            Spacer()
+                Spacer()
 
-            if canExpand {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.gray.opacity(0.5))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .padding(.top, 3)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if canExpand {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
+                if canExpand {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.gray.opacity(0.5))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .padding(.top, 3)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if canExpand {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 2)
     }
 }
 

@@ -94,7 +94,7 @@ class ChatHistoryManager: ObservableObject {
     private func filterOutSubagentTools(_ items: [ChatHistoryItem]) -> [ChatHistoryItem] {
         var subagentToolIds = Set<String>()
         for item in items {
-            if case .toolCall(let tool) = item.type, tool.name == "Task" {
+            if case .toolCall(let tool) = item.type, tool.isSubagentContainer {
                 for subagentTool in tool.subagentTools {
                     subagentToolIds.insert(subagentTool.id)
                 }
@@ -134,6 +134,18 @@ struct ToolCallItem: Equatable, Sendable {
 
     /// For Task tools: nested subagent tool calls
     var subagentTools: [SubagentToolCall]
+
+    /// Whether this tool is the subagent-container tool. "Task" is the
+    /// legacy name; Claude Code now uses "Agent".
+    nonisolated var isSubagentContainer: Bool {
+        Self.isSubagentContainerName(name)
+    }
+
+    /// Same check by raw tool-name string (used when we don't have a
+    /// ToolCallItem — e.g. when matching against `HookEvent.tool`).
+    nonisolated static func isSubagentContainerName(_ name: String?) -> Bool {
+        name == "Task" || name == "Agent"
+    }
 
     /// Preview text for the tool (input-based)
     var inputPreview: String {
