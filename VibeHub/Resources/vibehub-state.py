@@ -626,6 +626,24 @@ def main():
         if tool_use_id_from_event:
             state["tool_use_id"] = tool_use_id_from_event
 
+    elif event == "PostToolUseFailure":
+        # Tool errored or was interrupted — main session continues processing
+        state["status"] = "processing"
+        state["tool"] = data.get("tool_name")
+        state["tool_input"] = tool_input
+        state["tool_error"] = data.get("error") or data.get("message")
+        tool_use_id_from_event = data.get("tool_use_id")
+        if tool_use_id_from_event:
+            state["tool_use_id"] = tool_use_id_from_event
+
+    elif event == "PermissionDenied":
+        # Auto-mode classifier denied a tool call — surface to the app so the
+        # user can see what was blocked instead of a silent skip
+        state["status"] = "processing"
+        state["tool"] = data.get("tool_name")
+        state["tool_input"] = tool_input
+        state["denial_reason"] = data.get("reason") or data.get("message")
+
     elif event == "PermissionRequest":
         # This is where we can control the permission
         state["status"] = "waiting_for_approval"
@@ -710,6 +728,16 @@ def main():
     elif event == "Stop":
         state["status"] = "waiting_for_input"
 
+    elif event == "StopFailure":
+        # Turn ended via API error (rate limit, auth, billing). Mark waiting
+        # so the user sees it's done (not stuck), with the error surfaced
+        state["status"] = "waiting_for_input"
+        state["stop_error"] = data.get("error") or data.get("message")
+
+    elif event == "SubagentStart":
+        # A subagent task is beginning — main session is still processing
+        state["status"] = "processing"
+
     elif event == "SubagentStop":
         # SubagentStop fires when a subagent completes - usually means back to waiting
         state["status"] = "waiting_for_input"
@@ -724,6 +752,10 @@ def main():
     elif event == "PreCompact":
         # Context is being compacted (manual or auto)
         state["status"] = "compacting"
+
+    elif event == "PostCompact":
+        # Compaction finished — return to processing so UI exits .compacting phase
+        state["status"] = "processing"
 
     else:
         state["status"] = "unknown"

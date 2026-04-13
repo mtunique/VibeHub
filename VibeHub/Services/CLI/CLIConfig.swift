@@ -55,20 +55,32 @@ struct HookEventSpec: Sendable {
 }
 
 extension Array where Element == HookEventSpec {
-    /// The full 10-event Claude Code hook set. All Claude-compatible forks
-    /// reuse this.
+    /// The full Claude Code hook set. All Claude-compatible forks reuse this.
     static var claudeStandard10: [HookEventSpec] {
         [
             HookEventSpec("UserPromptSubmit"),
             HookEventSpec("PreToolUse", matcher: "*"),
             HookEventSpec("PostToolUse", matcher: "*"),
+            // PostToolUseFailure fires when a tool errored or was interrupted —
+            // previously missed entirely (Claude Code v2.0.x+)
+            HookEventSpec("PostToolUseFailure", matcher: "*"),
             HookEventSpec("PermissionRequest", matcher: "*", timeoutSeconds: 86400),
+            // PermissionDenied surfaces auto-mode classifier denials (v2.1.88+)
+            HookEventSpec("PermissionDenied", matcher: "*"),
             HookEventSpec("Notification", matcher: "*"),
             HookEventSpec("Stop"),
+            // StopFailure fires on API errors (rate limit, auth, billing) so we
+            // can show the failure instead of appearing stuck (v2.1.78+)
+            HookEventSpec("StopFailure"),
+            // SubagentStart pairs with existing SubagentStop (v2.0.43+)
+            HookEventSpec("SubagentStart"),
             HookEventSpec("SubagentStop"),
             HookEventSpec("SessionStart"),
             HookEventSpec("SessionEnd"),
             HookEventSpec("PreCompact", preCompactMatchers: ["auto", "manual"]),
+            // PostCompact pairs with PreCompact so the UI can leave
+            // .compacting cleanly (v2.1.76+)
+            HookEventSpec("PostCompact", preCompactMatchers: ["auto", "manual"]),
         ]
     }
 
