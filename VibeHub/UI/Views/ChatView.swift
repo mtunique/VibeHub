@@ -1024,7 +1024,7 @@ private func isEmptyTextItem(_ item: ChatHistoryItem) -> Bool {
     switch item.type {
     case .user(let t), .assistant(let t), .thinking(let t):
         return isBlank(t)
-    case .toolCall, .interrupted:
+    case .toolCall, .image, .interrupted:
         return false
     }
 }
@@ -1102,6 +1102,8 @@ struct MessageItemView: View {
             ToolCallView(tool: tool, sessionId: sessionId)
         case .thinking(let text):
             ThinkingView(text: text)
+        case .image(let block):
+            ImageMessageView(image: block)
         case .interrupted:
             InterruptedMessageView()
         }
@@ -1681,6 +1683,59 @@ struct ThinkingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 2)
+        }
+    }
+}
+
+// MARK: - Image Message
+
+struct ImageMessageView: View {
+    let image: ImageBlock
+
+    /// Decoded image cached so base64 isn't re-decoded on every render.
+    /// Large inline images (tens of KB) would otherwise thrash during
+    /// scrolling or parent re-renders.
+    @State private var decoded: NSImage?
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 60)
+
+            if let decoded {
+                Image(nsImage: decoded)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 280, maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+            } else {
+                // Decode failed / pending — labelled placeholder rather than silently dropping
+                HStack(spacing: 6) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 12))
+                    Text("Image (\(image.mediaType))")
+                        .font(.system(size: 12))
+                }
+                .foregroundColor(.primary.opacity(0.5))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.08))
+                )
+            }
+        }
+        .task(id: image.id) {
+            // Decode off the main thread so large images don't hitch scrolling.
+            let b64 = image.base64Data
+            let decoded = await Task.detached(priority: .userInitiated) {
+                guard let data = Data(base64Encoded: b64) else { return nil as NSImage? }
+                return NSImage(data: data)
+            }.value
+            self.decoded = decoded
         }
     }
 }

@@ -672,6 +672,13 @@ actor ConversationParser {
                         if let thinking = block["thinking"] as? String {
                             blocks.append(.thinking(thinking))
                         }
+                    case "image":
+                        // Claude Code stores inline images as base64 with media_type.
+                        if let source = block["source"] as? [String: Any],
+                           let mediaType = source["media_type"] as? String,
+                           let data = source["data"] as? String {
+                            blocks.append(.image(ImageBlock(mediaType: mediaType, base64Data: data)))
+                        }
                     default:
                         break
                     }
