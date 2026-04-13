@@ -1143,22 +1143,27 @@ extension ConversationParser {
         var seenToolIds: Set<String> = []
         var completedToolIds: Set<String> = []
 
-        for line in content.components(separatedBy: "\n") where !line.isEmpty {
-            if line.contains("\"tool_result\""),
-               let lineData = line.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-               let messageDict = json["message"] as? [String: Any],
-               let contentArray = messageDict["content"] as? [[String: Any]] {
-                for block in contentArray {
-                    if block["type"] as? String == "tool_result",
-                       let toolUseId = block["tool_use_id"] as? String {
-                        completedToolIds.insert(toolUseId)
-                    }
+        // Collect the lines once — the prior implementation allocated the
+        // array twice, which was wasteful on multi-task agent runs.
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: true)
+
+        for line in lines {
+            guard line.contains("\"tool_result\"") else { continue }
+            guard let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let messageDict = json["message"] as? [String: Any],
+                  let contentArray = messageDict["content"] as? [[String: Any]] else {
+                continue
+            }
+            for block in contentArray {
+                if block["type"] as? String == "tool_result",
+                   let toolUseId = block["tool_use_id"] as? String {
+                    completedToolIds.insert(toolUseId)
                 }
             }
         }
 
-        for line in content.components(separatedBy: "\n") where !line.isEmpty {
+        for line in lines {
             guard line.contains("\"tool_use\""),
                   let lineData = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],

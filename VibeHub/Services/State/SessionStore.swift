@@ -230,7 +230,19 @@ actor SessionStore {
         processToolTracking(event: event, session: &session)
         processSubagentTracking(event: event, session: &session)
 
+        // Surface error/denial context from the Python hook. Until UI wiring
+        // lands these only go to logs, but that's enough to diagnose silent
+        // denials/failures that would otherwise be invisible.
+        if event.event == "PermissionDenied", let reason = event.denialReason {
+            Self.logger.info("PermissionDenied \(sessionId.prefix(8), privacy: .public) tool=\(event.tool ?? "?", privacy: .public): \(reason, privacy: .public)")
+        }
+        if event.event == "PostToolUseFailure", let err = event.toolError {
+            Self.logger.info("PostToolUseFailure \(sessionId.prefix(8), privacy: .public) tool=\(event.tool ?? "?", privacy: .public): \(err, privacy: .public)")
+        }
         if event.event == "Stop" {
+            if let err = event.stopError {
+                Self.logger.info("Stop \(sessionId.prefix(8), privacy: .public) error: \(err, privacy: .public)")
+            }
             session.subagentState = SubagentState()
         }
 
@@ -520,6 +532,15 @@ actor SessionStore {
                 }
             }
 
+        case "PostToolUseFailure":
+            // Tool failed — mark chat item as error so the UI stops showing
+            // a spinner. Without this, the item's status stays `.running`
+            // forever and never completes.
+            if let toolUseId = event.toolUseId {
+                session.toolTracker.completeTool(id: toolUseId, success: false)
+                updateToolStatus(in: &session, toolId: toolUseId, status: .error)
+            }
+
         default:
             break
         }
@@ -573,6 +594,13 @@ actor SessionStore {
                 // A subagent's inner tool completed. Update its status in the
                 // parent's subagent list and sync.
                 session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .success)
+                syncSubagentToolsToChatItems(session: &session)
+            }
+
+        case "PostToolUseFailure":
+            if let toolUseId = event.toolUseId,
+               session.subagentState.hasActiveSubagent {
+                session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .error)
                 syncSubagentToolsToChatItems(session: &session)
             }
 
@@ -1070,9 +1098,15 @@ actor SessionStore {
         )
 
         for path in [paths.nested, paths.flat] {
-            // Test then cat in one SSH round-trip. Quoting the path defends
-            // against any shell metacharacters that could sneak in via cwd.
-            let cmd = "sh -c 'if [ -f \"\(path)\" ]; then cat \"\(path)\"; fi'"
+            // Single-quote the path so shell metacharacters in cwd (e.g.
+            // an apostrophe in "bob's-project") can't escape the argument.
+            // Tilde must sit outside the quotes to expand — POSIX only
+            // expands tilde at the start of a word before the first
+            // unquoted slash, and `~/'foo bar'` qualifies.
+            let rest = path.hasPrefix("~/") ? String(path.dropFirst(2)) : path
+            let escaped = rest.replacingOccurrences(of: "'", with: "'\\''")
+            let quoted = path.hasPrefix("~/") ? "~/'\(escaped)'" : "'\(escaped)'"
+            let cmd = "cat \(quoted) 2>/dev/null"
             let (output, exitCode) = await RemoteManager.shared.exec(
                 hostId: hostId,
                 command: cmd

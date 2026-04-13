@@ -169,6 +169,7 @@ actor TerminalActivator {
                     binary, arguments: ["rpc", "surface.focus", params]
                 )
                 log("activateCmuxSession: surface.focus ok surface=\(surfaceId)")
+                await activateCmuxApp()
                 return true
             } catch {
                 log("activateCmuxSession: surface.focus failed: \(error)")
@@ -182,6 +183,7 @@ actor TerminalActivator {
                     binary, arguments: ["rpc", "workspace.select", params]
                 )
                 log("activateCmuxSession: workspace.select ok workspace=\(workspaceId)")
+                await activateCmuxApp()
                 return true
             } catch {
                 log("activateCmuxSession: workspace.select failed: \(error)")
@@ -190,6 +192,22 @@ actor TerminalActivator {
 
         log("activateCmuxSession: nothing to focus (both ids nil or all calls failed)")
         return false
+    }
+
+    /// Bring cmux.app itself to the foreground. `surface.focus` /
+    /// `workspace.select` only adjust cmux's internal state; without this
+    /// the focused surface is correct but macOS's frontmost app is still
+    /// whatever the user was just in.
+    private func activateCmuxApp() async {
+        await MainActor.run {
+            // Match by bundleURL path containing "cmux.app" — robust
+            // regardless of the exact bundle identifier.
+            let app = NSWorkspace.shared.runningApplications.first { candidate in
+                guard let url = candidate.bundleURL else { return false }
+                return url.path.contains("cmux.app")
+            }
+            _ = app?.activate()
+        }
     }
 
     private func activateTmuxSession(_ session: SessionState) async -> Bool {
@@ -323,6 +341,7 @@ actor TerminalActivator {
             _ = try await ProcessExecutor.shared.run(
                 binary, arguments: ["rpc", "surface.focus", params]
             )
+            await activateCmuxApp()
             return true
         } catch {
             return false

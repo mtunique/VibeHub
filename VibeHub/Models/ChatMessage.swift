@@ -76,9 +76,11 @@ struct ImageBlock: Equatable, Sendable {
     let base64Data: String
 
     /// Stable identifier based on the data prefix so SwiftUI doesn't
-    /// re-render images unnecessarily across parses.
+    /// re-render images unnecessarily across parses. Uses the raw prefix
+    /// (not hashValue, whose seed varies across processes) so the id stays
+    /// meaningful if the value is ever persisted.
     var id: String {
-        "\(base64Data.prefix(200).hashValue)"
+        "img-\(base64Data.prefix(128))"
     }
 }
 

@@ -83,6 +83,14 @@ struct HookEvent: Codable, Sendable {
     let cmuxWorkspaceId: String?
     let cmuxSurfaceId: String?
 
+    // Error / denial context emitted by the Python hook for the five new
+    // events (PostToolUseFailure, PermissionDenied, Stop, ...). Without
+    // these, the payload fields get silently dropped by JSONDecoder and
+    // the app loses the reason when a tool errors or a prompt is blocked.
+    let toolError: String?
+    let denialReason: String?
+    let stopError: String?
+
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case cwd, event, status, pid, tty, tool
@@ -102,6 +110,9 @@ struct HookEvent: Codable, Sendable {
         case newJsonlLines = "new_jsonl_lines"
         case cmuxWorkspaceId = "_cmux_workspace_id"
         case cmuxSurfaceId = "_cmux_surface_id"
+        case toolError = "tool_error"
+        case denialReason = "denial_reason"
+        case stopError = "stop_error"
     }
 
     /// Create a copy with updated toolUseId
@@ -128,7 +139,10 @@ struct HookEvent: Codable, Sendable {
         sshClientPort: String? = nil,
         newJsonlLines: [String]? = nil,
         cmuxWorkspaceId: String? = nil,
-        cmuxSurfaceId: String? = nil
+        cmuxSurfaceId: String? = nil,
+        toolError: String? = nil,
+        denialReason: String? = nil,
+        stopError: String? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
@@ -153,6 +167,9 @@ struct HookEvent: Codable, Sendable {
         self.newJsonlLines = newJsonlLines
         self.cmuxWorkspaceId = cmuxWorkspaceId
         self.cmuxSurfaceId = cmuxSurfaceId
+        self.toolError = toolError
+        self.denialReason = denialReason
+        self.stopError = stopError
     }
 
     /// Resolve the source for this event:
@@ -381,7 +398,10 @@ class HookSocketServer {
             sshClientPort: event.sshClientPort,
             newJsonlLines: event.newJsonlLines,
             cmuxWorkspaceId: event.cmuxWorkspaceId,
-            cmuxSurfaceId: event.cmuxSurfaceId
+            cmuxSurfaceId: event.cmuxSurfaceId,
+            toolError: event.toolError,
+            denialReason: event.denialReason,
+            stopError: event.stopError
         )
     }
 
@@ -634,7 +654,10 @@ class HookSocketServer {
                 sshClientPort: event.sshClientPort,
                 newJsonlLines: event.newJsonlLines,
                 cmuxWorkspaceId: event.cmuxWorkspaceId,
-                cmuxSurfaceId: event.cmuxSurfaceId
+                cmuxSurfaceId: event.cmuxSurfaceId,
+                toolError: event.toolError,
+                denialReason: event.denialReason,
+                stopError: event.stopError
             )
 
             let pending = PendingPermission(
