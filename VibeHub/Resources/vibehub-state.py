@@ -372,7 +372,7 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 
 # Explicit CLI source. Every CLI's hook command sets this via
 # `VIBEHUB_SOURCE=<name>`. When absent we fall back to `.codex/` path

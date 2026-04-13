@@ -23,16 +23,19 @@ actor TerminalActivator {
     @discardableResult
     func activateTerminal(for session: SessionState) async -> Bool {
         log("activateTerminal: remote=\(session.isRemote) tmux=\(session.isInTmux) cmux=\(session.isInCmux) pid=\(session.pid ?? -1)")
-        if session.isRemote {
-            return await activateRemoteSession(session)
+
+        // cmux is checked first because it's independent of remote/tmux: if
+        // we have a cmux surface_id (local or SSH'd from within cmux with
+        // env-var propagation), focusing the surface via RPC is the most
+        // precise target. Falls through on RPC failure so the remote/local
+        // paths can still try their own focus strategies.
+        if session.isInCmux {
+            if await activateCmuxSession(session) { return true }
+            log("activateTerminal: cmux surface focus failed, falling through")
         }
 
-        // cmux is checked before tmux: a cmux-hosted terminal may internally
-        // also be running tmux, but jumping to the cmux surface lands on the
-        // right tmux pane automatically, whereas walking up the process tree
-        // to the terminal app would stop at cmux.app and miss the surface.
-        if session.isInCmux {
-            return await activateCmuxSession(session)
+        if session.isRemote {
+            return await activateRemoteSession(session)
         }
 
         if session.isInTmux {
@@ -161,23 +164,31 @@ actor TerminalActivator {
 
         if let surfaceId, !surfaceId.isEmpty {
             let params = #"{"surface_id":"\#(surfaceId)"}"#
-            if (try? await ProcessExecutor.shared.run(
-                binary, arguments: ["rpc", "surface.focus", params]
-            )) != nil {
+            do {
+                _ = try await ProcessExecutor.shared.run(
+                    binary, arguments: ["rpc", "surface.focus", params]
+                )
+                log("activateCmuxSession: surface.focus ok surface=\(surfaceId)")
                 return true
+            } catch {
+                log("activateCmuxSession: surface.focus failed: \(error)")
             }
         }
 
         if let workspaceId, !workspaceId.isEmpty {
             let params = #"{"workspace_id":"\#(workspaceId)"}"#
-            if (try? await ProcessExecutor.shared.run(
-                binary, arguments: ["rpc", "workspace.select", params]
-            )) != nil {
+            do {
+                _ = try await ProcessExecutor.shared.run(
+                    binary, arguments: ["rpc", "workspace.select", params]
+                )
+                log("activateCmuxSession: workspace.select ok workspace=\(workspaceId)")
                 return true
+            } catch {
+                log("activateCmuxSession: workspace.select failed: \(error)")
             }
         }
 
-        log("activateCmuxSession: both RPC calls failed")
+        log("activateCmuxSession: nothing to focus (both ids nil or all calls failed)")
         return false
     }
 

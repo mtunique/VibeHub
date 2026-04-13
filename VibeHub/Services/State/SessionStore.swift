@@ -1008,12 +1008,26 @@ actor SessionStore {
             }
 
             let subagentProjectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
-            let subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
-                sessionId: sessionId,
-                agentId: taskResult.agentId,
-                cwd: cwd,
-                projectsDirRelative: subagentProjectsDir
-            )
+            let subagentToolInfos: [SubagentToolInfo]
+            if session.isRemote, let hostId = session.remoteHostId {
+                // Remote: the agent JSONL lives on the remote host; fetch it
+                // via SSH then parse locally. Try nested path first (current
+                // Claude Code layout), fall back to flat (legacy).
+                subagentToolInfos = await fetchRemoteSubagentTools(
+                    hostId: hostId,
+                    sessionId: sessionId,
+                    agentId: taskResult.agentId,
+                    cwd: cwd,
+                    projectsDirRelative: subagentProjectsDir
+                )
+            } else {
+                subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
+                    sessionId: sessionId,
+                    agentId: taskResult.agentId,
+                    cwd: cwd,
+                    projectsDirRelative: subagentProjectsDir
+                )
+            }
 
             guard !subagentToolInfos.isEmpty else { continue }
 
@@ -1035,6 +1049,43 @@ actor SessionStore {
 
             Self.logger.debug("Populated \(subagentToolInfos.count) subagent tools for Task \(taskToolId.prefix(12), privacy: .public) from agent \(taskResult.agentId.prefix(8), privacy: .public)")
         }
+    }
+
+    /// Fetch a remote subagent JSONL over SSH and parse it into SubagentToolInfo.
+    /// Tries nested path first (Claude Code current layout), falls back to
+    /// the flat path. Returns empty on any failure (no file, SSH error,
+    /// parse failure); caller treats empty as "nothing to populate".
+    private func fetchRemoteSubagentTools(
+        hostId: String,
+        sessionId: String,
+        agentId: String,
+        cwd: String,
+        projectsDirRelative: String
+    ) async -> [SubagentToolInfo] {
+        let paths = ConversationParser.remoteSubagentPaths(
+            sessionId: sessionId,
+            agentId: agentId,
+            cwd: cwd,
+            projectsDirRelative: projectsDirRelative
+        )
+
+        for path in [paths.nested, paths.flat] {
+            // Test then cat in one SSH round-trip. Quoting the path defends
+            // against any shell metacharacters that could sneak in via cwd.
+            let cmd = "sh -c 'if [ -f \"\(path)\" ]; then cat \"\(path)\"; fi'"
+            let (output, exitCode) = await RemoteManager.shared.exec(
+                hostId: hostId,
+                command: cmd
+            )
+            guard exitCode == 0, !output.isEmpty else { continue }
+
+            let tools = ConversationParser.parseSubagentToolsFromContent(output)
+            if !tools.isEmpty {
+                Self.logger.debug("Fetched \(tools.count) remote subagent tools for agent \(agentId.prefix(8), privacy: .public) from \(path, privacy: .public)")
+                return tools
+            }
+        }
+        return []
     }
 
     /// Emit toolCompleted events for tools that have results in JSONL but aren't marked complete yet

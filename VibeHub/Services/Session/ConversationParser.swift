@@ -1134,6 +1134,92 @@ struct SubagentToolInfo: Sendable {
     let timestamp: String?
 }
 
+extension ConversationParser {
+    /// Parse subagent tools directly from raw JSONL content. Used by both the
+    /// local-file variant and the remote (SSH-fetched) variant so the parsing
+    /// logic lives in exactly one place.
+    nonisolated static func parseSubagentToolsFromContent(_ content: String) -> [SubagentToolInfo] {
+        var tools: [SubagentToolInfo] = []
+        var seenToolIds: Set<String> = []
+        var completedToolIds: Set<String> = []
+
+        for line in content.components(separatedBy: "\n") where !line.isEmpty {
+            if line.contains("\"tool_result\""),
+               let lineData = line.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+               let messageDict = json["message"] as? [String: Any],
+               let contentArray = messageDict["content"] as? [[String: Any]] {
+                for block in contentArray {
+                    if block["type"] as? String == "tool_result",
+                       let toolUseId = block["tool_use_id"] as? String {
+                        completedToolIds.insert(toolUseId)
+                    }
+                }
+            }
+        }
+
+        for line in content.components(separatedBy: "\n") where !line.isEmpty {
+            guard line.contains("\"tool_use\""),
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let messageDict = json["message"] as? [String: Any],
+                  let contentArray = messageDict["content"] as? [[String: Any]] else {
+                continue
+            }
+
+            for block in contentArray {
+                guard block["type"] as? String == "tool_use",
+                      let toolId = block["id"] as? String,
+                      let toolName = block["name"] as? String,
+                      !seenToolIds.contains(toolId) else {
+                    continue
+                }
+
+                seenToolIds.insert(toolId)
+
+                var input: [String: String] = [:]
+                if let inputDict = block["input"] as? [String: Any] {
+                    for (key, value) in inputDict {
+                        if let strValue = value as? String {
+                            input[key] = strValue
+                        } else if let intValue = value as? Int {
+                            input[key] = String(intValue)
+                        } else if let boolValue = value as? Bool {
+                            input[key] = boolValue ? "true" : "false"
+                        }
+                    }
+                }
+
+                tools.append(SubagentToolInfo(
+                    id: toolId,
+                    name: toolName,
+                    input: input,
+                    isCompleted: completedToolIds.contains(toolId),
+                    timestamp: json["timestamp"] as? String
+                ))
+            }
+        }
+
+        return tools
+    }
+
+    /// Build the ~-relative remote path to a subagent JSONL, matching the
+    /// local layout. Returns both the nested (Claude Code current) and flat
+    /// (legacy) candidates — SessionStore tries nested first, falls back.
+    nonisolated static func remoteSubagentPaths(
+        sessionId: String,
+        agentId: String,
+        cwd: String,
+        projectsDirRelative: String = ".claude/projects"
+    ) -> (nested: String, flat: String) {
+        let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
+        let base = "~/" + projectsDirRelative + "/" + projectDir
+        let nested = base + "/" + sessionId + "/subagents/agent-" + agentId + ".jsonl"
+        let flat = base + "/agent-" + agentId + ".jsonl"
+        return (nested, flat)
+    }
+}
+
 // MARK: - Static Subagent Tools Parsing
 
 extension ConversationParser {

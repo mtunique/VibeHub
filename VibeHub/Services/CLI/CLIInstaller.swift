@@ -138,7 +138,7 @@ enum CLIInstaller {
     /// Version of the bundled `vibehub-state.py` hook. Must stay in sync with
     /// the `VERSION = "x.y.z"` literal inside Resources/vibehub-state.py —
     /// used by RemoteInstaller to decide whether to upload a fresh copy.
-    static let sharedScriptVersion: String = "1.0.8"
+    static let sharedScriptVersion: String = "1.0.9"
 
     /// Canonical location of the shared Python hook script. Every CLI's
     /// `hooks/vibehub-state.py` is a symlink pointing here.
