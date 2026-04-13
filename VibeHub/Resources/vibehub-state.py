@@ -389,7 +389,14 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.9"
+def _file_hash():
+    """SHA-256 hash (first 16 hex chars) of this script file."""
+    import hashlib
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except Exception:
+        return "unknown"
 
 # Explicit CLI source. Every CLI's hook command sets this via
 # `VIBEHUB_SOURCE=<name>`. When absent we fall back to `.codex/` path
@@ -495,7 +502,7 @@ def _query_opencode_db(session_id):
 
 def main():
     if "--version" in sys.argv:
-        print(VERSION)
+        print(_file_hash())
         sys.exit(0)
 
     if "--opencode-db" in sys.argv:
