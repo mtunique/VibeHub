@@ -5,7 +5,6 @@
 //  Zellij multiplexer operations: pane discovery, focus, and message sending.
 //
 
-import Darwin
 import Foundation
 import os.log
 
