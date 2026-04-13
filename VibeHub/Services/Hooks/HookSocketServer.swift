@@ -90,6 +90,10 @@ struct HookEvent: Codable, Sendable {
     let toolError: String?
     let denialReason: String?
     let stopError: String?
+    
+    /// Whether TIOCSTI ioctl is available in the session's environment.
+    /// Probed by the Python hook on every invocation.
+    let canInjectKeystrokes: Bool?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -113,6 +117,7 @@ struct HookEvent: Codable, Sendable {
         case toolError = "tool_error"
         case denialReason = "denial_reason"
         case stopError = "stop_error"
+        case canInjectKeystrokes = "can_inject_keystrokes"
     }
 
     /// Create a copy with updated toolUseId
@@ -143,6 +148,7 @@ struct HookEvent: Codable, Sendable {
         toolError: String? = nil,
         denialReason: String? = nil,
         stopError: String? = nil
+        canInjectKeystrokes: Bool? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
@@ -170,6 +176,7 @@ struct HookEvent: Codable, Sendable {
         self.toolError = toolError
         self.denialReason = denialReason
         self.stopError = stopError
+        self.canInjectKeystrokes = canInjectKeystrokes
     }
 
     /// Resolve the source for this event:

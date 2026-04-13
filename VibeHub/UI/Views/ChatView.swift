@@ -482,40 +482,18 @@ struct ChatView: View {
     }
 
     /// Can send messages if we can reach the session.
-    /// - Remote: always (forwarded over SSH).
     /// - cmux: always (we have a workspace/surface id to target via `cmux send`).
     /// - OpenCode: always (control socket / HTTP / clipboard fallback).
-    /// - Claude Code / Codex / fork: tmux send-keys, AppleScript into Terminal.app or
-    ///   iTerm2, or TTY injection — all of which require a tty to identify the target.
+    /// - AppleScript: Terminal.app and iTerm2 expose scriptable text input.
+    /// - tmux: send-keys works regardless of TIOCSTI.
+    /// - TIOCSTI: last resort, probed by the hook on every invocation.
     private var canSendMessages: Bool {
-        if session.isRemote {
-            return true
-        }
-        if session.isInCmux {
-            return true
-        }
-
-        // OpenCode always has a path (control socket / HTTP / clipboard)
-        if isOpenCodeSession {
-            return true
-        }
-
-        return session.tty != nil;
-
-        // TODO:
-        //
-        //  if session.tty == nil { return false; }
-        //
-        // if # appleScript {
-        //  return true;
-        // }
-        //
-        // if session.isInMultiplexer {
-        //.  returen true;
-        // }
-        //
-        // Otherwise we need tmux or a keystroke capable tty
-        // return TTYCapability.canInjectKeystrokes;
+        if session.isInCmux { return true }
+        if isOpenCodeSession { return true }
+        guard session.tty != nil else { return false }
+        if !session.isRemote && TerminalTextSender.canSend(session: session) { return true }
+        if session.isInTmux { return true }
+        return session.canInjectKeystrokes
     }
 
     private var inputBar: some View {

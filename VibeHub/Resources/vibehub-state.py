@@ -226,6 +226,23 @@ def uninstall_all():
     return True
 
 
+def probe_tiocsti():
+    """Check whether TIOCSTI ioctl is available (blocked on macOS Ventura+)."""
+    try:
+        import fcntl, termios, struct, pty
+        m, s = pty.openpty()
+        try:
+            fcntl.ioctl(s, termios.TIOCSTI, struct.pack('B', 0))
+            return True
+        except Exception:
+            return False
+        finally:
+            os.close(m)
+            os.close(s)
+    except Exception:
+        return False
+
+
 def get_tty():
     """Get the TTY by walking up the process tree until a process with a TTY is found."""
     import subprocess
@@ -517,6 +534,7 @@ def main():
     # Get process info
     claude_pid = os.getppid()
     tty = get_tty()
+    can_inject_keystrokes = probe_tiocsti()
 
     # Build state object
     state = {
@@ -525,6 +543,7 @@ def main():
         "event": event,
         "pid": claude_pid,
         "tty": tty,
+        "can_inject_keystrokes": can_inject_keystrokes,
         # Explicit CLI source (first-class field consumed by HookEvent._source).
         "_source": SOURCE,
     }

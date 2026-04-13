@@ -164,6 +164,9 @@ actor SessionStore {
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }
+        if let canInject = event.canInjectKeystrokes {
+            session.canInjectKeystrokes = canInject
+        }
 
         if let serverPort = event.serverPort {
             session.serverPort = serverPort
