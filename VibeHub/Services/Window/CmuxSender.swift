@@ -22,7 +22,7 @@ enum CmuxSender {
 
     /// Known install locations for the cmux CLI binary. We probe these in
     /// order until one exists. Users can also place the binary on PATH.
-    private static let candidateBinaryPaths: [String] = [
+    fileprivate static let candidateBinaryPaths: [String] = [
         "/Applications/cmux.app/Contents/Resources/bin/cmux",
         "/usr/local/bin/cmux",
         "/opt/homebrew/bin/cmux",
@@ -82,7 +82,9 @@ enum CmuxSender {
     /// app process since the binary location almost never changes at runtime.
     private static let cache = BinaryCache()
 
-    private static func resolveBinary() async -> String? {
+    /// Resolve the cmux CLI binary. Exposed so other callers (e.g.
+    /// TerminalActivator for surface.focus RPCs) can reuse the cache.
+    static func resolveBinary() async -> String? {
         await cache.resolve()
     }
 

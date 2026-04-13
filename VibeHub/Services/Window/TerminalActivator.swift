@@ -22,9 +22,17 @@ actor TerminalActivator {
     /// Returns true if the terminal was successfully activated.
     @discardableResult
     func activateTerminal(for session: SessionState) async -> Bool {
-        log("activateTerminal: remote=\(session.isRemote) tmux=\(session.isInTmux) pid=\(session.pid ?? -1)")
+        log("activateTerminal: remote=\(session.isRemote) tmux=\(session.isInTmux) cmux=\(session.isInCmux) pid=\(session.pid ?? -1)")
         if session.isRemote {
             return await activateRemoteSession(session)
+        }
+
+        // cmux is checked before tmux: a cmux-hosted terminal may internally
+        // also be running tmux, but jumping to the cmux surface lands on the
+        // right tmux pane automatically, whereas walking up the process tree
+        // to the terminal app would stop at cmux.app and miss the surface.
+        if session.isInCmux {
+            return await activateCmuxSession(session)
         }
 
         if session.isInTmux {
@@ -134,6 +142,44 @@ actor TerminalActivator {
     }
 
     // MARK: - Local Tmux Session
+
+    // MARK: - cmux Session
+
+    /// Focus the cmux surface hosting this session and bring cmux.app to front.
+    /// Uses the `surface.focus` RPC (preferred — lands on the exact tab) with
+    /// a `workspace.select` fallback when only workspaceId is known.
+    /// Returns true if either call succeeded.
+    private func activateCmuxSession(_ session: SessionState) async -> Bool {
+        guard let binary = await CmuxSender.resolveBinary() else {
+            log("activateCmuxSession: cmux CLI not found")
+            return false
+        }
+
+        let surfaceId = session.cmuxSurfaceId
+        let workspaceId = session.cmuxWorkspaceId
+        log("activateCmuxSession: surface=\(surfaceId ?? "nil") workspace=\(workspaceId ?? "nil")")
+
+        if let surfaceId, !surfaceId.isEmpty {
+            let params = #"{"surface_id":"\#(surfaceId)"}"#
+            if (try? await ProcessExecutor.shared.run(
+                binary, arguments: ["rpc", "surface.focus", params]
+            )) != nil {
+                return true
+            }
+        }
+
+        if let workspaceId, !workspaceId.isEmpty {
+            let params = #"{"workspace_id":"\#(workspaceId)"}"#
+            if (try? await ProcessExecutor.shared.run(
+                binary, arguments: ["rpc", "workspace.select", params]
+            )) != nil {
+                return true
+            }
+        }
+
+        log("activateCmuxSession: both RPC calls failed")
+        return false
+    }
 
     private func activateTmuxSession(_ session: SessionState) async -> Bool {
         guard let pid = session.pid else { return false }
