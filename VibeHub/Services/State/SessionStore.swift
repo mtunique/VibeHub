@@ -1642,11 +1642,17 @@ actor SessionStore {
                 for (sessionId, session) in remoteSessionsToProbe {
                     guard let hostId = session.remoteHostId, let pid = session.pid else { continue }
                     group.addTask {
-                        let (_, exitCode) = await RemoteManager.shared.exec(
+                        // Use explicit ALIVE/DEAD sentinels so we can tell a
+                        // truly-dead process apart from a transient SSH error.
+                        // Only mark the session ended when the remote shell
+                        // actually reports DEAD.
+                        let (output, exitCode) = await RemoteManager.shared.exec(
                             hostId: hostId,
-                            command: "kill -0 \(pid) 2>/dev/null"
+                            command: "kill -0 \(pid) 2>/dev/null && echo ALIVE || echo DEAD"
                         )
-                        return exitCode != 0 ? sessionId : nil
+                        guard exitCode == 0 else { return nil }
+                        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return trimmed == "DEAD" ? sessionId : nil
                     }
                 }
                 var ids: [String] = []
