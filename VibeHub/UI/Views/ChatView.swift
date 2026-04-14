@@ -747,11 +747,11 @@ struct ChatView: View {
         }
 
         switch session.multiplexer {
-        case .cmux:
+        case .cmux(let workspaceId, let surfaceId):
             let ok = await CmuxSender.send(
                 text: text,
-                workspaceId: session.cmuxWorkspaceId,
-                surfaceId: session.cmuxSurfaceId
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
             )
             if !ok {
                 await MainActor.run {

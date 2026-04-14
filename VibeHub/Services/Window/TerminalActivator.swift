@@ -29,7 +29,7 @@ actor TerminalActivator {
         // env-var propagation), focusing the surface via RPC is the most
         // precise target. Falls through on RPC failure so the remote/local
         // paths can still try their own focus strategies.
-        if session.multiplexer == .cmux {
+        if case .cmux = session.multiplexer {
             if await activateCmuxSession(session) { return true }
             log("activateTerminal: cmux surface focus failed, falling through")
         }
@@ -179,8 +179,7 @@ actor TerminalActivator {
             return false
         }
 
-        let surfaceId = session.cmuxSurfaceId
-        let workspaceId = session.cmuxWorkspaceId
+        guard case .cmux(let workspaceId, let surfaceId) = session.multiplexer else { return false }
         log("activateCmuxSession: surface=\(surfaceId ?? "nil") workspace=\(workspaceId ?? "nil")")
 
         if let surfaceId, !surfaceId.isEmpty {

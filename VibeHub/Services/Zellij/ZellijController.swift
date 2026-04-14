@@ -49,14 +49,11 @@ actor ZellijController {
 
     private func zellijEnv(session: SessionState) -> (zjPath: String, paneId: String, env: [String: String]?)? {
         guard let zjPath = zellijPath() else { return nil }
-        guard let paneId = session.zellijPaneId else {
+        guard case .zellij(let sessionName, let paneId?) = session.multiplexer else {
             Self.logger.error("No zellij pane ID for session pid=\(session.pid ?? -1, privacy: .public)")
             return nil
         }
-        var env: [String: String]? = nil
-        if let sessionName = session.zellijSession {
-            env = ["ZELLIJ_SESSION_NAME": sessionName]
-        }
+        let env: [String: String]? = sessionName.map { ["ZELLIJ_SESSION_NAME": $0] }
         return (zjPath, paneId, env)
     }
 

@@ -106,13 +106,9 @@ sys.exit(1)
 
     /// Try sending via zellij write-chars on remote.
     private static func sendClaudeViaZellij(host: RemoteHost, session: SessionState, text: String) async -> (ok: Bool, hint: String?) {
-        guard let sessionName = session.zellijSession else {
-            await RemoteLog.shared.log(.info, "sendClaudeMessage: no zellij session name for pid=\(session.pid ?? -1)")
-            return (false, "zellij session name not reported by hook")
-        }
-        guard let paneId = session.zellijPaneId else {
-            await RemoteLog.shared.log(.info, "sendClaudeMessage: no zellij pane id for pid=\(session.pid ?? -1)")
-            return (false, "zellij pane id not reported by hook")
+        guard case .zellij(let sessionName?, let paneId?) = session.multiplexer else {
+            await RemoteLog.shared.log(.info, "sendClaudeMessage: missing zellij session/pane for pid=\(session.pid ?? -1)")
+            return (false, "zellij session/pane not reported by hook")
         }
 
         let escaped = text.replacingOccurrences(of: "'", with: "'\\''")

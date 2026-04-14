@@ -161,11 +161,17 @@ actor SessionStore {
         if let mux = event.multiplexer {
             switch mux {
             case "cmux":
-                session.multiplexer = .cmux
+                let (prevW, prevS): (String?, String?) =
+                    if case .cmux(let w, let s) = session.multiplexer { (w, s) } else { (nil, nil) }
+                session.multiplexer = .cmux(
+                    workspaceId: event.cmuxWorkspaceId ?? prevW,
+                    surfaceId: event.cmuxSurfaceId ?? prevS
+                )
             case "zellij":
-                session.multiplexer = .zellij
-                session.zellijSession = event.zellijSession
-                session.zellijPaneId = event.zellijPaneId
+                session.multiplexer = .zellij(
+                    session: event.zellijSession,
+                    paneId: event.zellijPaneId
+                )
             case "tmux":
                 session.multiplexer = .tmux
             default:
@@ -184,12 +190,6 @@ actor SessionStore {
         }
         if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
             session.serverHostname = serverHostname
-        }
-        if let cmuxWorkspaceId = event.cmuxWorkspaceId, !cmuxWorkspaceId.isEmpty {
-            session.cmuxWorkspaceId = cmuxWorkspaceId
-        }
-        if let cmuxSurfaceId = event.cmuxSurfaceId, !cmuxSurfaceId.isEmpty {
-            session.cmuxSurfaceId = cmuxSurfaceId
         }
 
         if let remoteHostId = event.remoteHostId {

@@ -12,8 +12,8 @@ import Foundation
 enum MultiplexerKind: Equatable, Sendable {
     case none
     case tmux
-    case zellij
-    case cmux
+    case zellij(session: String?, paneId: String?)
+    case cmux(workspaceId: String?, surfaceId: String?)
 }
 
 /// Complete state for a single Claude session
@@ -30,18 +30,9 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var multiplexer: MultiplexerKind
-    /// Zellij session name and pane ID (reported by hook on remote, read from env locally)
-    var zellijSession: String?
-    var zellijPaneId: String?
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?
-    /// cmux workspace / surface identifiers captured from the hook's
-    /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` environment variables.
-    /// When non-nil, ChatView sends messages via the cmux CLI instead of
-    /// TTY injection.
-    var cmuxWorkspaceId: String?
-    var cmuxSurfaceId: String?
 
     /// If non-nil, this session is coming from a remote host.
     var remoteHostId: String?
@@ -134,8 +125,6 @@ struct SessionState: Equatable, Identifiable, Sendable {
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
-        cmuxWorkspaceId: String? = nil,
-        cmuxSurfaceId: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -162,8 +151,6 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
-        self.cmuxWorkspaceId = cmuxWorkspaceId
-        self.cmuxSurfaceId = cmuxSurfaceId
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker
