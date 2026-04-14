@@ -7,7 +7,10 @@
 
 import AppKit
 import Combine
+import os.log
 import SwiftUI
+
+private let logger = Logger(subsystem: "com.vibehub", category: "ChatView")
 
 // MARK: - Display Context Environment
 
@@ -840,10 +843,17 @@ struct ChatView: View {
             }
             return
         }
-        guard let pid = session.pid else { return }
-
-        if let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) {
-            _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+        guard let pid = session.pid else {
+            logger.warning("tmux send: no pid for session \(session.sessionId, privacy: .public)")
+            return
+        }
+        guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) else {
+            logger.warning("tmux send: no target found for pid \(pid)")
+            return
+        }
+        let ok = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+        if !ok {
+            logger.warning("tmux send: sendMessage failed for \(target.targetString, privacy: .public)")
         }
     }
 

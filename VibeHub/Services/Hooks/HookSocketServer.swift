@@ -72,6 +72,9 @@ struct HookEvent: Codable, Sendable {
     // SSH client source port (from SSH_CLIENT env var on remote)
     let sshClientPort: String?
 
+    // Tmux binary path reported by hook (from `which tmux` in session env)
+    let tmuxBin: String?
+
     // Streaming updates from the remote hook
     let newJsonlLines: [String]?
 
@@ -111,6 +114,7 @@ struct HookEvent: Codable, Sendable {
         case serverHostname = "_server_hostname"
         case remoteHostId = "_remote_host_id"
         case sshClientPort = "ssh_client_port"
+        case tmuxBin = "tmux_bin"
         case newJsonlLines = "new_jsonl_lines"
         case cmuxWorkspaceId = "_cmux_workspace_id"
         case cmuxSurfaceId = "_cmux_surface_id"
@@ -142,12 +146,13 @@ struct HookEvent: Codable, Sendable {
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
+        tmuxBin: String? = nil,
         newJsonlLines: [String]? = nil,
         cmuxWorkspaceId: String? = nil,
         cmuxSurfaceId: String? = nil,
         toolError: String? = nil,
         denialReason: String? = nil,
-        stopError: String? = nil
+        stopError: String? = nil,
         canInjectKeystrokes: Bool? = nil
     ) {
         self.sessionId = sessionId
@@ -170,6 +175,7 @@ struct HookEvent: Codable, Sendable {
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
+        self.tmuxBin = tmuxBin
         self.newJsonlLines = newJsonlLines
         self.cmuxWorkspaceId = cmuxWorkspaceId
         self.cmuxSurfaceId = cmuxSurfaceId
@@ -403,6 +409,7 @@ class HookSocketServer {
             serverHostname: event.serverHostname,
             remoteHostId: remoteHostId,
             sshClientPort: event.sshClientPort,
+            tmuxBin: event.tmuxBin,
             newJsonlLines: event.newJsonlLines,
             cmuxWorkspaceId: event.cmuxWorkspaceId,
             cmuxSurfaceId: event.cmuxSurfaceId,
@@ -659,6 +666,7 @@ class HookSocketServer {
                 serverHostname: event.serverHostname,
                 remoteHostId: event.remoteHostId,
                 sshClientPort: event.sshClientPort,
+                tmuxBin: event.tmuxBin,
                 newJsonlLines: event.newJsonlLines,
                 cmuxWorkspaceId: event.cmuxWorkspaceId,
                 cmuxSurfaceId: event.cmuxSurfaceId,

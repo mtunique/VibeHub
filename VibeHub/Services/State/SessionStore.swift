@@ -161,6 +161,10 @@ actor SessionStore {
             let tree = ProcessTreeBuilder.shared.buildTree()
             session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
         }
+        // Populate TmuxPathFinder with hook-reported binary path
+        if let bin = event.tmuxBin {
+            await TmuxPathFinder.shared.setHookReportedPath(bin)
+        }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }

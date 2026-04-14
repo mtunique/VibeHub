@@ -565,6 +565,13 @@ def main():
     if cmux_surface_id:
         state["_cmux_surface_id"] = cmux_surface_id
 
+    # Report the tmux binary path so the app doesn't need a hardcoded list
+    if os.environ.get("TMUX"):
+        import shutil
+        tmux_bin = shutil.which("tmux")
+        if tmux_bin:
+            state["tmux_bin"] = tmux_bin
+
     # Include SSH client source port for remote tab matching
     ssh_client = os.environ.get("SSH_CLIENT")
     if ssh_client:
