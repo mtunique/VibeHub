@@ -760,11 +760,6 @@ struct NotchView: View {
         if notifyMode == .always { return true }
 
         for session in sessions {
-            guard let pid = session.pid else {
-                // No PID means we can't check focus, assume not focused.
-                return true
-            }
-
             let isFocused = await TerminalVisibilityDetector.isSessionFocused(session: session)
             if AppSettings.shouldNotify(notifyMode, isFocused: isFocused) {
                 return true
