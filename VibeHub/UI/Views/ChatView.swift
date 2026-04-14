@@ -587,9 +587,9 @@ struct ChatView: View {
                 focusTerminal()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "terminal")
+                    Image(systemName: "eye")
                         .font(.system(size: 12, weight: .medium))
-                    Text(L10n.revealInTerminal)
+                    Text(L10n.revealSession)
                         .font(.system(size: 13, weight: .medium))
                 }
                 .foregroundColor(isNotchMode ? .black : .white)
