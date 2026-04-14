@@ -529,15 +529,23 @@ def main():
         "_source": SOURCE,
     }
 
-    # cmux multiplexer: every cmux-hosted terminal exports these env vars so
-    # the child Claude process inherits them. When present, VibeHub can inject
-    # text into the exact surface by shelling out to `cmux send`.
+    # Detect multiplexer and report how to reach this session
     cmux_workspace_id = os.environ.get("CMUX_WORKSPACE_ID")
     cmux_surface_id = os.environ.get("CMUX_SURFACE_ID")
-    if cmux_workspace_id:
-        state["_cmux_workspace_id"] = cmux_workspace_id
-    if cmux_surface_id:
-        state["_cmux_surface_id"] = cmux_surface_id
+    if cmux_workspace_id or cmux_surface_id:
+        state["multiplexer"] = "cmux"
+        if cmux_workspace_id:
+            state["_cmux_workspace_id"] = cmux_workspace_id
+        if cmux_surface_id:
+            state["_cmux_surface_id"] = cmux_surface_id
+    elif os.environ.get("ZELLIJ_SESSION_NAME"):
+        state["multiplexer"] = "zellij"
+        state["zellij_session"] = os.environ["ZELLIJ_SESSION_NAME"]
+        zellij_pane = os.environ.get("ZELLIJ_PANE_ID")
+        if zellij_pane:
+            state["zellij_pane_id"] = zellij_pane
+    elif os.environ.get("TMUX"):
+        state["multiplexer"] = "tmux"
 
     # Include SSH client source port for remote tab matching
     ssh_client = os.environ.get("SSH_CLIENT")

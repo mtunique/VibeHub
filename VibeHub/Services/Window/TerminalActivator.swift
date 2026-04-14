@@ -22,14 +22,14 @@ actor TerminalActivator {
     /// Returns true if the terminal was successfully activated.
     @discardableResult
     func activateTerminal(for session: SessionState) async -> Bool {
-        log("activateTerminal: remote=\(session.isRemote) tmux=\(session.isInTmux) cmux=\(session.isInCmux) pid=\(session.pid ?? -1)")
+        log("activateTerminal: remote=\(session.isRemote) mux=\(session.multiplexer) pid=\(session.pid ?? -1)")
 
         // cmux is checked first because it's independent of remote/tmux: if
         // we have a cmux surface_id (local or SSH'd from within cmux with
         // env-var propagation), focusing the surface via RPC is the most
         // precise target. Falls through on RPC failure so the remote/local
         // paths can still try their own focus strategies.
-        if session.isInCmux {
+        if case .cmux = session.multiplexer {
             if await activateCmuxSession(session) { return true }
             log("activateTerminal: cmux surface focus failed, falling through")
         }
@@ -38,11 +38,18 @@ actor TerminalActivator {
             return await activateRemoteSession(session)
         }
 
-        if session.isInTmux {
+        switch session.multiplexer {
+        case .cmux:
+            // cmux is handled above (before remote check) — if we reach
+            // here it means the RPC focus call failed; fall through to local.
+            return await activateLocalSession(session)
+        case .tmux:
             return await activateTmuxSession(session)
+        case .zellij:
+            return await activateZellijSession(session)
+        case .none:
+            return await activateLocalSession(session)
         }
-
-        return await activateLocalSession(session)
     }
 
     /// Check if a session's terminal is currently focused.
@@ -60,8 +67,7 @@ actor TerminalActivator {
         }
 
         // For local sessions, use the existing detector
-        guard let pid = session.pid else { return false }
-        return await TerminalVisibilityDetector.isSessionFocused(sessionPid: pid)
+        return await TerminalVisibilityDetector.isSessionFocused(session: session)
     }
 
     // MARK: - Local Non-Tmux Session
@@ -84,7 +90,7 @@ actor TerminalActivator {
             return false
         }
 
-        log("activateLocalSession pid=\(pid) tty=\(session.tty ?? "nil") isInTmux=\(session.isInTmux)")
+        log("activateLocalSession pid=\(pid) tty=\(session.tty ?? "nil") mux=\(session.multiplexer)")
         let tree = ProcessTreeBuilder.shared.buildTree()
         log("tree has \(tree.count) entries")
 
@@ -144,6 +150,21 @@ actor TerminalActivator {
         return nil
     }
 
+    // MARK: - Local Zellij Session
+
+    private func activateZellijSession(_ session: SessionState) async -> Bool {
+        // Switch to the correct zellij pane
+        await ZellijController.shared.focusPane(session: session)
+
+        guard let pid = session.pid else { return false }
+        let tree = ProcessTreeBuilder.shared.buildTree()
+        guard let terminalPid = ProcessTreeBuilder.shared.findTerminalPid(forProcess: pid, tree: tree) else {
+            return false
+        }
+
+        return await activateApp(pid: terminalPid)
+    }
+
     // MARK: - Local Tmux Session
 
     // MARK: - cmux Session
@@ -158,8 +179,7 @@ actor TerminalActivator {
             return false
         }
 
-        let surfaceId = session.cmuxSurfaceId
-        let workspaceId = session.cmuxWorkspaceId
+        guard case .cmux(let workspaceId, let surfaceId) = session.multiplexer else { return false }
         log("activateCmuxSession: surface=\(surfaceId ?? "nil") workspace=\(workspaceId ?? "nil")")
 
         if let surfaceId, !surfaceId.isEmpty {

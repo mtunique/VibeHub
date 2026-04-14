@@ -10,7 +10,6 @@
 		FD0F42E72EE7ABA400980302 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = FD0F42E62EE7ABA400980302 /* Mixpanel */; };
 		FDA49F7D2EE11E3C00F9612E /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD33FD722EDF32D7002A6548 /* Markdown */; };
 		FDA49F7E2EE11E3C00F9612E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = FDA49F7F2EE11E3C00F9612E /* Sparkle */; };
-
 		FE0000012EDF32D8002A6548 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = FD33FD722EDF32D7002A6548 /* Markdown */; };
 /* End PBXBuildFile section */
 
@@ -156,8 +155,6 @@
 			);
 		};
 /* End PBXProject section */
-
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		FD33FD5B2EDF32D7002A6548 /* Resources */ = {

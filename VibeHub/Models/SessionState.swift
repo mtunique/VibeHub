@@ -8,6 +8,14 @@
 
 import Foundation
 
+/// Terminal multiplexer detected in a session's process tree
+enum MultiplexerKind: Equatable, Sendable {
+    case none
+    case tmux
+    case zellij(session: String?, paneId: String?)
+    case cmux(workspaceId: String?, surfaceId: String?)
+}
+
 /// Complete state for a single Claude session
 /// This is the single source of truth - all state reads and writes go through SessionStore
 struct SessionState: Equatable, Identifiable, Sendable {
@@ -21,18 +29,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     var pid: Int?
     var tty: String?
-    var isInTmux: Bool
+    var multiplexer: MultiplexerKind
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?
-    /// cmux workspace / surface identifiers captured from the hook's
-    /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` environment variables.
-    /// When non-nil, ChatView sends messages via the cmux CLI instead of
-    /// TTY injection.
-    var cmuxWorkspaceId: String?
-    var cmuxSurfaceId: String?
-
-    nonisolated var isInCmux: Bool { cmuxSurfaceId != nil || cmuxWorkspaceId != nil }
 
     /// If non-nil, this session is coming from a remote host.
     var remoteHostId: String?
@@ -40,6 +40,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var sshClientPort: String?
 
     nonisolated var isRemote: Bool { remoteHostId != nil }
+    nonisolated var isInMultiplexer: Bool { multiplexer != .none }
 
     /// First-class CLI source. Written when the session is created from a
     /// `HookEvent`, based on `HookEvent.supportedCLI` (which in turn reads
@@ -119,13 +120,11 @@ struct SessionState: Equatable, Identifiable, Sendable {
         source: SupportedCLI? = nil,
         pid: Int? = nil,
         tty: String? = nil,
-        isInTmux: Bool = false,
+        multiplexer: MultiplexerKind = .none,
         serverPort: Int? = nil,
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
-        cmuxWorkspaceId: String? = nil,
-        cmuxSurfaceId: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -147,13 +146,11 @@ struct SessionState: Equatable, Identifiable, Sendable {
             ?? .claude
         self.pid = pid
         self.tty = tty
-        self.isInTmux = isInTmux
+        self.multiplexer = multiplexer
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
-        self.cmuxWorkspaceId = cmuxWorkspaceId
-        self.cmuxSurfaceId = cmuxSurfaceId
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker

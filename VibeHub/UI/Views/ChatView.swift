@@ -488,11 +488,9 @@ struct ChatView: View {
         if session.isRemote {
             return true
         }
-        if session.isInCmux {
-            return true
-        }
+        // Claude Code / Codex: multiplexer or raw TTY is sufficient
         if !isOpenCodeSession && !isCodexSession {
-            return session.tty != nil
+            return session.isInMultiplexer || session.tty != nil
         }
         return true // OpenCode always has a path (control socket / HTTP / clipboard)
     }
@@ -748,20 +746,14 @@ struct ChatView: View {
             return
         }
 
-        // cmux multiplexer: use the cmux CLI to write directly into the
-        // target surface. The CLI reads CMUX_WORKSPACE_ID / CMUX_SURFACE_ID
-        // from the hook's environment, and VibeHub forwards them via the
-        // socket payload — so we can target the exact cmux surface running
-        // this Claude session without fighting TIOCSTI or AppleScript.
-        if session.isInCmux {
+        switch session.multiplexer {
+        case .cmux(let workspaceId, let surfaceId):
             let ok = await CmuxSender.send(
                 text: text,
-                workspaceId: session.cmuxWorkspaceId,
-                surfaceId: session.cmuxSurfaceId
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
             )
             if !ok {
-                // Surface a hint so the user knows the programmatic send
-                // failed; fall through to clipboard so they can paste.
                 await MainActor.run {
                     let pb = NSPasteboard.general
                     pb.clearContents()
@@ -777,20 +769,21 @@ struct ChatView: View {
                 }
             }
             return
-        }
-
-        guard session.isInTmux else {
-            // Not in tmux. Prefer AppleScript-based sending (Terminal.app,
+        case .tmux:
+            guard let tty = session.tty else { return }
+            if let target = await findTmuxTarget(tty: tty) {
+                _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            }
+        case .zellij:
+            _ = await ZellijController.shared.sendMessage(text, session: session)
+        case .none:
+            // No multiplexer. Prefer AppleScript-based sending (Terminal.app,
             // iTerm2) because TIOCSTI is restricted on recent macOS and
-            // the TTY-injection path silently fails there. If the terminal
-            // doesn't expose a scriptable API or the tty can't be matched,
-            // fall through to the legacy TIOCSTI attempt, and finally to
-            // the clipboard+focus hint.
+            // the TTY-injection path silently fails there.
             let sentViaAppleScript = await TerminalTextSender.send(text: text, session: session)
             if sentViaAppleScript {
                 return
             }
-
             if let tty = session.tty {
                 let ok = await sendViaTTY(text, tty: tty)
                 if !ok {
@@ -811,12 +804,6 @@ struct ChatView: View {
                     }
                 }
             }
-            return
-        }
-        guard let tty = session.tty else { return }
-
-        if let target = await findTmuxTarget(tty: tty) {
-            _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
         }
     }
 

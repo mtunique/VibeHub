@@ -157,9 +157,26 @@ actor SessionStore {
             session.pid = sourcePid
         }
 
-        if let pid = session.pid {
-            let tree = ProcessTreeBuilder.shared.buildTree()
-            session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
+        // Detect multiplexer: prefer hook-reported value, fall back to local process tree
+        if let mux = event.multiplexer {
+            switch mux {
+            case "cmux":
+                let (prevW, prevS): (String?, String?) =
+                    if case .cmux(let w, let s) = session.multiplexer { (w, s) } else { (nil, nil) }
+                session.multiplexer = .cmux(
+                    workspaceId: event.cmuxWorkspaceId ?? prevW,
+                    surfaceId: event.cmuxSurfaceId ?? prevS
+                )
+            case "zellij":
+                session.multiplexer = .zellij(
+                    session: event.zellijSession,
+                    paneId: event.zellijPaneId
+                )
+            case "tmux":
+                session.multiplexer = .tmux
+            default:
+                break
+            }
         }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
@@ -170,12 +187,6 @@ actor SessionStore {
         }
         if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
             session.serverHostname = serverHostname
-        }
-        if let cmuxWorkspaceId = event.cmuxWorkspaceId, !cmuxWorkspaceId.isEmpty {
-            session.cmuxWorkspaceId = cmuxWorkspaceId
-        }
-        if let cmuxSurfaceId = event.cmuxSurfaceId, !cmuxSurfaceId.isEmpty {
-            session.cmuxSurfaceId = cmuxSurfaceId
         }
 
         if let remoteHostId = event.remoteHostId {
@@ -439,7 +450,7 @@ actor SessionStore {
             source: event.supportedCLI,
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
-            isInTmux: false,  // Will be updated
+            multiplexer: .none,  // Will be updated
             serverPort: event.serverPort,
             serverHostname: event.serverHostname,
             remoteHostId: event.remoteHostId,
