@@ -177,9 +177,6 @@ actor SessionStore {
             default:
                 break
             }
-        } else if let pid = session.pid, !session.isRemote {
-            let tree = ProcessTreeBuilder.shared.buildTree()
-            session.multiplexer = ProcessTreeBuilder.shared.detectMultiplexer(pid: pid, tree: tree)
         }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
