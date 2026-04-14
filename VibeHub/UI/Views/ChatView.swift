@@ -484,15 +484,15 @@ struct ChatView: View {
     /// Can send messages if we can reach the session.
     /// - cmux: always (we have a workspace/surface id to target via `cmux send`).
     /// - OpenCode: always (control socket / HTTP / clipboard fallback).
+    /// - tmux: send-keys via pid-based pane lookup, no tty needed.
     /// - AppleScript: Terminal.app and iTerm2 expose scriptable text input.
-    /// - tmux: send-keys works regardless of TIOCSTI.
     /// - TIOCSTI: last resort, probed by the hook on every invocation.
     private var canSendMessages: Bool {
         if session.isInCmux { return true }
         if isOpenCodeSession { return true }
+        if session.isInTmux { return true }
         guard session.tty != nil else { return false }
         if !session.isRemote && TerminalTextSender.canSend(session: session) { return true }
-        if session.isInTmux { return true }
         return session.canInjectKeystrokes
     }
 
@@ -840,41 +840,11 @@ struct ChatView: View {
             }
             return
         }
-        guard let tty = session.tty else { return }
+        guard let pid = session.pid else { return }
 
-        if let target = await findTmuxTarget(tty: tty) {
+        if let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) {
             _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
         }
-    }
-
-    private func findTmuxTarget(tty: String) async -> TmuxTarget? {
-        guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
-            return nil
-        }
-
-        do {
-            let output = try await ProcessExecutor.shared.run(
-                tmuxPath,
-                arguments: ["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_tty}"]
-            )
-
-            let lines = output.components(separatedBy: "\n")
-            for line in lines {
-                let parts = line.components(separatedBy: " ")
-                guard parts.count >= 2 else { continue }
-
-                let target = parts[0]
-                let paneTty = parts[1].replacingOccurrences(of: "/dev/", with: "")
-
-                if paneTty == tty {
-                    return TmuxTarget(from: target)
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        return nil
     }
 
     /// Send text to a TTY device using TIOCSTI ioctl (injects as keyboard input).

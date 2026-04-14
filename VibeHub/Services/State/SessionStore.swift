@@ -165,6 +165,9 @@ actor SessionStore {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
         }
         if let canInject = event.canInjectKeystrokes {
+            if !canInject {
+                Self.logger.info("Session \(session.sessionId): TIOCSTI not available")
+            }
             session.canInjectKeystrokes = canInject
         }
 
