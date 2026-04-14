@@ -75,6 +75,11 @@ struct HookEvent: Codable, Sendable {
     // Tmux binary path reported by hook (from `which tmux` in session env)
     let tmuxBin: String?
 
+    // Multiplexer detected by hook (reported as "tmux" or "zellij")
+    let multiplexer: String?
+    let zellijSession: String?
+    let zellijPaneId: String?
+
     // Streaming updates from the remote hook
     let newJsonlLines: [String]?
 
@@ -115,6 +120,9 @@ struct HookEvent: Codable, Sendable {
         case remoteHostId = "_remote_host_id"
         case sshClientPort = "ssh_client_port"
         case tmuxBin = "tmux_bin"
+        case multiplexer
+        case zellijSession = "zellij_session"
+        case zellijPaneId = "zellij_pane_id"
         case newJsonlLines = "new_jsonl_lines"
         case cmuxWorkspaceId = "_cmux_workspace_id"
         case cmuxSurfaceId = "_cmux_surface_id"
@@ -147,6 +155,9 @@ struct HookEvent: Codable, Sendable {
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
         tmuxBin: String? = nil,
+        multiplexer: String? = nil,
+        zellijSession: String? = nil,
+        zellijPaneId: String? = nil,
         newJsonlLines: [String]? = nil,
         cmuxWorkspaceId: String? = nil,
         cmuxSurfaceId: String? = nil,
@@ -176,6 +187,9 @@ struct HookEvent: Codable, Sendable {
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
         self.tmuxBin = tmuxBin
+        self.multiplexer = multiplexer
+        self.zellijSession = zellijSession
+        self.zellijPaneId = zellijPaneId
         self.newJsonlLines = newJsonlLines
         self.cmuxWorkspaceId = cmuxWorkspaceId
         self.cmuxSurfaceId = cmuxSurfaceId
@@ -410,6 +424,9 @@ class HookSocketServer {
             remoteHostId: remoteHostId,
             sshClientPort: event.sshClientPort,
             tmuxBin: event.tmuxBin,
+            multiplexer: event.multiplexer,
+            zellijSession: event.zellijSession,
+            zellijPaneId: event.zellijPaneId,
             newJsonlLines: event.newJsonlLines,
             cmuxWorkspaceId: event.cmuxWorkspaceId,
             cmuxSurfaceId: event.cmuxSurfaceId,
@@ -667,6 +684,9 @@ class HookSocketServer {
                 remoteHostId: event.remoteHostId,
                 sshClientPort: event.sshClientPort,
                 tmuxBin: event.tmuxBin,
+                multiplexer: event.multiplexer,
+                zellijSession: event.zellijSession,
+                zellijPaneId: event.zellijPaneId,
                 newJsonlLines: event.newJsonlLines,
                 cmuxWorkspaceId: event.cmuxWorkspaceId,
                 cmuxSurfaceId: event.cmuxSurfaceId,

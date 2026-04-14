@@ -491,9 +491,8 @@ struct ChatView: View {
     /// - AppleScript: Terminal.app and iTerm2 expose scriptable text input.
     /// - TIOCSTI: last resort, probed by the hook on every invocation.
     private var canSendMessages: Bool {
-        if session.isInCmux { return true }
+        if session.isInMultiplexer { return true }
         if isOpenCodeSession { return true }
-        if session.isInTmux { return true }
         guard session.tty != nil else { return false }
         if !session.isRemote && TerminalTextSender.canSend(session: session) { return true }
         return session.canInjectKeystrokes
@@ -778,20 +777,14 @@ struct ChatView: View {
             return
         }
 
-        // cmux multiplexer: use the cmux CLI to write directly into the
-        // target surface. The CLI reads CMUX_WORKSPACE_ID / CMUX_SURFACE_ID
-        // from the hook's environment, and VibeHub forwards them via the
-        // socket payload — so we can target the exact cmux surface running
-        // this Claude session without fighting TIOCSTI or AppleScript.
-        if session.isInCmux {
+        switch session.multiplexer {
+        case .cmux(let workspaceId, let surfaceId):
             let ok = await CmuxSender.send(
                 text: text,
-                workspaceId: session.cmuxWorkspaceId,
-                surfaceId: session.cmuxSurfaceId
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
             )
             if !ok {
-                // Surface a hint so the user knows the programmatic send
-                // failed; fall through to clipboard so they can paste.
                 await MainActor.run {
                     let pb = NSPasteboard.general
                     pb.clearContents()
@@ -807,20 +800,29 @@ struct ChatView: View {
                 }
             }
             return
-        }
-
-        guard session.isInTmux else {
-            // Not in tmux. Prefer AppleScript-based sending (Terminal.app,
+        case .tmux:
+            guard let pid = session.pid else {
+                logger.warning("tmux send: no pid for session \(session.sessionId, privacy: .public)")
+                return
+            }
+            guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) else {
+                logger.warning("tmux send: no target found for pid \(pid)")
+                return
+            }
+            let ok = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            if !ok {
+                logger.warning("tmux send: sendMessage failed for \(target.targetString, privacy: .public)")
+            }
+        case .zellij:
+            _ = await ZellijController.shared.sendMessage(text, session: session)
+        case .none:
+            // No multiplexer. Prefer AppleScript-based sending (Terminal.app,
             // iTerm2) because TIOCSTI is restricted on recent macOS and
-            // the TTY-injection path silently fails there. If the terminal
-            // doesn't expose a scriptable API or the tty can't be matched,
-            // fall through to the legacy TIOCSTI attempt, and finally to
-            // the clipboard+focus hint.
+            // the TTY-injection path silently fails there.
             let sentViaAppleScript = await TerminalTextSender.send(text: text, session: session)
             if sentViaAppleScript {
                 return
             }
-
             if let tty = session.tty {
                 let ok = await sendViaTTY(text, tty: tty)
                 if !ok {
@@ -841,19 +843,6 @@ struct ChatView: View {
                     }
                 }
             }
-            return
-        }
-        guard let pid = session.pid else {
-            logger.warning("tmux send: no pid for session \(session.sessionId, privacy: .public)")
-            return
-        }
-        guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) else {
-            logger.warning("tmux send: no target found for pid \(pid)")
-            return
-        }
-        let ok = await ToolApprovalHandler.shared.sendMessage(text, to: target)
-        if !ok {
-            logger.warning("tmux send: sendMessage failed for \(target.targetString, privacy: .public)")
         }
     }
 
