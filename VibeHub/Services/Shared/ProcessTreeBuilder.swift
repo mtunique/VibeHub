@@ -114,13 +114,13 @@ struct ProcessTreeBuilder: Sendable {
             guard let info = tree[current] else { break }
             let cmd = info.command.lowercased()
             if cmd.contains("cmux") {
-                return .cmux
+                return .cmux(workspaceId: nil, surfaceId: nil)
             }
             if cmd.contains("tmux") {
                 return .tmux
             }
             if cmd.contains("zellij") {
-                return .zellij
+                return .zellij(session: nil, paneId: nil)
             }
             current = info.ppid
             depth += 1
