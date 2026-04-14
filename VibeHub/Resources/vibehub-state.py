@@ -488,6 +488,38 @@ def main():
             sys.exit(2)
         sys.exit(_query_opencode_db(sys.argv[idx + 1]))
 
+    if "--dump-jsonl" in sys.argv:
+        # Usage: --dump-jsonl <session_id> <cwd>
+        # Prints the full JSONL file to stdout and advances the cursor to
+        # end-of-file so subsequent get_new_jsonl_lines() calls don't
+        # re-send the content we just dumped. SOURCE comes from the
+        # VIBEHUB_SOURCE env var (caller should set it to match the CLI).
+        idx = sys.argv.index("--dump-jsonl")
+        if idx + 2 >= len(sys.argv):
+            print("", end="")
+            sys.exit(0)
+        sid = sys.argv[idx + 1]
+        cwd = sys.argv[idx + 2]
+        jsonl_path = _jsonl_path_for(sid, cwd)
+        if not jsonl_path or not os.path.exists(jsonl_path):
+            sys.exit(0)
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                data = f.read()
+                end_pos = f.tell()
+            sys.stdout.write(data)
+            sys.stdout.flush()
+            home = os.path.expanduser("~")
+            cursor_dir = os.path.join(home, ".vibehub", "cursors")
+            _ensure_dir(cursor_dir)
+            cursor_path = os.path.join(cursor_dir, f"{sid}.cursor")
+            with open(cursor_path, "w", encoding="utf-8") as f:
+                f.write(str(end_pos))
+            sys.exit(0)
+        except Exception as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+
     if "--install" in sys.argv:
         ok = install_all()
         print("ok" if ok else "failed")

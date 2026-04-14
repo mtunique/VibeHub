@@ -1392,19 +1392,33 @@ actor SessionStore {
         case .jsonl:
             // Claude Code and its forks: per-config projects directory.
             let projectsDir = config.jsonlProjectsDirRelative ?? ".claude/projects"
-            messages = await ConversationParser.shared.parseFullConversation(
-                sessionId: sessionId,
-                cwd: cwd,
-                projectsDirRelative: projectsDir
-            )
-            completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
-            toolResults = await ConversationParser.shared.toolResults(for: sessionId)
-            structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
-            conversationInfo = await ConversationParser.shared.parse(
-                sessionId: sessionId,
-                cwd: cwd,
-                projectsDirRelative: projectsDir
-            )
+            if session.isRemote, let hostId = session.remoteHostId {
+                let result = await loadRemoteJsonlHistory(
+                    sessionId: sessionId,
+                    cwd: cwd,
+                    hostId: hostId,
+                    source: session.source
+                )
+                messages = result.messages
+                completedTools = result.completedToolIds
+                toolResults = result.toolResults
+                structuredResults = result.structuredResults
+                conversationInfo = result.conversationInfo
+            } else {
+                messages = await ConversationParser.shared.parseFullConversation(
+                    sessionId: sessionId,
+                    cwd: cwd,
+                    projectsDirRelative: projectsDir
+                )
+                completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
+                toolResults = await ConversationParser.shared.toolResults(for: sessionId)
+                structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
+                conversationInfo = await ConversationParser.shared.parse(
+                    sessionId: sessionId,
+                    cwd: cwd,
+                    projectsDirRelative: projectsDir
+                )
+            }
 
         case .realtimeOnly:
             messages = []
@@ -1455,6 +1469,77 @@ actor SessionStore {
         return await OpenCodeDBParser.shared.parseRemoteJSON(
             opencodeSessionId: opencodeSessionId,
             jsonString: result.output
+        )
+    }
+
+    private struct RemoteJsonlHistoryResult {
+        let messages: [ChatMessage]
+        let completedToolIds: Set<String>
+        let toolResults: [String: ConversationParser.ToolResult]
+        let structuredResults: [String: ToolResultData]
+        let conversationInfo: ConversationInfo
+    }
+
+    /// Pull full Claude-style JSONL conversation history from a remote host
+    /// by invoking `~/.vibehub/vibehub-state.py --dump-jsonl <sid> <cwd>`
+    /// over the existing SSH ControlMaster session. The dump also advances
+    /// the remote cursor so subsequent `newJsonlLines` hook events don't
+    /// re-deliver the same content.
+    private func loadRemoteJsonlHistory(
+        sessionId: String,
+        cwd: String,
+        hostId: String,
+        source: SupportedCLI
+    ) async -> RemoteJsonlHistoryResult {
+        let emptyInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil,
+                                         lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+        let empty = RemoteJsonlHistoryResult(
+            messages: [], completedToolIds: [], toolResults: [:],
+            structuredResults: [:], conversationInfo: emptyInfo
+        )
+
+        // Whitelist-validate the ids before they cross the shell boundary.
+        let sidAllowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        guard !sessionId.isEmpty,
+              sessionId.unicodeScalars.allSatisfy({ sidAllowed.contains($0) })
+        else {
+            await RemoteLog.shared.log(.warn, "jsonl dump: invalid session id", hostId: hostId)
+            return empty
+        }
+
+        // Escape cwd for single-quoted shell arg.
+        let escapedCwd = cwd.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedSource = source.rawValue.replacingOccurrences(of: "'", with: "'\\''")
+        let command = "VIBEHUB_SOURCE='\(escapedSource)' python3 ~/.vibehub/vibehub-state.py --dump-jsonl '\(sessionId)' '\(escapedCwd)'"
+        let result = await RemoteManager.shared.exec(hostId: hostId, command: command)
+
+        guard result.exitCode == 0 else {
+            await RemoteLog.shared.log(
+                .warn,
+                "jsonl dump failed: exit=\(result.exitCode) sid=\(sessionId.prefix(8))...",
+                hostId: hostId
+            )
+            return empty
+        }
+        if result.output.isEmpty {
+            return empty
+        }
+
+        // Reset parser state so the dumped content is the sole source of
+        // truth. Any in-flight hook `newJsonlLines` event is serialized by
+        // the SessionStore actor so cannot race with this await.
+        await ConversationParser.shared.resetState(for: sessionId)
+
+        let lines = result.output.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let parsed = await ConversationParser.shared.parseLines(sessionId: sessionId, lines: lines)
+        let info = await ConversationParser.shared.parseContent(result.output)
+
+        return RemoteJsonlHistoryResult(
+            messages: parsed.allMessages,
+            completedToolIds: parsed.completedToolIds,
+            toolResults: parsed.toolResults,
+            structuredResults: parsed.structuredResults,
+            conversationInfo: info
         )
     }
 
@@ -1527,6 +1612,12 @@ actor SessionStore {
     private func scheduleFileSync(sessionId: String, cwd: String) {
         // Cancel existing sync
         cancelPendingSync(sessionId: sessionId)
+
+        // Remote sessions have no local JSONL to poll — the remote hook
+        // pushes `newJsonlLines` incrementally over the socket instead.
+        if sessions[sessionId]?.isRemote == true {
+            return
+        }
 
         // Look up the current session's projects dir so forks with non-.claude
         // JSONL storage read from the right path.
