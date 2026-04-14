@@ -287,12 +287,20 @@ def send_event(state):
             pass
 
 
+def _jsonl_path_for(session_id, cwd):
+    """Return the JSONL file path for SOURCE's project layout, or None."""
+    projects_rel = SOURCE_JSONL_PROJECTS.get(SOURCE)
+    if not projects_rel:
+        return None
+    home = os.path.expanduser("~")
+    project_dir = cwd.replace("/", "-").replace(".", "-")
+    return os.path.join(home, projects_rel, project_dir, f"{session_id}.jsonl")
+
+
 def get_session_title(session_id, cwd):
     try:
-        home = os.path.expanduser("~")
-        project_dir = cwd.replace("/", "-").replace(".", "-")
-        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
-        if not os.path.exists(jsonl_path):
+        jsonl_path = _jsonl_path_for(session_id, cwd)
+        if not jsonl_path or not os.path.exists(jsonl_path):
             return None
         
         first_user_message = None
@@ -321,12 +329,11 @@ def get_session_title(session_id, cwd):
 
 def get_new_jsonl_lines(session_id, cwd):
     try:
-        home = os.path.expanduser("~")
-        project_dir = cwd.replace("/", "-").replace(".", "-")
-        jsonl_path = os.path.join(home, ".claude", "projects", project_dir, f"{session_id}.jsonl")
-        if not os.path.exists(jsonl_path):
+        jsonl_path = _jsonl_path_for(session_id, cwd)
+        if not jsonl_path or not os.path.exists(jsonl_path):
             return None
-        
+        home = os.path.expanduser("~")
+
         cursor_dir = os.path.join(home, ".vibehub", "cursors")
         _ensure_dir(cursor_dir)
         cursor_path = os.path.join(cursor_dir, f"{session_id}.cursor")
@@ -365,11 +372,30 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.7"
+VERSION = "1.0.9"
 
-# Detect Codex context: prefer explicit env var (set by hook command),
-# fall back to __file__ path detection (unreliable with symlinks).
-IS_CODEX = os.environ.get("VIBEHUB_SOURCE") == "codex" or "/.codex/" in os.path.abspath(__file__)
+# Explicit CLI source. Every CLI's hook command sets this via
+# `VIBEHUB_SOURCE=<name>`. When absent we fall back to `.codex/` path
+# detection for compatibility with older installs, and finally to "claude".
+SOURCE = os.environ.get("VIBEHUB_SOURCE")
+if not SOURCE:
+    if "/.codex/" in os.path.abspath(__file__):
+        SOURCE = "codex"
+    else:
+        SOURCE = "claude"
+
+# Home-relative projects dir for JSONL-backed sources. Keep in sync with
+# `CLIConfig.jsonlProjectsDirRelative` on the Swift side.
+SOURCE_JSONL_PROJECTS = {
+    "claude": ".claude/projects",
+    "qoder": ".qoder/projects",
+    "droid": ".factory/projects",
+    "codebuddy": ".codebuddy/projects",
+}
+
+# Legacy compat. Kept for any call sites below that still branch on it,
+# but new code should check SOURCE directly.
+IS_CODEX = SOURCE == "codex"
 
 
 def _query_opencode_db(session_id):
@@ -478,7 +504,11 @@ def main():
         sys.exit(1)
 
     session_id = data.get("session_id", "unknown")
-    if IS_CODEX:
+    # Preserve the legacy `codex-` prefix so older Swift builds that still
+    # rely on sessionId-prefix detection (plus any historical remote hooks)
+    # keep behaving. The authoritative source on the new Swift path is the
+    # `_source` field below.
+    if SOURCE == "codex" and not session_id.startswith("codex-"):
         session_id = "codex-" + session_id
     event = data.get("hook_event_name", "")
     cwd = data.get("cwd", "")
@@ -495,10 +525,20 @@ def main():
         "event": event,
         "pid": claude_pid,
         "tty": tty,
+        # Explicit CLI source (first-class field consumed by HookEvent._source).
+        "_source": SOURCE,
     }
 
     # Detect multiplexer and report how to reach this session
-    if os.environ.get("ZELLIJ_SESSION_NAME"):
+    cmux_workspace_id = os.environ.get("CMUX_WORKSPACE_ID")
+    cmux_surface_id = os.environ.get("CMUX_SURFACE_ID")
+    if cmux_workspace_id or cmux_surface_id:
+        state["multiplexer"] = "cmux"
+        if cmux_workspace_id:
+            state["_cmux_workspace_id"] = cmux_workspace_id
+        if cmux_surface_id:
+            state["_cmux_surface_id"] = cmux_surface_id
+    elif os.environ.get("ZELLIJ_SESSION_NAME"):
         state["multiplexer"] = "zellij"
         state["zellij_session"] = os.environ["ZELLIJ_SESSION_NAME"]
         zellij_pane = os.environ.get("ZELLIJ_PANE_ID")
@@ -514,9 +554,9 @@ def main():
         if len(parts) >= 2:
             state["ssh_client_port"] = parts[1]
 
-    # Fetch any new lines from the JSONL file to stream to the app
-    # Codex doesn't store JSONL in ~/.claude/projects/
-    if not IS_CODEX:
+    # Fetch any new lines from the JSONL file to stream to the app — only
+    # CLIs with a JSONL project directory participate (Claude + forks).
+    if SOURCE in SOURCE_JSONL_PROJECTS:
         new_lines = get_new_jsonl_lines(session_id, cwd)
         if new_lines:
             state["new_jsonl_lines"] = new_lines
@@ -525,7 +565,7 @@ def main():
     if event == "UserPromptSubmit":
         # User just sent a message - Claude is now processing
         state["status"] = "processing"
-        if not IS_CODEX:
+        if SOURCE in SOURCE_JSONL_PROJECTS:
             title = get_session_title(session_id, cwd)
             if title:
                 state["session_title"] = title
@@ -593,6 +633,24 @@ def main():
         tool_use_id_from_event = data.get("tool_use_id")
         if tool_use_id_from_event:
             state["tool_use_id"] = tool_use_id_from_event
+
+    elif event == "PostToolUseFailure":
+        # Tool errored or was interrupted — main session continues processing
+        state["status"] = "processing"
+        state["tool"] = data.get("tool_name")
+        state["tool_input"] = tool_input
+        state["tool_error"] = data.get("error") or data.get("message")
+        tool_use_id_from_event = data.get("tool_use_id")
+        if tool_use_id_from_event:
+            state["tool_use_id"] = tool_use_id_from_event
+
+    elif event == "PermissionDenied":
+        # Auto-mode classifier denied a tool call — surface to the app so the
+        # user can see what was blocked instead of a silent skip
+        state["status"] = "processing"
+        state["tool"] = data.get("tool_name")
+        state["tool_input"] = tool_input
+        state["denial_reason"] = data.get("reason") or data.get("message")
 
     elif event == "PermissionRequest":
         # This is where we can control the permission
@@ -678,6 +736,16 @@ def main():
     elif event == "Stop":
         state["status"] = "waiting_for_input"
 
+    elif event == "StopFailure":
+        # Turn ended via API error (rate limit, auth, billing). Mark waiting
+        # so the user sees it's done (not stuck), with the error surfaced
+        state["status"] = "waiting_for_input"
+        state["stop_error"] = data.get("error") or data.get("message")
+
+    elif event == "SubagentStart":
+        # A subagent task is beginning — main session is still processing
+        state["status"] = "processing"
+
     elif event == "SubagentStop":
         # SubagentStop fires when a subagent completes - usually means back to waiting
         state["status"] = "waiting_for_input"
@@ -692,6 +760,10 @@ def main():
     elif event == "PreCompact":
         # Context is being compacted (manual or auto)
         state["status"] = "compacting"
+
+    elif event == "PostCompact":
+        # Compaction finished — return to processing so UI exits .compacting phase
+        state["status"] = "processing"
 
     else:
         state["status"] = "unknown"

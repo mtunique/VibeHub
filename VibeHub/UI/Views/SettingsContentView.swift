@@ -415,6 +415,7 @@ private struct SystemSection: View {
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var hooksInstalled: Bool = HookInstaller.installedSubject.value
     @State private var accessibilityEnabled: Bool = AXIsProcessTrusted()
+    @State private var cliStatuses: [CLIInstaller.InstallStatus] = HookInstaller.perCLIStatus()
 
     var body: some View {
         Form {
@@ -431,7 +432,12 @@ private struct SystemSection: View {
                             launchAtLogin = !newValue
                         }
                     }
+            }
 
+            // Hook install section: master toggle + per-CLI status rows so
+            // users can see at a glance which CLIs the shared
+            // vibehub-state.py hook is currently registered with.
+            Section(L10n.hooks) {
                 Toggle(L10n.hooks, isOn: $hooksInstalled)
                     .onChange(of: hooksInstalled) { _, newValue in
                         if newValue {
@@ -439,10 +445,16 @@ private struct SystemSection: View {
                         } else {
                             HookInstaller.uninstall()
                         }
+                        cliStatuses = HookInstaller.perCLIStatus()
                     }
                     .onReceive(HookInstaller.installedSubject.receive(on: DispatchQueue.main)) {
                         hooksInstalled = $0
+                        cliStatuses = HookInstaller.perCLIStatus()
                     }
+
+                ForEach(cliStatuses) { status in
+                    CLIStatusRow(status: status)
+                }
             }
 
             Section {
@@ -465,7 +477,59 @@ private struct SystemSection: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Only the accessibility-trusted check truly needs a re-read
+            // on every activation; per-CLI hook status already has its own
+            // publisher (installedSubject + settings.json watcher), so we
+            // don't re-scan 6 settings files every time the user tabs back.
             accessibilityEnabled = AXIsProcessTrusted()
+        }
+    }
+}
+
+// MARK: - CLI Status Row
+
+private struct CLIStatusRow: View {
+    let status: CLIInstaller.InstallStatus
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // Colored dot matching the source tag in the notch.
+            Circle()
+                .fill(status.source.themeColor)
+                .frame(width: 10, height: 10)
+
+            Text(status.source.displayName)
+                .font(.system(size: 13, weight: .medium))
+
+            Spacer()
+
+            statusBadge
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        if !status.configExists {
+            // CLI isn't installed on this machine at all.
+            Text("not installed")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        } else if status.hookInstalled {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("installed")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text("hook missing")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 }

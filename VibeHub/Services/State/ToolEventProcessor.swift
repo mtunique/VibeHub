@@ -66,9 +66,9 @@ enum ToolEventProcessor {
     ) {
         guard let toolUseId = event.toolUseId else { return }
 
-        if event.tool == "Task" {
+        if ToolCallItem.isSubagentContainerName(event.tool) {
             session.subagentState.startTask(taskToolId: toolUseId)
-            logger.debug("Started Task subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
+            logger.debug("Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
         } else if let toolName = event.tool, session.subagentState.hasActiveSubagent {
             logger.debug("Adding subagent tool \(toolName, privacy: .public) to active Task")
             let input = extractToolInput(from: event.toolInput)
@@ -90,9 +90,9 @@ enum ToolEventProcessor {
     ) {
         guard let toolUseId = event.toolUseId else { return }
 
-        if event.tool == "Task" {
+        if ToolCallItem.isSubagentContainerName(event.tool) {
             if let taskContext = session.subagentState.activeTasks[toolUseId] {
-                logger.debug("Task completing with \(taskContext.subagentTools.count) subagent tools")
+                logger.debug("Task/Agent completing with \(taskContext.subagentTools.count) subagent tools")
                 attachSubagentToolsToTask(
                     session: &session,
                     taskToolId: toolUseId,

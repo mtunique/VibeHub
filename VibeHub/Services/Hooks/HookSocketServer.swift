@@ -45,6 +45,10 @@ struct HookEvent: Codable, Sendable {
     let cwd: String
     let event: String
     let status: String
+    /// Explicit CLI source string ("_source" in the payload). Injected by
+    /// the Python hook via `VIBEHUB_SOURCE=<name>`, or by the OpenCode JS
+    /// plugin. When nil, `supportedCLI` falls back to the sessionId prefix.
+    let rawSource: String?
     /// Source process PID (Claude Code hook uses `pid`, OpenCode plugin uses `_ppid`)
     let pid: Int?
     let sourcePid: Int?
@@ -76,9 +80,26 @@ struct HookEvent: Codable, Sendable {
     // Streaming updates from the remote hook
     let newJsonlLines: [String]?
 
+    // cmux multiplexer identifiers. Populated when the hook runs inside a
+    // cmux-hosted terminal — Python reads `CMUX_WORKSPACE_ID` and
+    // `CMUX_SURFACE_ID` from its environment (inherited from Claude's
+    // parent process) and forwards them. VibeHub uses these to drive
+    // `cmux send --workspace X --surface Y <text>`.
+    let cmuxWorkspaceId: String?
+    let cmuxSurfaceId: String?
+
+    // Error / denial context emitted by the Python hook for the five new
+    // events (PostToolUseFailure, PermissionDenied, Stop, ...). Without
+    // these, the payload fields get silently dropped by JSONDecoder and
+    // the app loses the reason when a tool errors or a prompt is blocked.
+    let toolError: String?
+    let denialReason: String?
+    let stopError: String?
+
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case cwd, event, status, pid, tty, tool
+        case rawSource = "_source"
         case sourcePid = "_ppid"
         case toolInput = "tool_input"
         case toolUseId = "tool_use_id"
@@ -95,6 +116,11 @@ struct HookEvent: Codable, Sendable {
         case zellijSession = "zellij_session"
         case zellijPaneId = "zellij_pane_id"
         case newJsonlLines = "new_jsonl_lines"
+        case cmuxWorkspaceId = "_cmux_workspace_id"
+        case cmuxSurfaceId = "_cmux_surface_id"
+        case toolError = "tool_error"
+        case denialReason = "denial_reason"
+        case stopError = "stop_error"
     }
 
     /// Create a copy with updated toolUseId
@@ -103,6 +129,7 @@ struct HookEvent: Codable, Sendable {
         cwd: String,
         event: String,
         status: String,
+        rawSource: String? = nil,
         pid: Int?,
         sourcePid: Int? = nil,
         tty: String?,
@@ -121,12 +148,18 @@ struct HookEvent: Codable, Sendable {
         multiplexer: String? = nil,
         zellijSession: String? = nil,
         zellijPaneId: String? = nil,
-        newJsonlLines: [String]? = nil
+        newJsonlLines: [String]? = nil,
+        cmuxWorkspaceId: String? = nil,
+        cmuxSurfaceId: String? = nil,
+        toolError: String? = nil,
+        denialReason: String? = nil,
+        stopError: String? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
         self.event = event
         self.status = status
+        self.rawSource = rawSource
         self.pid = pid
         self.sourcePid = sourcePid
         self.tty = tty
@@ -146,6 +179,19 @@ struct HookEvent: Codable, Sendable {
         self.zellijSession = zellijSession
         self.zellijPaneId = zellijPaneId
         self.newJsonlLines = newJsonlLines
+        self.cmuxWorkspaceId = cmuxWorkspaceId
+        self.cmuxSurfaceId = cmuxSurfaceId
+        self.toolError = toolError
+        self.denialReason = denialReason
+        self.stopError = stopError
+    }
+
+    /// Resolve the source for this event:
+    /// 1. Explicit `_source` field (set by modern installs via VIBEHUB_SOURCE).
+    /// 2. Legacy sessionId prefix (`opencode-` / `codex-`).
+    /// 3. Fallback to `.claude`.
+    nonisolated var supportedCLI: SupportedCLI {
+        SupportedCLI.resolve(sourceString: rawSource, sessionId: sessionId)
     }
 
     var sessionPhase: SessionPhase {
@@ -348,6 +394,7 @@ class HookSocketServer {
             cwd: event.cwd,
             event: event.event,
             status: event.status,
+            rawSource: event.rawSource,
             pid: event.pid,
             sourcePid: event.sourcePid,
             tty: event.tty,
@@ -366,7 +413,12 @@ class HookSocketServer {
             multiplexer: event.multiplexer,
             zellijSession: event.zellijSession,
             zellijPaneId: event.zellijPaneId,
-            newJsonlLines: event.newJsonlLines
+            newJsonlLines: event.newJsonlLines,
+            cmuxWorkspaceId: event.cmuxWorkspaceId,
+            cmuxSurfaceId: event.cmuxSurfaceId,
+            toolError: event.toolError,
+            denialReason: event.denialReason,
+            stopError: event.stopError
         )
     }
 
@@ -601,6 +653,7 @@ class HookSocketServer {
                 cwd: event.cwd,
                 event: event.event,
                 status: event.status,
+                rawSource: event.rawSource,
                 pid: event.pid,
                 sourcePid: event.sourcePid,
                 tty: event.tty,
@@ -619,7 +672,12 @@ class HookSocketServer {
                 multiplexer: event.multiplexer,
                 zellijSession: event.zellijSession,
                 zellijPaneId: event.zellijPaneId,
-                newJsonlLines: event.newJsonlLines
+                newJsonlLines: event.newJsonlLines,
+                cmuxWorkspaceId: event.cmuxWorkspaceId,
+                cmuxSurfaceId: event.cmuxSurfaceId,
+                toolError: event.toolError,
+                denialReason: event.denialReason,
+                stopError: event.stopError
             )
 
             let pending = PendingPermission(

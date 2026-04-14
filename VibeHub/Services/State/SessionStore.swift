@@ -126,9 +126,10 @@ actor SessionStore {
         // If an event arrives with an unknown session ID but we already have
         // an OpenCode session from the same process (same _ppid), redirect
         // the event to the existing session to prevent phantom duplicates.
+        let eventCLI = event.supportedCLI
         let sessionId: String = {
             let rawId = event.sessionId
-            guard rawId.hasPrefix("opencode-"), sessions[rawId] == nil else {
+            guard eventCLI == .opencode, sessions[rawId] == nil else {
                 return rawId
             }
             let effectivePid = event.pid ?? event.sourcePid
@@ -159,6 +160,8 @@ actor SessionStore {
         // Detect multiplexer: prefer hook-reported value, fall back to local process tree
         if let mux = event.multiplexer {
             switch mux {
+            case "cmux":
+                session.multiplexer = .cmux
             case "zellij":
                 session.multiplexer = .zellij
                 session.zellijSession = event.zellijSession
@@ -181,6 +184,12 @@ actor SessionStore {
         }
         if let serverHostname = event.serverHostname, !serverHostname.isEmpty {
             session.serverHostname = serverHostname
+        }
+        if let cmuxWorkspaceId = event.cmuxWorkspaceId, !cmuxWorkspaceId.isEmpty {
+            session.cmuxWorkspaceId = cmuxWorkspaceId
+        }
+        if let cmuxSurfaceId = event.cmuxSurfaceId, !cmuxSurfaceId.isEmpty {
+            session.cmuxSurfaceId = cmuxSurfaceId
         }
 
         if let remoteHostId = event.remoteHostId {
@@ -235,46 +244,54 @@ actor SessionStore {
         processToolTracking(event: event, session: &session)
         processSubagentTracking(event: event, session: &session)
 
+        // Surface error/denial context from the Python hook. Until UI wiring
+        // lands these only go to logs, but that's enough to diagnose silent
+        // denials/failures that would otherwise be invisible.
+        if event.event == "PermissionDenied", let reason = event.denialReason {
+            Self.logger.info("PermissionDenied \(sessionId.prefix(8), privacy: .public) tool=\(event.tool ?? "?", privacy: .public): \(reason, privacy: .public)")
+        }
+        if event.event == "PostToolUseFailure", let err = event.toolError {
+            Self.logger.info("PostToolUseFailure \(sessionId.prefix(8), privacy: .public) tool=\(event.tool ?? "?", privacy: .public): \(err, privacy: .public)")
+        }
         if event.event == "Stop" {
+            if let err = event.stopError {
+                Self.logger.info("Stop \(sessionId.prefix(8), privacy: .public) error: \(err, privacy: .public)")
+            }
             session.subagentState = SubagentState()
         }
 
-        sessions[sessionId] = session
-        publishState()
-
+        // For remote sessions the hook streams JSONL lines in the event
+        // itself. Parse + merge the resulting conversationInfo BEFORE the
+        // single publish below so subscribers only re-render once per hook
+        // event (previously we published twice — pre-parse and post-parse).
+        var parsedRemoteLines: ConversationParser.IncrementalParseResult?
         if let newLines = event.newJsonlLines, !newLines.isEmpty {
             Self.logger.debug("Received \(newLines.count) new JSONL lines from remote hook")
             let result = await ConversationParser.shared.parseLines(
                 sessionId: sessionId,
                 lines: newLines
             )
-            
-            // Extract remote conversation info (title/summary) from new lines
-            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
-            let summary = newInfo.summary ?? session.conversationInfo.summary
-            let lastMessage = newInfo.lastMessage ?? session.conversationInfo.lastMessage
-            let lastMessageRole = newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole
-            let lastToolName = newInfo.lastToolName ?? session.conversationInfo.lastToolName
-            let firstUserMessage = newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage
-            let lastUserMessageDate = newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
+            parsedRemoteLines = result
 
+            let newInfo = await ConversationParser.shared.parseContent(newLines.joined(separator: "\n"))
             session.conversationInfo = ConversationInfo(
-                summary: summary,
-                lastMessage: lastMessage,
-                lastMessageRole: lastMessageRole,
-                lastToolName: lastToolName,
-                firstUserMessage: firstUserMessage,
-                lastUserMessageDate: lastUserMessageDate
+                summary: newInfo.summary ?? session.conversationInfo.summary,
+                lastMessage: newInfo.lastMessage ?? session.conversationInfo.lastMessage,
+                lastMessageRole: newInfo.lastMessageRole ?? session.conversationInfo.lastMessageRole,
+                lastToolName: newInfo.lastToolName ?? session.conversationInfo.lastToolName,
+                firstUserMessage: newInfo.firstUserMessage ?? session.conversationInfo.firstUserMessage,
+                lastUserMessageDate: newInfo.lastUserMessageDate ?? session.conversationInfo.lastUserMessageDate
             )
-            sessions[sessionId] = session
-            publishState()
-            
+        }
+
+        sessions[sessionId] = session
+
+        if let result = parsedRemoteLines {
             if result.clearDetected {
                 await processClearDetected(sessionId: sessionId)
             }
-            
             if !result.newMessages.isEmpty || result.clearDetected {
-                let payload = FileUpdatePayload(
+                await processFileUpdate(FileUpdatePayload(
                     sessionId: sessionId,
                     cwd: event.cwd,
                     messages: result.newMessages,
@@ -282,8 +299,7 @@ actor SessionStore {
                     completedToolIds: result.completedToolIds,
                     toolResults: result.toolResults,
                     structuredResults: result.structuredResults
-                )
-                await processFileUpdate(payload)
+                ))
             }
         }
 
@@ -294,7 +310,7 @@ actor SessionStore {
 
     private func applyNonClaudeMetadata(event: HookEvent, session: inout SessionState) {
         // Use forwarded metadata for OpenCode or as fallback for Claude
-        let isOpenCode = session.opencodeRawSessionId != nil
+        let isOpenCode = session.source == .opencode
 
         var summary = session.conversationInfo.summary
         var lastMessage = session.conversationInfo.lastMessage
@@ -303,12 +319,17 @@ actor SessionStore {
         var firstUserMessage = session.conversationInfo.firstUserMessage
         var lastUserMessageDate = session.conversationInfo.lastUserMessageDate
 
+        // Larger upper bound on lastMessage so the 2-line description row
+        // in ClaudeInstancesView actually has content to wrap into — 80 was
+        // barely enough for 1 line and baked a literal "..." suffix into
+        // the data, which killed the second line. Downstream views clamp
+        // tighter if they need it.
         if let title = event.sessionTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             summary = truncateInline(title, maxLength: 80)
         }
 
         if let prompt = event.prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let clean = truncateInline(prompt, maxLength: 80)
+            let clean = truncateInline(prompt, maxLength: 240)
             lastMessage = clean
             lastMessageRole = "user"
             lastUserMessageDate = Date()
@@ -324,7 +345,7 @@ actor SessionStore {
         }
 
         if let assistant = event.lastAssistantMessage, !assistant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lastMessage = truncateInline(assistant, maxLength: 80)
+            lastMessage = truncateInline(assistant, maxLength: 240)
             lastMessageRole = "assistant"
         }
 
@@ -342,7 +363,7 @@ actor SessionStore {
     }
 
     private func applyOpenCodeChatItems(event: HookEvent, session: inout SessionState) {
-        guard session.opencodeRawSessionId != nil else { return }
+        guard session.source == .opencode else { return }
 
         let now = Date()
 
@@ -429,6 +450,7 @@ actor SessionStore {
             sessionId: sessionId ?? event.sessionId,
             cwd: event.cwd,
             projectName: URL(fileURLWithPath: event.cwd).lastPathComponent,
+            source: event.supportedCLI,
             pid: event.pid,
             tty: event.tty?.replacingOccurrences(of: "/dev/", with: ""),
             multiplexer: .none,  // Will be updated
@@ -447,7 +469,7 @@ actor SessionStore {
 
                 // Skip creating top-level placeholder for subagent tools
                 // They'll appear under their parent Task instead
-                let isSubagentTool = session.subagentState.hasActiveSubagent && toolName != "Task"
+                let isSubagentTool = session.subagentState.hasActiveSubagent && !ToolCallItem.isSubagentContainerName(toolName)
                 if isSubagentTool {
                     return
                 }
@@ -524,6 +546,15 @@ actor SessionStore {
                 }
             }
 
+        case "PostToolUseFailure":
+            // Tool failed — mark chat item as error so the UI stops showing
+            // a spinner. Without this, the item's status stays `.running`
+            // forever and never completes.
+            if let toolUseId = event.toolUseId {
+                session.toolTracker.completeTool(id: toolUseId, success: false)
+                updateToolStatus(in: &session, toolId: toolUseId, status: .error)
+            }
+
         default:
             break
         }
@@ -532,15 +563,59 @@ actor SessionStore {
     private func processSubagentTracking(event: HookEvent, session: inout SessionState) {
         switch event.event {
         case "PreToolUse":
-            if event.tool == "Task", let toolUseId = event.toolUseId {
+            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
                 let description = event.toolInput?["description"]?.value as? String
                 session.subagentState.startTask(taskToolId: toolUseId, description: description)
-                Self.logger.debug("Started Task subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
+                Self.logger.debug("Started Task/Agent subagent tracking: \(toolUseId.prefix(12), privacy: .public)")
+            } else if let toolName = event.tool,
+                      let toolUseId = event.toolUseId,
+                      session.subagentState.hasActiveSubagent {
+                // A subagent's inner tool is starting. Add it to the parent
+                // Task/Agent's subagent list and sync to chatItems so the UI
+                // updates live (rather than only after the parent Agent finishes).
+                var input: [String: String] = [:]
+                if let hookInput = event.toolInput {
+                    for (key, value) in hookInput {
+                        if let str = value.value as? String {
+                            input[key] = str
+                        } else if let num = value.value as? Int {
+                            input[key] = String(num)
+                        } else if let bool = value.value as? Bool {
+                            input[key] = bool ? "true" : "false"
+                        }
+                    }
+                }
+                let subagentTool = SubagentToolCall(
+                    id: toolUseId,
+                    name: toolName,
+                    input: input,
+                    status: .running,
+                    timestamp: Date()
+                )
+                session.subagentState.addSubagentTool(subagentTool)
+                syncSubagentToolsToChatItems(session: &session)
             }
 
         case "PostToolUse":
-            if event.tool == "Task" {
-                Self.logger.debug("PostToolUse for Task received (subagent still running)")
+            if ToolCallItem.isSubagentContainerName(event.tool), let toolUseId = event.toolUseId {
+                // Agent tool returned — the subagent has finished. Stop
+                // tracking so subsequent tools in the parent turn don't get
+                // attached to this dead task.
+                session.subagentState.stopTask(taskToolId: toolUseId)
+                Self.logger.debug("Stopped subagent tracking for \(toolUseId.prefix(12), privacy: .public)")
+            } else if let toolUseId = event.toolUseId,
+                      session.subagentState.hasActiveSubagent {
+                // A subagent's inner tool completed. Update its status in the
+                // parent's subagent list and sync.
+                session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .success)
+                syncSubagentToolsToChatItems(session: &session)
+            }
+
+        case "PostToolUseFailure":
+            if let toolUseId = event.toolUseId,
+               session.subagentState.hasActiveSubagent {
+                session.subagentState.updateSubagentToolStatus(toolId: toolUseId, status: .error)
+                syncSubagentToolsToChatItems(session: &session)
             }
 
         case "SubagentStop":
@@ -550,6 +625,26 @@ actor SessionStore {
 
         default:
             break
+        }
+    }
+
+    /// Push the current subagent tool lists from subagentState into the
+    /// corresponding ChatHistoryItem.subagentTools so the UI renders them live.
+    private func syncSubagentToolsToChatItems(session: inout SessionState) {
+        for (taskToolId, context) in session.subagentState.activeTasks {
+            guard !context.subagentTools.isEmpty else { continue }
+            for i in 0..<session.chatItems.count {
+                if session.chatItems[i].id == taskToolId,
+                   case .toolCall(var tool) = session.chatItems[i].type {
+                    tool.subagentTools = context.subagentTools
+                    session.chatItems[i] = ChatHistoryItem(
+                        id: taskToolId,
+                        type: .toolCall(tool),
+                        timestamp: session.chatItems[i].timestamp
+                    )
+                    break
+                }
+            }
         }
     }
 
@@ -770,9 +865,11 @@ actor SessionStore {
         guard var session = sessions[payload.sessionId] else { return }
 
         // Update conversationInfo from JSONL (summary, lastMessage, etc.)
+        let projectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
         let conversationInfo = await ConversationParser.shared.parse(
             sessionId: payload.sessionId,
-            cwd: session.cwd
+            cwd: session.cwd,
+            projectsDirRelative: projectsDir
         )
         
         let summary = conversationInfo.summary ?? session.conversationInfo.summary
@@ -800,7 +897,7 @@ actor SessionStore {
                     switch block {
                     case .toolUse(let tool):
                         validIds.insert(tool.id)
-                    case .text, .thinking, .interrupted:
+                    case .text, .thinking, .image, .interrupted:
                         let itemId = "\(message.id)-\(block.typePrefix)-\(blockIndex)"
                         validIds.insert(itemId)
                     }
@@ -912,6 +1009,7 @@ actor SessionStore {
         session.toolTracker.lastSyncTime = Date()
 
         await populateSubagentToolsFromAgentFiles(
+            sessionId: payload.sessionId,
             session: &session,
             cwd: payload.cwd,
             structuredResults: payload.structuredResults
@@ -928,15 +1026,16 @@ actor SessionStore {
         )
     }
 
-    /// Populate subagent tools for Task tools using their agent JSONL files
+    /// Populate subagent tools for Task/Agent tools using their agent JSONL files
     private func populateSubagentToolsFromAgentFiles(
+        sessionId: String,
         session: inout SessionState,
         cwd: String,
         structuredResults: [String: ToolResultData]
     ) async {
         for i in 0..<session.chatItems.count {
             guard case .toolCall(var tool) = session.chatItems[i].type,
-                  tool.name == "Task",
+                  tool.isSubagentContainer,
                   let structuredResult = structuredResults[session.chatItems[i].id],
                   case .task(let taskResult) = structuredResult,
                   !taskResult.agentId.isEmpty else { continue }
@@ -950,10 +1049,27 @@ actor SessionStore {
                 session.subagentState.agentDescriptions[taskResult.agentId] = description
             }
 
-            let subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
-                agentId: taskResult.agentId,
-                cwd: cwd
-            )
+            let subagentProjectsDir = CLIConfig.forSource(session.source).jsonlProjectsDirRelative ?? ".claude/projects"
+            let subagentToolInfos: [SubagentToolInfo]
+            if session.isRemote, let hostId = session.remoteHostId {
+                // Remote: the agent JSONL lives on the remote host; fetch it
+                // via SSH then parse locally. Try nested path first (current
+                // Claude Code layout), fall back to flat (legacy).
+                subagentToolInfos = await fetchRemoteSubagentTools(
+                    hostId: hostId,
+                    sessionId: sessionId,
+                    agentId: taskResult.agentId,
+                    cwd: cwd,
+                    projectsDirRelative: subagentProjectsDir
+                )
+            } else {
+                subagentToolInfos = await ConversationParser.shared.parseSubagentTools(
+                    sessionId: sessionId,
+                    agentId: taskResult.agentId,
+                    cwd: cwd,
+                    projectsDirRelative: subagentProjectsDir
+                )
+            }
 
             guard !subagentToolInfos.isEmpty else { continue }
 
@@ -975,6 +1091,49 @@ actor SessionStore {
 
             Self.logger.debug("Populated \(subagentToolInfos.count) subagent tools for Task \(taskToolId.prefix(12), privacy: .public) from agent \(taskResult.agentId.prefix(8), privacy: .public)")
         }
+    }
+
+    /// Fetch a remote subagent JSONL over SSH and parse it into SubagentToolInfo.
+    /// Tries nested path first (Claude Code current layout), falls back to
+    /// the flat path. Returns empty on any failure (no file, SSH error,
+    /// parse failure); caller treats empty as "nothing to populate".
+    private func fetchRemoteSubagentTools(
+        hostId: String,
+        sessionId: String,
+        agentId: String,
+        cwd: String,
+        projectsDirRelative: String
+    ) async -> [SubagentToolInfo] {
+        let paths = ConversationParser.remoteSubagentPaths(
+            sessionId: sessionId,
+            agentId: agentId,
+            cwd: cwd,
+            projectsDirRelative: projectsDirRelative
+        )
+
+        for path in [paths.nested, paths.flat] {
+            // Single-quote the path so shell metacharacters in cwd (e.g.
+            // an apostrophe in "bob's-project") can't escape the argument.
+            // Tilde must sit outside the quotes to expand — POSIX only
+            // expands tilde at the start of a word before the first
+            // unquoted slash, and `~/'foo bar'` qualifies.
+            let rest = path.hasPrefix("~/") ? String(path.dropFirst(2)) : path
+            let escaped = rest.replacingOccurrences(of: "'", with: "'\\''")
+            let quoted = path.hasPrefix("~/") ? "~/'\(escaped)'" : "'\(escaped)'"
+            let cmd = "cat \(quoted) 2>/dev/null"
+            let (output, exitCode) = await RemoteManager.shared.exec(
+                hostId: hostId,
+                command: cmd
+            )
+            guard exitCode == 0, !output.isEmpty else { continue }
+
+            let tools = ConversationParser.parseSubagentToolsFromContent(output)
+            if !tools.isEmpty {
+                Self.logger.debug("Fetched \(tools.count) remote subagent tools for agent \(agentId.prefix(8), privacy: .public) from \(path, privacy: .public)")
+                return tools
+            }
+        }
+        return []
     }
 
     /// Emit toolCompleted events for tools that have results in JSONL but aren't marked complete yet
@@ -1058,7 +1217,19 @@ actor SessionStore {
         case .thinking(let text):
             let itemId = "\(message.id)-thinking-\(blockIndex)"
             guard !existingIds.contains(itemId) else { return nil }
+
+            // Skip empty thinking blocks — streaming can briefly produce empty
+            // ones that would render as orphan grey dots.
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+
             return ChatHistoryItem(id: itemId, type: .thinking(text), timestamp: message.timestamp)
+
+        case .image(let imageBlock):
+            let itemId = "\(message.id)-image-\(blockIndex)"
+            guard !existingIds.contains(itemId) else { return nil }
+            return ChatHistoryItem(id: itemId, type: .image(imageBlock), timestamp: message.timestamp)
 
         case .interrupted:
             let itemId = "\(message.id)-interrupted-\(blockIndex)"
@@ -1149,54 +1320,101 @@ actor SessionStore {
         let structuredResults: [String: ToolResultData]
         let conversationInfo: ConversationInfo
 
-        if let codexId = sessions[sessionId]?.codexRawSessionId {
+        let emptyInfo = ConversationInfo(summary: nil, lastMessage: nil, lastMessageRole: nil,
+                                         lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil)
+
+        guard let session = sessions[sessionId] else {
+            messages = []
+            completedTools = []
+            toolResults = [:]
+            structuredResults = [:]
+            conversationInfo = emptyInfo
+            await process(.historyLoaded(
+                sessionId: sessionId,
+                messages: messages,
+                completedTools: completedTools,
+                toolResults: toolResults,
+                structuredResults: structuredResults,
+                conversationInfo: conversationInfo
+            ))
+            return
+        }
+
+        let kind = session.historyKind
+        let config = CLIConfig.forSource(session.source)
+
+        switch kind {
+        case .codexRollout:
             // Codex: load from local rollout JSONL under ~/.codex/sessions/.
             // Remote Codex sessions do not have a local rollout file on this
             // machine; continue returning empty history for them (follow-up
             // work will add a remote helper mirroring the OpenCode path).
-            if let session = sessions[sessionId], session.isRemote {
+            if session.isRemote {
                 messages = []
                 completedTools = []
                 toolResults = [:]
                 structuredResults = [:]
-                conversationInfo = ConversationInfo(
-                    summary: nil, lastMessage: nil, lastMessageRole: nil,
-                    lastToolName: nil, firstUserMessage: nil, lastUserMessageDate: nil
-                )
-            } else {
+                conversationInfo = emptyInfo
+            } else if let codexId = session.codexRawSessionId {
                 let result = await CodexRolloutParser.shared.parse(codexSessionId: codexId)
                 messages = result.messages
                 completedTools = result.completedToolIds
                 toolResults = result.toolResults
                 structuredResults = [:]
                 conversationInfo = result.conversationInfo
-            }
-        } else if let opencodeId = sessions[sessionId]?.opencodeRawSessionId {
-            // OpenCode: load from SQLite database (local) or remote helper (SSH).
-            let result: OpenCodeDBParser.ParseResult
-            if let session = sessions[sessionId], session.isRemote, let hostId = session.remoteHostId {
-                result = await loadRemoteOpenCodeHistory(opencodeSessionId: opencodeId, hostId: hostId)
             } else {
-                result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+                messages = []
+                completedTools = []
+                toolResults = [:]
+                structuredResults = [:]
+                conversationInfo = emptyInfo
             }
-            messages = result.messages
-            completedTools = result.completedToolIds
-            toolResults = result.toolResults
-            structuredResults = [:]
-            conversationInfo = result.conversationInfo
-        } else {
-            // Claude Code: load from JSONL file
+
+        case .sqlite:
+            // OpenCode: load from SQLite database (local) or remote helper (SSH).
+            if let opencodeId = session.opencodeRawSessionId {
+                let result: OpenCodeDBParser.ParseResult
+                if session.isRemote, let hostId = session.remoteHostId {
+                    result = await loadRemoteOpenCodeHistory(opencodeSessionId: opencodeId, hostId: hostId)
+                } else {
+                    result = await OpenCodeDBParser.shared.parse(opencodeSessionId: opencodeId)
+                }
+                messages = result.messages
+                completedTools = result.completedToolIds
+                toolResults = result.toolResults
+                structuredResults = [:]
+                conversationInfo = result.conversationInfo
+            } else {
+                messages = []
+                completedTools = []
+                toolResults = [:]
+                structuredResults = [:]
+                conversationInfo = emptyInfo
+            }
+
+        case .jsonl:
+            // Claude Code and its forks: per-config projects directory.
+            let projectsDir = config.jsonlProjectsDirRelative ?? ".claude/projects"
             messages = await ConversationParser.shared.parseFullConversation(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
             completedTools = await ConversationParser.shared.completedToolIds(for: sessionId)
             toolResults = await ConversationParser.shared.toolResults(for: sessionId)
             structuredResults = await ConversationParser.shared.structuredResults(for: sessionId)
             conversationInfo = await ConversationParser.shared.parse(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
+
+        case .realtimeOnly:
+            messages = []
+            completedTools = []
+            toolResults = [:]
+            structuredResults = [:]
+            conversationInfo = emptyInfo
         }
 
         // Process loaded history
@@ -1274,7 +1492,7 @@ actor SessionStore {
         // authoritative history from disk. The on-disk record has the complete
         // conversation; real-time items (with "opencode-*"/"codex-*" synthetic
         // IDs) would otherwise duplicate content since IDs differ.
-        if session.opencodeRawSessionId != nil || session.codexRawSessionId != nil {
+        if session.source == .opencode || session.source == .codex {
             session.chatItems.removeAll()
             session.toolTracker = ToolTracker()
         }
@@ -1313,6 +1531,12 @@ actor SessionStore {
         // Cancel existing sync
         cancelPendingSync(sessionId: sessionId)
 
+        // Look up the current session's projects dir so forks with non-.claude
+        // JSONL storage read from the right path.
+        let projectsDir = sessions[sessionId]
+            .flatMap { CLIConfig.forSource($0.source).jsonlProjectsDirRelative }
+            ?? ".claude/projects"
+
         // Schedule new debounced sync
         pendingSyncs[sessionId] = Task { [weak self, syncDebounceNs] in
             try? await Task.sleep(nanoseconds: syncDebounceNs)
@@ -1321,7 +1545,8 @@ actor SessionStore {
             // Parse incrementally - only get NEW messages since last call
             let result = await ConversationParser.shared.parseIncremental(
                 sessionId: sessionId,
-                cwd: cwd
+                cwd: cwd,
+                projectsDirRelative: projectsDir
             )
 
             if result.clearDetected {
@@ -1468,7 +1693,7 @@ actor SessionStore {
     /// Returns the session ID if found, nil otherwise.
     private func findExistingOpenCodeSession(forPid pid: Int, excluding sessionId: String) -> String? {
         for (id, session) in sessions where id != sessionId {
-            if session.opencodeRawSessionId != nil && session.pid == pid {
+            if session.source == .opencode && session.pid == pid {
                 return id
             }
         }

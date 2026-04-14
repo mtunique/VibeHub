@@ -250,8 +250,8 @@ private struct OnboardingStandaloneView: View {
         #if APP_STORE
         await performInstallAppStore()
         #else
+        // CLIInstaller handles every enabled CLI (Claude, OpenCode, Codex, forks).
         HookInstaller.installIfNeeded()
-        OpenCodePluginInstaller.installIfNeeded()
         #endif
     }
 

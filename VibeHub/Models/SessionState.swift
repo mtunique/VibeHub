@@ -13,6 +13,7 @@ enum MultiplexerKind: Equatable, Sendable {
     case none
     case tmux
     case zellij
+    case cmux
 }
 
 /// Complete state for a single Claude session
@@ -35,6 +36,12 @@ struct SessionState: Equatable, Identifiable, Sendable {
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?
+    /// cmux workspace / surface identifiers captured from the hook's
+    /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` environment variables.
+    /// When non-nil, ChatView sends messages via the cmux CLI instead of
+    /// TTY injection.
+    var cmuxWorkspaceId: String?
+    var cmuxSurfaceId: String?
 
     /// If non-nil, this session is coming from a remote host.
     var remoteHostId: String?
@@ -43,6 +50,12 @@ struct SessionState: Equatable, Identifiable, Sendable {
 
     nonisolated var isRemote: Bool { remoteHostId != nil }
     nonisolated var isInMultiplexer: Bool { multiplexer != .none }
+
+    /// First-class CLI source. Written when the session is created from a
+    /// `HookEvent`, based on `HookEvent.supportedCLI` (which in turn reads
+    /// the `_source` field injected by `vibehub-state.py`). Defaults to
+    /// `.claude` for sessions constructed before this field existed.
+    var source: SupportedCLI = .claude
 
     nonisolated var opencodeRawSessionId: String? {
         guard let range = sessionId.range(of: "opencode-") else { return nil }
@@ -54,18 +67,13 @@ struct SessionState: Equatable, Identifiable, Sendable {
         return String(sessionId.dropFirst("codex-".count))
     }
 
-    enum CLISource: String {
-        case claude, opencode, codex
-    }
-
-    nonisolated var cliSource: CLISource {
-        if opencodeRawSessionId != nil { return .opencode }
-        if codexRawSessionId != nil { return .codex }
-        return .claude
+    /// Which history adapter SessionStore should use for this session.
+    nonisolated var historyKind: HistoryKind {
+        CLIConfig.forSource(source).capability.historyKind
     }
 
     nonisolated var openCodeControlSocketPath: String? {
-        guard opencodeRawSessionId != nil else { return nil }
+        guard source == .opencode else { return nil }
         guard let pid else { return nil }
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vibehub", isDirectory: true)
@@ -118,6 +126,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         sessionId: String,
         cwd: String,
         projectName: String? = nil,
+        source: SupportedCLI? = nil,
         pid: Int? = nil,
         tty: String? = nil,
         multiplexer: MultiplexerKind = .none,
@@ -125,6 +134,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
+        cmuxWorkspaceId: String? = nil,
+        cmuxSurfaceId: String? = nil,
         phase: SessionPhase = .idle,
         chatItems: [ChatHistoryItem] = [],
         toolTracker: ToolTracker = ToolTracker(),
@@ -140,6 +151,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.sessionId = sessionId
         self.cwd = cwd
         self.projectName = projectName ?? URL(fileURLWithPath: cwd).lastPathComponent
+        // Resolve source: explicit argument > legacy sessionId prefix > default .claude.
+        self.source = source
+            ?? SupportedCLI.from(sessionIdPrefix: sessionId)
+            ?? .claude
         self.pid = pid
         self.tty = tty
         self.multiplexer = multiplexer
@@ -147,6 +162,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
+        self.cmuxWorkspaceId = cmuxWorkspaceId
+        self.cmuxSurfaceId = cmuxSurfaceId
         self.phase = phase
         self.chatItems = chatItems
         self.toolTracker = toolTracker

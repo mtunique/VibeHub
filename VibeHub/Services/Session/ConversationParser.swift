@@ -109,8 +109,8 @@ actor ConversationParser {
 
     /// Parse a JSONL file to extract conversation info
     /// Uses caching based on file modification time
-    func parse(sessionId: String, cwd: String) -> ConversationInfo {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parse(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> ConversationInfo {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -237,9 +237,13 @@ actor ConversationParser {
             }
         }
 
+        // Cap lastMessage at 240 chars — roughly 3 lines of 11pt text in the
+        // notch row. Downstream consumers (displayTitle, compactDisplayTitle,
+        // description row) apply their own tighter limits; this upper bound
+        // is just there to keep memory predictable.
         return ConversationInfo(
             summary: summary,
-            lastMessage: Self.truncateMessage(lastMessage, maxLength: 80),
+            lastMessage: Self.truncateMessage(lastMessage, maxLength: 240),
             lastMessageRole: lastMessageRole,
             lastToolName: lastToolName,
             firstUserMessage: firstUserMessage,
@@ -268,7 +272,8 @@ actor ConversationParser {
             if let pattern = input["pattern"] as? String {
                 return pattern
             }
-        case "Task":
+        case "Task", "Agent":
+            // "Task" is the legacy name; Claude Code now uses "Agent"
             if let description = input["description"] as? String {
                 return description
             }
@@ -304,8 +309,8 @@ actor ConversationParser {
     // MARK: - Full Conversation Parsing
 
     /// Parse full conversation history for chat view (returns ALL messages - use sparingly)
-    func parseFullConversation(sessionId: String, cwd: String) -> [ChatMessage] {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parseFullConversation(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [ChatMessage] {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -334,8 +339,8 @@ actor ConversationParser {
     }
 
     /// Parse only NEW messages since last call (efficient incremental updates)
-    func parseIncremental(sessionId: String, cwd: String) -> IncrementalParseResult {
-        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd)
+    func parseIncremental(sessionId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> IncrementalParseResult {
+        let sessionFile = Self.sessionFilePath(sessionId: sessionId, cwd: cwd, projectsDirRelative: projectsDirRelative)
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -547,15 +552,48 @@ actor ConversationParser {
         return true
     }
 
-    /// Build session file path
-    private static func sessionFilePath(sessionId: String, cwd: String) -> String {
+    /// Build session file path for a given CLI's projects directory.
+    /// `projectsDirRelative` is home-relative (e.g. `.claude/projects`).
+    private static func sessionFilePath(sessionId: String, cwd: String, projectsDirRelative: String) -> String {
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         #if APP_STORE
         let homePath = HookInstaller.resolvedHomePath()
         #else
         let homePath = NSHomeDirectory()
         #endif
-        return homePath + "/.claude/projects/" + projectDir + "/" + sessionId + ".jsonl"
+        return homePath + "/" + projectsDirRelative + "/" + projectDir + "/" + sessionId + ".jsonl"
+    }
+
+    /// Build subagent JSONL file path.
+    ///
+    /// Current Claude Code nests subagent files under the parent session:
+    ///   projects/<project>/<sessionId>/subagents/agent-<agentId>.jsonl
+    ///
+    /// Older Claude Code versions stored them flat:
+    ///   projects/<project>/agent-<agentId>.jsonl
+    ///
+    /// Prefer the nested path; fall back to the flat path if only it exists
+    /// (cross-version compatibility). If neither exists yet (file still being
+    /// created) we return the nested path as the modern default.
+    nonisolated static func subagentFilePath(
+        sessionId: String,
+        agentId: String,
+        projectDir: String,
+        projectsDirRelative: String = ".claude/projects"
+    ) -> String {
+        #if APP_STORE
+        let homePath = HookInstaller.resolvedHomePath()
+        #else
+        let homePath = NSHomeDirectory()
+        #endif
+        let base = homePath + "/" + projectsDirRelative + "/" + projectDir
+        let nested = base + "/" + sessionId + "/subagents/agent-" + agentId + ".jsonl"
+        let flat = base + "/agent-" + agentId + ".jsonl"
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: nested) { return nested }
+        if fm.fileExists(atPath: flat) { return flat }
+        return nested
     }
 
     private func parseMessageLine(_ json: [String: Any], seenToolIds: inout Set<String>, toolIdToName: inout [String: String]) -> ChatMessage? {
@@ -634,6 +672,13 @@ actor ConversationParser {
                         if let thinking = block["thinking"] as? String {
                             blocks.append(.thinking(thinking))
                         }
+                    case "image":
+                        // Claude Code stores inline images as base64 with media_type.
+                        if let source = block["source"] as? [String: Any],
+                           let mediaType = source["media_type"] as? String,
+                           let data = source["data"] as? String {
+                            blocks.append(.image(ImageBlock(mediaType: mediaType, base64Data: data)))
+                        }
                     default:
                         break
                     }
@@ -684,12 +729,15 @@ actor ConversationParser {
         isError: Bool
     ) -> ToolResultData {
         if toolName.hasPrefix("mcp__") {
-            let parts = toolName.dropFirst(5).split(separator: "_", maxSplits: 2)
-            let serverName = parts.count > 0 ? String(parts[0]) : "unknown"
-            let mcpToolName = parts.count > 1 ? String(parts[1].dropFirst()) : toolName
+            // Format is mcp__<server>__<tool>, where <tool> may itself contain
+            // double-underscores. Splitting on "__" is stable; the previous
+            // single-underscore split mangled tools like `mcp__foo__bar_baz`.
+            let parts = String(toolName.dropFirst(5)).components(separatedBy: "__")
+            let serverName = parts.first.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+            let mcpToolName = parts.dropFirst().joined(separator: "__")
             return .mcp(MCPResult(
                 serverName: serverName,
-                toolName: mcpToolName,
+                toolName: mcpToolName.isEmpty ? toolName : mcpToolName,
                 rawResult: toolUseResult
             ))
         }
@@ -709,7 +757,7 @@ actor ConversationParser {
             return parseGlobResult(toolUseResult)
         case "TodoWrite":
             return parseTodoWriteResult(toolUseResult)
-        case "Task":
+        case "Task", "Agent":
             return parseTaskResult(toolUseResult)
         case "WebFetch":
             return parseWebFetchResult(toolUseResult)
@@ -988,16 +1036,16 @@ actor ConversationParser {
     // MARK: - Subagent Tools Parsing
 
     /// Parse subagent tools from an agent JSONL file
-    func parseSubagentTools(agentId: String, cwd: String) -> [SubagentToolInfo] {
+    func parseSubagentTools(sessionId: String, agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let homePath = HookInstaller.resolvedHomePath()
-        #else
-        let homePath = NSHomeDirectory()
-        #endif
-        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = Self.subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
 
         #if APP_STORE
         let _scope = SandboxScope()
@@ -1086,20 +1134,111 @@ struct SubagentToolInfo: Sendable {
     let timestamp: String?
 }
 
+extension ConversationParser {
+    /// Parse subagent tools directly from raw JSONL content. Used by both the
+    /// local-file variant and the remote (SSH-fetched) variant so the parsing
+    /// logic lives in exactly one place.
+    nonisolated static func parseSubagentToolsFromContent(_ content: String) -> [SubagentToolInfo] {
+        var tools: [SubagentToolInfo] = []
+        var seenToolIds: Set<String> = []
+        var completedToolIds: Set<String> = []
+
+        // Collect the lines once — the prior implementation allocated the
+        // array twice, which was wasteful on multi-task agent runs.
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: true)
+
+        for line in lines {
+            guard line.contains("\"tool_result\"") else { continue }
+            guard let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let messageDict = json["message"] as? [String: Any],
+                  let contentArray = messageDict["content"] as? [[String: Any]] else {
+                continue
+            }
+            for block in contentArray {
+                if block["type"] as? String == "tool_result",
+                   let toolUseId = block["tool_use_id"] as? String {
+                    completedToolIds.insert(toolUseId)
+                }
+            }
+        }
+
+        for line in lines {
+            guard line.contains("\"tool_use\""),
+                  let lineData = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let messageDict = json["message"] as? [String: Any],
+                  let contentArray = messageDict["content"] as? [[String: Any]] else {
+                continue
+            }
+
+            for block in contentArray {
+                guard block["type"] as? String == "tool_use",
+                      let toolId = block["id"] as? String,
+                      let toolName = block["name"] as? String,
+                      !seenToolIds.contains(toolId) else {
+                    continue
+                }
+
+                seenToolIds.insert(toolId)
+
+                var input: [String: String] = [:]
+                if let inputDict = block["input"] as? [String: Any] {
+                    for (key, value) in inputDict {
+                        if let strValue = value as? String {
+                            input[key] = strValue
+                        } else if let intValue = value as? Int {
+                            input[key] = String(intValue)
+                        } else if let boolValue = value as? Bool {
+                            input[key] = boolValue ? "true" : "false"
+                        }
+                    }
+                }
+
+                tools.append(SubagentToolInfo(
+                    id: toolId,
+                    name: toolName,
+                    input: input,
+                    isCompleted: completedToolIds.contains(toolId),
+                    timestamp: json["timestamp"] as? String
+                ))
+            }
+        }
+
+        return tools
+    }
+
+    /// Build the ~-relative remote path to a subagent JSONL, matching the
+    /// local layout. Returns both the nested (Claude Code current) and flat
+    /// (legacy) candidates — SessionStore tries nested first, falls back.
+    nonisolated static func remoteSubagentPaths(
+        sessionId: String,
+        agentId: String,
+        cwd: String,
+        projectsDirRelative: String = ".claude/projects"
+    ) -> (nested: String, flat: String) {
+        let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
+        let base = "~/" + projectsDirRelative + "/" + projectDir
+        let nested = base + "/" + sessionId + "/subagents/agent-" + agentId + ".jsonl"
+        let flat = base + "/agent-" + agentId + ".jsonl"
+        return (nested, flat)
+    }
+}
+
 // MARK: - Static Subagent Tools Parsing
 
 extension ConversationParser {
     /// Parse subagent tools from an agent JSONL file (static, synchronous version)
-    nonisolated static func parseSubagentToolsSync(agentId: String, cwd: String) -> [SubagentToolInfo] {
+    nonisolated static func parseSubagentToolsSync(sessionId: String, agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") -> [SubagentToolInfo] {
         guard !agentId.isEmpty else { return [] }
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let homePath = HookInstaller.resolvedHomePath()
-        #else
-        let homePath = NSHomeDirectory()
-        #endif
-        let agentFile = homePath + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        let agentFile = subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
 
         #if APP_STORE
         let _scope = SandboxScope()

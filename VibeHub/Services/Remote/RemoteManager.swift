@@ -511,8 +511,12 @@ s.close()
 print(\"sent\", token)
 """
 
-            let cmd = "python3 - '\(token)' <<'PY'\n\(py)\nPY"
-            let r = await RemoteInstaller.runSSHResult(host: host, command: cmd, timeoutSeconds: 10)
+            // Pass the token as a plain string — runSSHPython shell-quotes args
+            // for us, so embedding our own quotes here produces a literal
+            // "'TOKEN'" (with quotes) on the remote side, and the local event
+            // comparison fails (token mismatch → false healthcheck timeouts →
+            // tunnel gets torn down even though it's healthy).
+            let r = await RemoteInstaller.runSSHPython(host: host, script: py, args: [String(token)], timeoutSeconds: 10)
             if r.exitCode != 0 {
                 await RemoteLog.shared.log(.warn, "healthcheck ssh failed exit=\(r.exitCode) stderr=\(r.stderr ?? "")", hostId: id)
                 if r.exitCode == 255 {

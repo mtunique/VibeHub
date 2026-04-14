@@ -84,10 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         HookInstaller.installIfNeeded()
         HookInstaller.startWatchingSettings()
-#if !APP_STORE
-        OpenCodePluginInstaller.installIfNeeded()
-        CodexHookInstaller.installIfNeeded()
-#endif
         NSApplication.shared.setActivationPolicy(.accessory)
 
         ClaudeSessionMonitor.shared.startMonitoring()

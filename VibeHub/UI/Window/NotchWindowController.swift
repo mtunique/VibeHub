@@ -15,7 +15,6 @@ class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
-    private var previouslyActiveApp: NSRunningApplication?
     /// Whether the notch panel currently captures mouse events. False means
     /// clicks pass through to whatever is behind the panel.
     private var isNotchInteractive: Bool = false
@@ -115,28 +114,54 @@ class NotchWindowController: NSWindowController {
         viewModel.$keyboardMode
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak notchWindow] wantsKeyboard in
+            .sink { [weak notchWindow] wantsKeyboard in
                 guard let notchWindow = notchWindow as? NotchPanel else { return }
-                
+
                 if wantsKeyboard {
-                    // Entering keyboard mode: save previous app and activate
-                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier != Bundle.main.bundleIdentifier {
-                        self?.previouslyActiveApp = NSWorkspace.shared.frontmostApplication
-                    }
                     notchWindow.allowsKeyFocus = true
                     NSApp.activate(ignoringOtherApps: true)
                     notchWindow.makeKeyAndOrderFront(nil)
                 } else {
-                    // Exiting keyboard mode: restore previous app if we are still active
+                    // Exiting keyboard mode: resign key + restore whichever
+                    // non-VibeHub app was frontmost most recently. We keep
+                    // that reference on `PreviousAppTracker` instead of
+                    // snapshotting on enter — that way every exit path
+                    // (onDisappear, contentType change, explicit click
+                    // outside, display-mode swap) has a live target to hand
+                    // focus back to, even if enter/exit aren't balanced.
+                    //
+                    // Deliberately no `NSApp.hide` fallback — that would
+                    // hide the Settings window alongside the notch.
                     notchWindow.allowsKeyFocus = false
-                    
-                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
-                        if let previousApp = self?.previouslyActiveApp, !previousApp.isTerminated {
-                            previousApp.activate(options: .activateIgnoringOtherApps)
-                        }
+                    if notchWindow.isKeyWindow {
+                        notchWindow.resignKey()
                     }
-                    self?.previouslyActiveApp = nil
+                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
+                        PreviousAppTracker.shared.restore()
+                    }
                 }
+            }
+            .store(in: &cancellables)
+
+        // Belt-and-suspenders safety net: whenever the content type leaves
+        // `.chat`, force-exit keyboard mode. ChatView's `.onDisappear`
+        // already covers the normal case, but this catches any path where
+        // SwiftUI doesn't tear down the view cleanly (e.g. animated content
+        // swaps inside the notch while the hosting controller persists).
+        viewModel.$contentType
+            .removeDuplicates { lhs, rhs in
+                // Treat any two non-chat cases as "equal" so we only fire
+                // the sink on transitions into/out of chat.
+                switch (lhs, rhs) {
+                case (.chat, .chat): return true
+                case (.chat, _), (_, .chat): return false
+                default: return true
+                }
+            }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak viewModel] contentType in
+                if case .chat = contentType { return }
+                viewModel?.exitKeyboardMode()
             }
             .store(in: &cancellables)
 

@@ -2,7 +2,13 @@
 //  HookInstaller.swift
 //  VibeHub
 //
-//  Auto-installs Claude Code hooks on app launch
+//  Thin wrapper that delegates all install / uninstall work to
+//  `CLIInstaller`. Exists primarily to:
+//  - publish `installedSubject` for the settings UI to observe
+//  - watch `~/.claude/settings.json` for external edits
+//  - provide the App-Store-specific bookmark + security-scope shims
+//
+//  The actual hook-schema writing lives in CLIInstaller.
 //
 
 import Combine
@@ -17,7 +23,7 @@ struct HookInstaller {
     private static var settingsSource: DispatchSourceFileSystemObject?
     private static var settingsFd: Int32 = -1
 
-    /// Observable hook-installed state. UI binds to this instead of polling `isInstalled()`.
+    /// Observable hook-installed state. UI binds to this instead of polling.
     static let installedSubject = CurrentValueSubject<Bool, Never>(isInstalled())
 
     /// Start watching ~/.claude/settings.json and update `installedSubject` on changes.
@@ -69,219 +75,83 @@ struct HookInstaller {
 
 #if APP_STORE
     private enum Defaults {
-        // Keep key name stable; now stores Home folder bookmark.
         static let claudeDirBookmarkKey = "ci.bookmark.claudeDir"
         static let opencodeDirBookmarkKey = "ci.bookmark.opencodeDir"
     }
 #endif
 
-    /// Install hook script and update settings.json on app launch
+    /// Install hook scripts and plugins for every enabled CLI on app launch.
     static func installIfNeeded() {
 #if APP_STORE
-        // If we already have a stored bookmark, use it to auto-update hooks
-        // (ensures socket path stays correct across build switches).
         if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
             _ = withSecurityScope(url: homeDir) {
-                installSharedScript()
-
-                let claudeDir = homeDir.appendingPathComponent(".claude")
-                _ = installAppStore(claudeDir: claudeDir)
-
-                let opencodeDir = homeDir.appendingPathComponent(".config").appendingPathComponent("opencode")
-                if FileManager.default.fileExists(atPath: opencodeDir.path) {
-                    _ = installOpenCodeAppStore(opencodeDir: opencodeDir)
-                }
-
-                let codexDir = homeDir.appendingPathComponent(".codex")
-                if FileManager.default.fileExists(atPath: codexDir.path) {
-                    _ = CodexHookInstaller.installCodexAppStore(codexDir: codexDir)
+                CLIInstaller.installSharedScript()
+                for config in CLIConfig.all {
+                    CLIInstaller.installLocal(config: config, homeDir: homeDir)
                 }
             }
         }
         return
 #else
-        // Install the shared script once into ~/.vibehub/, then symlink from each CLI's hooks dir.
-        Self.installSharedScript()
-
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let pythonScript = hooksDir.appendingPathComponent("vibehub-state.py")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-
-        try? FileManager.default.createDirectory(
-            at: hooksDir,
-            withIntermediateDirectories: true
-        )
-
-        Self.ensureSymlink(at: pythonScript, target: sharedScriptURL)
-
-        updateSettings(at: settings)
+        CLIInstaller.installAllLocal()
+        installedSubject.send(CLIInstaller.isAnyInstalled())
 #endif
     }
 
-    private static func updateSettings(at settingsURL: URL) {
-        var json: [String: Any] = [:]
-        if let data = try? Data(contentsOf: settingsURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            json = existing
-        }
-
-        let python = detectPython()
-        let sock = HookSocketServer.socketPath.replacingOccurrences(of: "\"", with: "\\\"")
-        let command = "VIBEHUB_SOCKET_PATH=\"\(sock)\" \(python) ~/.claude/hooks/vibehub-state.py"
-        let hookEntry: [[String: Any]] = [["type": "command", "command": command]]
-        let hookEntryWithTimeout: [[String: Any]] = [["type": "command", "command": command, "timeout": 86400]]
-        let withMatcher: [[String: Any]] = [["matcher": "*", "hooks": hookEntry]]
-        let withMatcherAndTimeout: [[String: Any]] = [["matcher": "*", "hooks": hookEntryWithTimeout]]
-        let withoutMatcher: [[String: Any]] = [["hooks": hookEntry]]
-        let preCompactConfig: [[String: Any]] = [
-            ["matcher": "auto", "hooks": hookEntry],
-            ["matcher": "manual", "hooks": hookEntry]
-        ]
-
-        var hooks = json["hooks"] as? [String: Any] ?? [:]
-
-        let hookEvents: [(String, [[String: Any]])] = [
-            ("UserPromptSubmit", withoutMatcher),
-            ("PreToolUse", withMatcher),
-            ("PostToolUse", withMatcher),
-            ("PermissionRequest", withMatcherAndTimeout),
-            ("Notification", withMatcher),
-            ("Stop", withoutMatcher),
-            ("SubagentStop", withoutMatcher),
-            ("SessionStart", withoutMatcher),
-            ("SessionEnd", withoutMatcher),
-            ("PreCompact", preCompactConfig),
-        ]
-
-        for (event, config) in hookEvents {
-            if var existingEvent = hooks[event] as? [[String: Any]] {
-                // Remove any stale vibehub hooks (e.g. from a different build
-                // with a different socket path) before inserting ours.
-                existingEvent.removeAll { entry in
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { h in
-                            let cmd = h["command"] as? String ?? ""
-                            return cmd.contains("vibehub-state.py")
-                        }
-                    }
-                    return false
-                }
-                existingEvent.append(contentsOf: config)
-                hooks[event] = existingEvent
-            } else {
-                hooks[event] = config
-            }
-        }
-
-        json["hooks"] = hooks
-
-        if let data = try? JSONSerialization.data(
-            withJSONObject: json,
-            options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: settingsURL)
-            installedSubject.send(true)
-        }
-    }
-
-    /// Check if hooks are currently installed
+    /// Check if hooks are currently installed for Claude or any other CLI.
     static func isInstalled() -> Bool {
 #if APP_STORE
         guard let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) else {
             return false
         }
-        // The bookmark stores the Home directory, not ~/.claude directly.
-        let claudeDir = homeDir.appendingPathComponent(".claude")
         return withSecurityScope(url: homeDir) {
-            isInstalledInClaudeDir(claudeDir)
-        } ?? false
-#else
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-
-        guard let data = try? Data(contentsOf: settings),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = json["hooks"] as? [String: Any] else {
-            return false
-        }
-
-        for (_, value) in hooks {
-            if let entries = value as? [[String: Any]] {
-                for entry in entries {
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        for hook in entryHooks {
-                            if let cmd = hook["command"] as? String,
-                               cmd.contains("vibehub-state.py") {
-                                return true
-                            }
-                        }
-                    }
+            for config in CLIConfig.all {
+                if CLIInstaller.isInstalled(config: config, homeDir: homeDir) {
+                    return true
                 }
             }
-        }
-        return false
+            return false
+        } ?? false
+#else
+        return CLIInstaller.isAnyInstalled()
 #endif
     }
 
-    /// Uninstall hooks from settings.json and remove script
+    /// Per-CLI install status for the settings page. Handles the sandbox
+    /// bookmark dance in App Store builds so callers don't have to.
+    static func perCLIStatus() -> [CLIInstaller.InstallStatus] {
+#if APP_STORE
+        guard let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) else {
+            // No bookmark yet — report everything as "not installed, config unknown".
+            return CLIConfig.all.map { cfg in
+                CLIInstaller.InstallStatus(
+                    source: cfg.source,
+                    configExists: false,
+                    hookInstalled: false
+                )
+            }
+        }
+        return withSecurityScope(url: homeDir) {
+            CLIConfig.all.map { cfg in
+                CLIInstaller.InstallStatus(
+                    source: cfg.source,
+                    configExists: CLIInstaller.configDirExists(config: cfg, homeDir: homeDir),
+                    hookInstalled: CLIInstaller.isInstalled(config: cfg, homeDir: homeDir)
+                )
+            }
+        } ?? []
+#else
+        return CLIInstaller.perCLIStatus()
+#endif
+    }
+
+    /// Uninstall hooks for every CLI.
     static func uninstall() {
 #if APP_STORE
-        // Prefer uninstallAppStore() since it can remove OpenCode plugin too.
         _ = uninstallAppStore()
         return
 #else
-        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude")
-        let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let pythonScript = hooksDir.appendingPathComponent("vibehub-state.py")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-
-        try? FileManager.default.removeItem(at: pythonScript)
-
-        guard let data = try? Data(contentsOf: settings),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = json["hooks"] as? [String: Any] else {
-            return
-        }
-
-        for (event, value) in hooks {
-            if var entries = value as? [[String: Any]] {
-                entries.removeAll { entry in
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { hook in
-                            let cmd = hook["command"] as? String ?? ""
-                            return cmd.contains("vibehub-state.py")
-                        }
-                    }
-                    return false
-                }
-
-                if entries.isEmpty {
-                    hooks.removeValue(forKey: event)
-                } else {
-                    hooks[event] = entries
-                }
-            }
-        }
-
-        if hooks.isEmpty {
-            json.removeValue(forKey: "hooks")
-        } else {
-            json["hooks"] = hooks
-        }
-
-        if let data = try? JSONSerialization.data(
-            withJSONObject: json,
-            options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: settings)
-        }
-        CodexHookInstaller.uninstall()
-        // Remove the shared script last (after all symlinks are gone).
-        try? FileManager.default.removeItem(at: sharedScriptURL)
+        CLIInstaller.uninstallAllLocal()
         installedSubject.send(false)
 #endif
     }
@@ -302,54 +172,18 @@ struct HookInstaller {
 
     /// Installs Claude Code hooks into the provided Claude dir (usually ~/.claude).
     /// Caller must have an active security scope for claudeDir.
+    /// Kept for back-compat — new code should use `CLIInstaller.installLocal`.
     static func installAppStore(claudeDir: URL) -> Bool {
-        let hooksDir = claudeDir.appendingPathComponent("hooks", isDirectory: true)
-        let pythonScript = hooksDir.appendingPathComponent("vibehub-state.py")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-
-        do {
-            try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        } catch {
-            return false
-        }
-
-        // Symlink to shared script (App Store: shared script installed in installIfNeeded)
-        ensureSymlink(at: pythonScript, target: sharedScriptURL)
-
-        updateSettings(at: settings)
+        CLIInstaller.installSharedScript()
+        CLIInstaller.installClaudeStyle(config: .claude, configDir: claudeDir)
+        installedSubject.send(true)
         return true
     }
 
-    /// Installs OpenCode plugin into the provided OpenCode config dir (usually ~/.config/opencode).
+    /// Installs OpenCode plugin into the provided OpenCode config dir.
     /// Caller must have an active security scope for opencodeDir.
-    /// Plugins in ~/.config/opencode/plugins/ are auto-discovered — no opencode.json registration needed.
     static func installOpenCodeAppStore(opencodeDir: URL) -> Bool {
-        let pluginsDir = opencodeDir.appendingPathComponent("plugins", isDirectory: true)
-        let pluginFile = pluginsDir.appendingPathComponent("vibehub.js")
-        let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
-
-        do {
-            try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
-        } catch {
-            return false
-        }
-
-        guard let bundled = Bundle.main.url(forResource: "vibehub-opencode", withExtension: "js") else {
-            return false
-        }
-
-        do {
-            try? FileManager.default.removeItem(at: pluginFile)
-            try FileManager.default.copyItem(at: bundled, to: pluginFile)
-            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pluginFile.path)
-
-            // Sidecar socket path so the plugin knows where to connect.
-            let p = HookSocketServer.socketPath + "\n"
-            try p.data(using: .utf8)?.write(to: socketFile, options: [.atomic])
-        } catch {
-            return false
-        }
-
+        CLIInstaller.installOpenCodePlugin(config: .opencode, configDir: opencodeDir)
         return true
     }
 
@@ -374,110 +208,18 @@ struct HookInstaller {
     static func uninstallAppStore() -> Bool {
         var ok = true
         if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
-            // The bookmark stores the Home directory, not ~/.claude directly.
-            let claudeDir = homeDir.appendingPathComponent(".claude")
-            let removed = withSecurityScope(url: homeDir) {
-                uninstallInClaudeDir(claudeDir)
-            } ?? false
-            ok = ok && removed
-        }
-        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
-            // OpenCode config is also a descendant of Home.
-            let opencodeDir = homeDir
-                .appendingPathComponent(".config")
-                .appendingPathComponent("opencode")
-            let removed = withSecurityScope(url: homeDir) {
-                uninstallOpenCodeInDir(opencodeDir)
-            } ?? false
-            ok = ok && removed
-        }
-        if let homeDir = resolveBookmark(key: Defaults.claudeDirBookmarkKey) {
-            let codexDir = homeDir.appendingPathComponent(".codex")
             _ = withSecurityScope(url: homeDir) {
-                CodexHookInstaller.uninstallInDir(codexDir)
+                for config in CLIConfig.all {
+                    CLIInstaller.uninstallLocal(config: config, homeDir: homeDir)
+                }
             }
+        } else {
+            ok = false
         }
         return ok
     }
 
     // MARK: - Helpers
-
-    private static func isInstalledInClaudeDir(_ claudeDir: URL) -> Bool {
-        let settings = claudeDir.appendingPathComponent("settings.json")
-        guard let data = try? Data(contentsOf: settings),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = json["hooks"] as? [String: Any] else {
-            return false
-        }
-        for (_, value) in hooks {
-            if let entries = value as? [[String: Any]] {
-                for entry in entries {
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        for hook in entryHooks {
-                            if let cmd = hook["command"] as? String,
-                               cmd.contains("vibehub-state.py") {
-                                return true
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return false
-    }
-
-    private static func uninstallInClaudeDir(_ claudeDir: URL) -> Bool {
-        let hooksDir = claudeDir.appendingPathComponent("hooks")
-        let pythonScript = hooksDir.appendingPathComponent("vibehub-state.py")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-        try? FileManager.default.removeItem(at: pythonScript)
-
-        guard let data = try? Data(contentsOf: settings),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var hooks = json["hooks"] as? [String: Any] else {
-            return true
-        }
-
-        for (event, value) in hooks {
-            if var entries = value as? [[String: Any]] {
-                entries.removeAll { entry in
-                    if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { hook in
-                            let cmd = hook["command"] as? String ?? ""
-                            return cmd.contains("vibehub-state.py")
-                        }
-                    }
-                    return false
-                }
-
-                if entries.isEmpty {
-                    hooks.removeValue(forKey: event)
-                } else {
-                    hooks[event] = entries
-                }
-            }
-        }
-
-        if hooks.isEmpty {
-            json.removeValue(forKey: "hooks")
-        } else {
-            json["hooks"] = hooks
-        }
-
-        if let out = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
-            try? out.write(to: settings)
-        }
-        return true
-    }
-
-    private static func uninstallOpenCodeInDir(_ opencodeDir: URL) -> Bool {
-        let pluginsDir = opencodeDir.appendingPathComponent("plugins")
-        let pluginFile = pluginsDir.appendingPathComponent("vibehub.js")
-        let socketFile = pluginsDir.appendingPathComponent("vibehub.socket")
-        try? FileManager.default.removeItem(at: pluginFile)
-        try? FileManager.default.removeItem(at: socketFile)
-        return true
-    }
 
     private static func storeBookmark(for url: URL, key: String) -> Bool {
         do {
@@ -512,48 +254,22 @@ struct HookInstaller {
 
 #endif
 
-    // MARK: - Shared Script
+    // MARK: - Shared script (back-compat shims)
+    //
+    // A handful of call sites still reference these symbols via HookInstaller.
+    // They all forward to CLIInstaller.
 
-    /// Canonical location for the shared hook script.
-    static let sharedScriptURL: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".vibehub", isDirectory: true)
-        .appendingPathComponent("vibehub-state.py")
+    static var sharedScriptURL: URL { CLIInstaller.sharedScriptURL }
 
-    /// Copy the bundled script to ~/.vibehub/vibehub-state.py (single copy, shared by all CLIs).
     static func installSharedScript() {
-        let fm = FileManager.default
-        let dir = sharedScriptURL.deletingLastPathComponent()
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        guard let bundled = Bundle.main.url(forResource: "vibehub-state", withExtension: "py") else { return }
-        try? fm.removeItem(at: sharedScriptURL)
-        try? fm.copyItem(at: bundled, to: sharedScriptURL)
-        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedScriptURL.path)
+        CLIInstaller.installSharedScript()
     }
 
-    /// Create (or update) a symlink at `link` pointing to `target`.
     static func ensureSymlink(at link: URL, target: URL) {
-        let fm = FileManager.default
-        // Remove whatever is there (old copy or stale symlink).
-        try? fm.removeItem(at: link)
-        try? fm.createSymbolicLink(at: link, withDestinationURL: target)
+        CLIInstaller.ensureSymlink(at: link, target: target)
     }
 
     static func detectPython() -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["python3"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                return "python3"
-            }
-        } catch {}
-
-        return "python"
+        CLIInstaller.detectPython()
     }
 }

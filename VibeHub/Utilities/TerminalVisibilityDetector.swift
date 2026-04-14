@@ -58,8 +58,8 @@ struct TerminalVisibilityDetector {
         case .tmux:
             // For tmux sessions, check if the session's pane is active
             return await TmuxTargetFinder.shared.isSessionPaneActive(claudePid: sessionPid)
-        case .zellij:
-            // TODO: zellij doesn't expose which pane is focused — assume focused when terminal is frontmost
+        case .zellij, .cmux:
+            // TODO: zellij/cmux don't expose which pane is focused — assume focused when terminal is frontmost
             return true
         case .none:
             // For non-multiplexer sessions, check if the session's terminal app is frontmost

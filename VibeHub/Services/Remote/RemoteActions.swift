@@ -23,7 +23,7 @@ enum RemoteActions {
             let result = await sendClaudeViaZellij(host: host, session: session, text: text)
             if result.ok { return result }
 
-        case .none:
+        case .cmux, .none:
             break
         }
 
@@ -84,10 +84,8 @@ for line in panes:
 sys.exit(1)
 """
 
-        let target = (await RemoteInstaller.runSSH(
-            host: host,
-            command: "python3 - \(pid) <<'PY'\n\(finder)\nPY"
-        ))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let findResult = await RemoteInstaller.runSSHPython(host: host, script: finder, args: ["\(pid)"])
+        let target = findResult.exitCode == 0 ? findResult.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil
 
         guard let target, !target.isEmpty else {
             await RemoteLog.shared.log(.info, "sendClaudeMessage: tmux target not found for pid=\(pid), will try TTY fallback")
@@ -152,8 +150,7 @@ except Exception as e:
 """
 
         let b64 = Data(text.utf8).base64EncodedString()
-        let cmd = "python3 - \(shellQuote(ttyPath)) \(b64) <<'PY'\n\(script)\nPY"
-        let r = await RemoteInstaller.runSSHResult(host: host, command: cmd, timeoutSeconds: 12)
+        let r = await RemoteInstaller.runSSHPython(host: host, script: script, args: [shellQuote(ttyPath), b64], timeoutSeconds: 12)
         if r.exitCode != 0 {
             await RemoteLog.shared.log(.warn, "sendClaudeMessage: TTY injection failed tty=\(ttyPath) exit=\(r.exitCode) stderr=\(r.stderr ?? "")")
             return (false, r.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil ?? "TTY injection failed")
@@ -201,8 +198,7 @@ s.close()
 
         // Encode prompt text as base64 argument to avoid stdin conflicts with heredoc.
         let b64 = Data(text.utf8).base64EncodedString()
-        let cmd = "python3 - \(pid) \(shellQuote(sid)) \(b64) <<'PY'\n\(payload)\nPY"
-        let r = await RemoteInstaller.runSSHResult(host: host, command: cmd, timeoutSeconds: 12)
+        let r = await RemoteInstaller.runSSHPython(host: host, script: payload, args: ["\(pid)", shellQuote(sid), b64], timeoutSeconds: 12)
         if r.exitCode != 0 {
             await RemoteLog.shared.log(.warn, "sendOpenCodePrompt ssh failed: exit=\(r.exitCode) stderr=\(r.stderr ?? "")", hostId: hostId)
             let hint = r.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil

@@ -26,6 +26,7 @@ class AgentFileWatcher {
     private let taskToolId: String
     private let agentId: String
     private let cwd: String
+    private let projectsDirRelative: String
     private let filePath: String
     private let queue = DispatchQueue(label: "com.vibehub.agentfilewatcher", qos: .userInitiated)
     #if APP_STORE
@@ -37,20 +38,21 @@ class AgentFileWatcher {
 
     weak var delegate: AgentFileWatcherDelegate?
 
-    init(sessionId: String, taskToolId: String, agentId: String, cwd: String) {
+    init(sessionId: String, taskToolId: String, agentId: String, cwd: String, projectsDirRelative: String = ".claude/projects") {
         self.sessionId = sessionId
         self.taskToolId = taskToolId
         self.agentId = agentId
         self.cwd = cwd
+        self.projectsDirRelative = projectsDirRelative
 
         let projectDir = cwd.replacingOccurrences(of: "/", with: "-")
                             .replacingOccurrences(of: ".", with: "-")
-        #if APP_STORE
-        let resolvedHome = HookInstaller.resolvedHomePath()
-        #else
-        let resolvedHome = NSHomeDirectory()
-        #endif
-        self.filePath = resolvedHome + "/.claude/projects/" + projectDir + "/agent-" + agentId + ".jsonl"
+        self.filePath = ConversationParser.subagentFilePath(
+            sessionId: sessionId,
+            agentId: agentId,
+            projectDir: projectDir,
+            projectsDirRelative: projectsDirRelative
+        )
     }
 
     /// Start watching the agent file
@@ -110,7 +112,12 @@ class AgentFileWatcher {
     }
 
     private func parseTools() {
-        let tools = ConversationParser.parseSubagentToolsSync(agentId: agentId, cwd: cwd)
+        let tools = ConversationParser.parseSubagentToolsSync(
+            sessionId: sessionId,
+            agentId: agentId,
+            cwd: cwd,
+            projectsDirRelative: projectsDirRelative
+        )
 
         let newTools = tools.filter { !seenToolIds.contains($0.id) }
         guard !newTools.isEmpty || tools.count != seenToolIds.count else { return }
@@ -166,7 +173,13 @@ class AgentFileWatcherManager {
 
     private init() {}
 
-    func startWatching(sessionId: String, taskToolId: String, agentId: String, cwd: String) {
+    func startWatching(
+        sessionId: String,
+        taskToolId: String,
+        agentId: String,
+        cwd: String,
+        projectsDirRelative: String = ".claude/projects"
+    ) {
         let key = "\(sessionId)-\(taskToolId)"
         guard watchers[key] == nil else { return }
 
@@ -174,7 +187,8 @@ class AgentFileWatcherManager {
             sessionId: sessionId,
             taskToolId: taskToolId,
             agentId: agentId,
-            cwd: cwd
+            cwd: cwd,
+            projectsDirRelative: projectsDirRelative
         )
         watcher.delegate = delegate
         watcher.start()

@@ -30,6 +30,12 @@ struct ChatView: View {
 
     @State private var inputText: String = ""
     @State private var history: [ChatHistoryItem] = []
+    /// Optimistic local echoes of user messages that have been sent via
+    /// `sendToSession` but haven't yet round-tripped back through the hook
+    /// + JSONL/SQLite sync. Merged into the displayed history so the user
+    /// sees their prompt immediately instead of waiting ~0.5-1s for the
+    /// real row to arrive.
+    @State private var pendingUserEchos: [ChatHistoryItem] = []
     @State private var session: SessionState
     @State private var isLoading: Bool = true
     @State private var hasLoadedOnce: Bool = false
@@ -156,6 +162,7 @@ struct ChatView: View {
                     }
 
                     history = newHistory
+                    pruneMatchedEchos()
 
                     // Auto-scroll to bottom only if autoscroll is NOT paused
                     if !isAutoscrollPaused && countChanged {
@@ -196,6 +203,17 @@ struct ChatView: View {
                 }
             }
         }
+        .onChange(of: isInputFocused) { _, focused in
+            // Focus gained → enter keyboard mode (activate VibeHub so text
+            // typing reaches the field). Focus lost → exit keyboard mode
+            // immediately so VibeHub releases frontmost and click-through
+            // to other apps resumes.
+            if focused {
+                viewModel.enterKeyboardMode()
+            } else {
+                viewModel.exitKeyboardMode()
+            }
+        }
         .onAppear {
             // Auto-focus input when chat opens and tmux messaging is available
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -230,15 +248,9 @@ struct ChatView: View {
 
                 // Tags
                 HStack(spacing: 4) {
-                    // Software tag
-                    let cliSourceColor: Color = {
-                        switch session.cliSource {
-                        case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
-                        case .opencode: return TerminalColors.green
-                        case .codex: return TerminalColors.blue
-                        }
-                    }()
-                    Text(session.cliSource.rawValue)
+                    // Software tag (pulled from SupportedCLI so forks inherit).
+                    let cliSourceColor = session.source.themeColor
+                    Text(session.source.displayName)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(cliSourceColor)
                         .padding(.horizontal, 5)
@@ -290,9 +302,43 @@ struct ChatView: View {
         session.phase == .processing || session.phase == .compacting
     }
 
+    /// History actually shown in the chat list — `history` from the store
+    /// plus any optimistic user echoes that haven't been matched yet.
+    /// Sorted by timestamp so an echo slots in at the bottom of the list.
+    private var displayedHistory: [ChatHistoryItem] {
+        guard !pendingUserEchos.isEmpty else { return history }
+        return (history + pendingUserEchos).sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Remove any optimistic echoes that have now been matched by a real
+    /// user message in `history`. Matching is by trimmed text contents and
+    /// timestamp window so text arriving slightly after the echo still
+    /// counts as the same submission.
+    private func pruneMatchedEchos() {
+        guard !pendingUserEchos.isEmpty else { return }
+        let now = Date()
+        // Drop echoes older than 30s even if unmatched — avoids unbounded
+        // accumulation if a send never round-trips back (session ended,
+        // network error, user navigated away before sync landed).
+        pendingUserEchos = pendingUserEchos.filter { echo in
+            guard now.timeIntervalSince(echo.timestamp) < 30 else { return false }
+            guard case .user(let echoText) = echo.type else { return false }
+            let echoTrimmed = echoText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cutoff = echo.timestamp.addingTimeInterval(-5)
+            let matched = history.contains { item in
+                guard item.timestamp >= cutoff else { return false }
+                if case .user(let text) = item.type {
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines) == echoTrimmed
+                }
+                return false
+            }
+            return !matched
+        }
+    }
+
     /// Get the last user message ID for stable text selection per turn
     private var lastUserMessageId: String {
-        for item in history.reversed() {
+        for item in displayedHistory.reversed() {
             if case .user = item.type {
                 return item.id
             }
@@ -355,7 +401,7 @@ struct ChatView: View {
                             ))
                     }
 
-                    ForEach(groupChatItems(history).reversed()) { displayItem in
+                    ForEach(groupChatItems(displayedHistory).reversed()) { displayItem in
                         ChatDisplayItemView(displayItem: displayItem, sessionId: sessionId)
                             .padding(.horizontal, 16)
                             .scaleEffect(x: 1, y: -1)
@@ -418,11 +464,11 @@ struct ChatView: View {
     // MARK: - Input Bar
 
     private var isOpenCodeSession: Bool {
-        session.opencodeRawSessionId != nil
+        session.source == .opencode
     }
 
     private var isCodexSession: Bool {
-        session.codexRawSessionId != nil
+        session.source == .codex
     }
 
     /// Display name of the remote host, if this is a remote session
@@ -433,15 +479,18 @@ struct ChatView: View {
     }
 
     /// Can send messages if we can reach the session.
-    /// - Claude Code: tmux send-keys (if in tmux) or TTY injection (if tty available).
-    /// - OpenCode: control socket / HTTP API / clipboard fallback.
+    /// - Remote: always (forwarded over SSH).
+    /// - cmux: always (we have a workspace/surface id to target via `cmux send`).
+    /// - OpenCode: always (control socket / HTTP / clipboard fallback).
+    /// - Claude Code / Codex / fork: tmux send-keys, AppleScript into Terminal.app or
+    ///   iTerm2, or TTY injection — all of which require a tty to identify the target.
     private var canSendMessages: Bool {
         if session.isRemote {
             return true
         }
         // Claude Code / Codex: multiplexer or raw TTY is sufficient
         if !isOpenCodeSession && !isCodexSession {
-            return session.tty != nil
+            return session.isInMultiplexer || session.tty != nil
         }
         return true // OpenCode always has a path (control socket / HTTP / clipboard)
     }
@@ -458,14 +507,12 @@ struct ChatView: View {
                 .font(.system(size: 13))
                 .foregroundColor(canSendMessages ? .primary : .primary.opacity(0.4))
                 .focused($isInputFocused)
-                .onChange(of: isInputFocused) { _, isFocused in
-                    if isFocused {
-                        viewModel.enterKeyboardMode()
-                    }
-                }
                 .simultaneousGesture(TapGesture().onEnded {
+                    // Explicit tap on the field: enter keyboard mode first
+                    // so VibeHub activates before the SwiftUI focus fires,
+                    // then nudge the focus state a beat later once the
+                    // window has become key.
                     viewModel.enterKeyboardMode()
-                    // Give the window a tiny moment to become key before forcing focus
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         isInputFocused = true
                     }
@@ -622,7 +669,20 @@ struct ChatView: View {
         resumeAutoscroll()
         shouldScrollToBottom = true
 
-        // Don't add to history here - it will be synced from JSONL when UserPromptSubmit event fires
+        // Immediately echo the user's prompt into the chat view so there's
+        // no visible lag between clicking send and seeing the message. The
+        // real row will arrive shortly via UserPromptSubmit → JSONL sync
+        // (Claude/forks) or applyOpenCodeChatItems (OpenCode); when it does,
+        // `pruneMatchedEchos` removes the optimistic copy.
+        let echo = ChatHistoryItem(
+            id: "optimistic-user-\(UUID().uuidString)",
+            type: .user(text),
+            timestamp: Date()
+        )
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            pendingUserEchos.append(echo)
+        }
+
         Task {
             await sendToSession(text)
         }
@@ -687,6 +747,28 @@ struct ChatView: View {
         }
 
         switch session.multiplexer {
+        case .cmux:
+            let ok = await CmuxSender.send(
+                text: text,
+                workspaceId: session.cmuxWorkspaceId,
+                surfaceId: session.cmuxSurfaceId
+            )
+            if !ok {
+                await MainActor.run {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(text, forType: .string)
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        inputHintText = L10n.copiedPasteInTerminal
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        inputHintText = nil
+                    }
+                }
+            }
+            return
         case .tmux:
             guard let tty = session.tty else { return }
             if let target = await findTmuxTarget(tty: tty) {
@@ -695,7 +777,13 @@ struct ChatView: View {
         case .zellij:
             _ = await ZellijController.shared.sendMessage(text, session: session)
         case .none:
-            // No multiplexer - try TTY injection directly
+            // No multiplexer. Prefer AppleScript-based sending (Terminal.app,
+            // iTerm2) because TIOCSTI is restricted on recent macOS and
+            // the TTY-injection path silently fails there.
+            let sentViaAppleScript = await TerminalTextSender.send(text: text, session: session)
+            if sentViaAppleScript {
+                return
+            }
             if let tty = session.tty {
                 let ok = await sendViaTTY(text, tty: tty)
                 if !ok {
@@ -923,7 +1011,7 @@ private func isEmptyTextItem(_ item: ChatHistoryItem) -> Bool {
     switch item.type {
     case .user(let t), .assistant(let t), .thinking(let t):
         return isBlank(t)
-    case .toolCall, .interrupted:
+    case .toolCall, .image, .interrupted:
         return false
     }
 }
@@ -952,7 +1040,7 @@ func groupChatItems(_ items: [ChatHistoryItem]) -> [ChatDisplayItem] {
         if case .toolCall(let tool) = item.type,
            tool.status != .running,
            tool.status != .waitingForApproval,
-           tool.name != "Task" {
+           !tool.isSubagentContainer {
             if tool.name == bufferName {
                 buffer.append(item)
             } else {
@@ -1001,6 +1089,8 @@ struct MessageItemView: View {
             ToolCallView(tool: tool, sessionId: sessionId)
         case .thinking(let text):
             ThinkingView(text: text)
+        case .image(let block):
+            ImageMessageView(image: block)
         case .interrupted:
             InterruptedMessageView()
         }
@@ -1033,16 +1123,22 @@ struct AssistantMessageView: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            // White dot indicator
-            Circle()
-                .fill(Color.white.opacity(0.6))
-                .frame(width: 6, height: 6)
-                .padding(.top, 5)
+        // Skip rendering when text is empty — otherwise the dot indicator
+        // shows up alone (orphan dot) for tool-only assistant turns.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyView()
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                // White dot indicator
+                Circle()
+                    .fill(Color.white.opacity(0.6))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 5)
 
-            MarkdownText(text, color: .primary.opacity(0.9), fontSize: 13)
+                MarkdownText(text, color: .primary.opacity(0.9), fontSize: 13)
 
-            Spacer(minLength: 60)
+                Spacer(minLength: 60)
+            }
         }
     }
 }
@@ -1122,36 +1218,16 @@ struct ToolCallView: View {
     }
 
     private var toolNameColor: Color {
-        switch tool.name {
-        case "Read":
-            return Color.cyan
-        case "Edit", "Write", "NotebookEdit":
-            return Color.orange
-        case "Bash":
-            return Color.green
-        case "Grep", "Glob":
-            return Color.yellow
-        case "Agent", "Task":
-            return Color.indigo.opacity(0.8)
-        case "WebSearch", "WebFetch":
-            return Color.blue
-        case "AskUserQuestion":
-            return Color.mint
-        default:
-            if MCPToolFormatter.isMCPTool(tool.name) {
-                return Color.teal
-            }
-            return .primary.opacity(0.8)
-        }
+        MCPToolFormatter.color(for: tool.name)
     }
 
     private var hasResult: Bool {
         tool.result != nil || tool.structuredResult != nil
     }
 
-    /// Whether the tool can be expanded (has result, NOT Task tools, NOT Edit tools)
+    /// Whether the tool can be expanded (has result, NOT a subagent container, NOT Edit tools)
     private var canExpand: Bool {
-        tool.name != "Task" && tool.name != "Edit" && hasResult
+        !tool.isSubagentContainer && tool.name != "Edit" && hasResult
     }
 
     private var showContent: Bool {
@@ -1185,7 +1261,7 @@ struct ToolCallView: View {
                     .foregroundColor(tool.status == .error || tool.status == .interrupted ? textColor : toolNameColor)
                     .fixedSize()
 
-                if tool.name == "Task" && !tool.subagentTools.isEmpty {
+                if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
                     let taskDesc = tool.input["description"] ?? L10n.processing + "..."
                     Text(L10n.runningAgent(description: taskDesc, toolCount: tool.subagentTools.count))
                         .font(.system(size: 11))
@@ -1199,12 +1275,16 @@ struct ToolCallView: View {
                         .foregroundColor(textColor.opacity(0.7))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                } else if MCPToolFormatter.isMCPTool(tool.name) && !tool.input.isEmpty {
-                    Text(MCPToolFormatter.formatArgs(tool.input))
-                        .font(.system(size: 11))
+                } else if let preview = MCPToolFormatter.previewText(toolName: tool.name, input: tool.input) {
+                    // Tool-specific preview (Bash command, Read path, Grep
+                    // pattern, MCP args, …). Shown even while the tool is
+                    // still running so realtime rows aren't just a generic
+                    // status label.
+                    Text(preview)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(textColor.opacity(0.7))
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .truncationMode(.middle)
                 } else {
                     Text(tool.statusDisplay.text)
                         .font(.system(size: 11))
@@ -1225,8 +1305,8 @@ struct ToolCallView: View {
                 }
             }
 
-            // Subagent tools list (for Task tools)
-            if tool.name == "Task" && !tool.subagentTools.isEmpty {
+            // Subagent tools list (for Task/Agent tools)
+            if tool.isSubagentContainer && !tool.subagentTools.isEmpty {
                 SubagentToolsList(tools: tool.subagentTools)
                     .padding(.leading, 12)
                     .padding(.top, 2)
@@ -1234,7 +1314,7 @@ struct ToolCallView: View {
 
             // Result content (Edit always shows, others when expanded)
             // Edit tools bypass hasResult check - fallback in ToolResultContent renders from input params
-            if showContent && tool.status != .running && tool.name != "Task" && (hasResult || tool.name == "Edit") {
+            if showContent && tool.status != .running && !tool.isSubagentContainer && (hasResult || tool.name == "Edit") {
                 ToolResultContent(tool: tool)
                     .padding(.leading, 12)
                     .padding(.top, 4)
@@ -1323,20 +1403,7 @@ struct MergedToolCallView: View {
     }
 
     private var toolNameColor: Color {
-        switch toolName {
-        case "Read": return Color.cyan
-        case "Edit", "Write", "NotebookEdit": return Color.orange
-        case "Bash": return Color.green
-        case "Grep", "Glob": return Color.yellow
-        case "Agent", "Task": return Color.indigo.opacity(0.8)
-        case "WebSearch", "WebFetch": return Color.blue
-        case "AskUserQuestion": return Color.mint
-        default:
-            if MCPToolFormatter.isMCPTool(toolName) {
-                return Color.teal
-            }
-            return .primary.opacity(0.8)
-        }
+        MCPToolFormatter.color(for: toolName)
     }
 
     private func subItemDotColor(_ status: ToolStatus) -> Color {
@@ -1565,39 +1632,98 @@ struct ThinkingView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Circle()
-                .fill(Color.gray.opacity(0.5))
-                .frame(width: 6, height: 6)
-                .padding(.top, 4)
+        // Skip rendering when text is empty — streaming thinking blocks can
+        // briefly arrive empty, which otherwise leaves an orphan grey dot.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyView()
+        } else {
+            HStack(alignment: .top, spacing: 6) {
+                Circle()
+                    .fill(Color.gray.opacity(0.5))
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 4)
 
-            Text(isExpanded ? text : String(text.prefix(80)) + (canExpand ? "..." : ""))
-                .font(.system(size: 11))
-                .foregroundColor(.gray)
-                .italic()
-                .lineLimit(isExpanded ? nil : 1)
-                .multilineTextAlignment(.leading)
+                Text(isExpanded ? text : String(text.prefix(80)) + (canExpand ? "..." : ""))
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                    .italic()
+                    .lineLimit(isExpanded ? nil : 1)
+                    .multilineTextAlignment(.leading)
 
-            Spacer()
+                Spacer()
 
-            if canExpand {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.gray.opacity(0.5))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .padding(.top, 3)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if canExpand {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
+                if canExpand {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.gray.opacity(0.5))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .padding(.top, 3)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if canExpand {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Image Message
+
+struct ImageMessageView: View {
+    let image: ImageBlock
+
+    /// Decoded image cached so base64 isn't re-decoded on every render.
+    /// Large inline images (tens of KB) would otherwise thrash during
+    /// scrolling or parent re-renders.
+    @State private var decoded: NSImage?
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 60)
+
+            if let decoded {
+                Image(nsImage: decoded)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 280, maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+            } else {
+                // Decode failed / pending — labelled placeholder rather than silently dropping
+                HStack(spacing: 6) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 12))
+                    Text("Image (\(image.mediaType))")
+                        .font(.system(size: 12))
+                }
+                .foregroundColor(.primary.opacity(0.5))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.08))
+                )
+            }
+        }
+        .task(id: image.id) {
+            // Decode off the main thread so large images don't hitch scrolling.
+            let b64 = image.base64Data
+            let decoded = await Task.detached(priority: .userInitiated) {
+                guard let data = Data(base64Encoded: b64) else { return nil as NSImage? }
+                return NSImage(data: data)
+            }.value
+            self.decoded = decoded
+        }
     }
 }
 

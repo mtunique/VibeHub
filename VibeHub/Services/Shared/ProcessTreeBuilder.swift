@@ -113,6 +113,9 @@ struct ProcessTreeBuilder: Sendable {
         while current > 1 && depth < 20 {
             guard let info = tree[current] else { break }
             let cmd = info.command.lowercased()
+            if cmd.contains("cmux") {
+                return .cmux
+            }
             if cmd.contains("tmux") {
                 return .tmux
             }

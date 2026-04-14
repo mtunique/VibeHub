@@ -38,6 +38,7 @@ enum MessageBlock: Equatable, Identifiable {
     case text(String)
     case toolUse(ToolUseBlock)
     case thinking(String)
+    case image(ImageBlock)
     case interrupted
 
     var id: String {
@@ -48,6 +49,8 @@ enum MessageBlock: Equatable, Identifiable {
             return "tool-\(block.id)"
         case .thinking(let text):
             return "thinking-\(text.prefix(20).hashValue)"
+        case .image(let block):
+            return "image-\(block.id)"
         case .interrupted:
             return "interrupted"
         }
@@ -59,8 +62,25 @@ enum MessageBlock: Equatable, Identifiable {
         case .text: return "text"
         case .toolUse: return "tool"
         case .thinking: return "thinking"
+        case .image: return "image"
         case .interrupted: return "interrupted"
         }
+    }
+}
+
+/// Represents an inline image attached to a message — base64-encoded with a
+/// media type (e.g. "image/png"). Claude Code stores these both as top-level
+/// user message blocks and nested inside tool_result content arrays.
+struct ImageBlock: Equatable, Sendable {
+    let mediaType: String
+    let base64Data: String
+
+    /// Stable identifier based on the data prefix so SwiftUI doesn't
+    /// re-render images unnecessarily across parses. Uses the raw prefix
+    /// (not hashValue, whose seed varies across processes) so the id stays
+    /// meaningful if the value is ever persisted.
+    var id: String {
+        "img-\(base64Data.prefix(128))"
     }
 }
 

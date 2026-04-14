@@ -176,9 +176,8 @@ struct OnboardingView: View {
         #if APP_STORE
         return await performInstallAppStore()
         #else
-        // Dev builds auto-install hooks
+        // Dev builds auto-install hooks via CLIInstaller (handles every CLI).
         HookInstaller.installIfNeeded()
-        OpenCodePluginInstaller.installIfNeeded()
         return true
         #endif
     }
