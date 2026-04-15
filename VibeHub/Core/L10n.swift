@@ -140,7 +140,7 @@ enum L10n {
     static var you: String { isChinese ? "你：" : "You:" }
     static var goToTerminal: String { isChinese ? "前往终端" : "Go to Terminal" }
     static var openChat: String { isChinese ? "打开聊天" : "Open chat" }
-    static var revealInTerminal: String { isChinese ? "在终端中显示" : "Reveal in terminal" }
+    static var revealSession: String { isChinese ? "显示会话" : "Reveal session" }
     static var archiveSession: String { isChinese ? "归档会话" : "Archive session" }
 
     // MARK: - Remote Hosts View

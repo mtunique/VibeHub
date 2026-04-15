@@ -30,6 +30,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var pid: Int?
     var tty: String?
     var multiplexer: MultiplexerKind
+    /// Whether TIOCSTI ioctl is available, as reported by the hook.
+    var canInjectKeystrokes: Bool
     /// OpenCode local server address (if available)
     var serverPort: Int?
     var serverHostname: String?
@@ -121,6 +123,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         pid: Int? = nil,
         tty: String? = nil,
         multiplexer: MultiplexerKind = .none,
+        canInjectKeystrokes: Bool = false,
         serverPort: Int? = nil,
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
@@ -147,6 +150,7 @@ struct SessionState: Equatable, Identifiable, Sendable {
         self.pid = pid
         self.tty = tty
         self.multiplexer = multiplexer
+        self.canInjectKeystrokes = canInjectKeystrokes
         self.serverPort = serverPort
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId

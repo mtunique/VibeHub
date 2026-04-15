@@ -18,6 +18,17 @@ import Foundation
 
 enum TerminalTextSender {
 
+    /// Whether this session's controlling terminal supports AppleScript text
+    /// sending (Terminal.app or iTerm2). Used by `ChatView.canSendMessages`
+    /// to gate the input bar without attempting a full send.
+    @MainActor
+    static func canSend(session: SessionState) -> Bool {
+        guard let pid = session.pid, session.tty != nil else { return false }
+        let tree = ProcessTreeBuilder.shared.buildTree()
+        guard let bundleId = terminalBundleId(forProcess: pid, tree: tree) else { return false }
+        return bundleId == "com.apple.Terminal" || bundleId == "com.googlecode.iterm2"
+    }
+
     /// Attempt to send `text` to the terminal tab whose tty matches
     /// `session.tty`. Returns `true` on success, `false` if no supported
     /// terminal / tab could be matched (caller should fall back to

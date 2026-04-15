@@ -178,8 +178,18 @@ actor SessionStore {
                 break
             }
         }
+        // Populate TmuxPathFinder with hook-reported binary path
+        if let bin = event.tmuxBin {
+            await TmuxPathFinder.shared.setHookReportedPath(bin)
+        }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
+        }
+        if let canInject = event.canInjectKeystrokes {
+            if !canInject {
+                Self.logger.info("Session \(session.sessionId): TIOCSTI not available")
+            }
+            session.canInjectKeystrokes = canInject
         }
 
         if let serverPort = event.serverPort {

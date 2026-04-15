@@ -485,7 +485,7 @@ struct InstanceRow: View {
                             isEnabled: true,
                             onTap: { onFocus() }
                         )
-                        .help(L10n.revealInTerminal)
+                        .help(L10n.revealSession)
                     }
                 } else if isWaitingForApproval {
                     InlineApprovalButtons(
@@ -500,7 +500,7 @@ struct InstanceRow: View {
                         onChat()
                     }
                     if session.pid != nil || session.isRemote {
-                        IconButton(icon: "eye", tooltip: L10n.revealInTerminal) {
+                        IconButton(icon: "eye", tooltip: L10n.revealSession) {
                             onFocus()
                         }
                     }

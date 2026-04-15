@@ -12,6 +12,7 @@
 //  delegate to the same `installClaudeStyle(config:homeDir:)` primitive.
 //
 
+import CryptoKit
 import Foundation
 import os.log
 
@@ -135,10 +136,14 @@ enum CLIInstaller {
 
     // MARK: - Shared script
 
-    /// Version of the bundled `vibehub-state.py` hook. Must stay in sync with
-    /// the `VERSION = "x.y.z"` literal inside Resources/vibehub-state.py —
-    /// used by RemoteInstaller to decide whether to upload a fresh copy.
-    static let sharedScriptVersion: String = "1.0.9"
+    /// Content hash of the bundled `vibehub-state.py` hook.
+    /// Used by RemoteInstaller to decide whether to upload a fresh copy.
+    /// Matches the output of `vibehub-state.py --version` (SHA-256, first 16 hex chars).
+    static let sharedScriptVersion: String = {
+        guard let url = Bundle.main.url(forResource: "vibehub-state", withExtension: "py"),
+              let data = try? Data(contentsOf: url) else { return "unknown" }
+        return SHA256.hash(data: data).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }()
 
     /// Canonical location of the shared Python hook script. Every CLI's
     /// `hooks/vibehub-state.py` is a symlink pointing here.

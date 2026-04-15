@@ -7,7 +7,10 @@
 
 import AppKit
 import Combine
+import os.log
 import SwiftUI
+
+private let logger = Logger(subsystem: "com.vibehub", category: "ChatView")
 
 // MARK: - Display Context Environment
 
@@ -118,8 +121,11 @@ struct ChatView: View {
                                 removal: .opacity
                             ))
                     }
-                } else {
+                } else if canSendMessages {
                     inputBar
+                        .transition(.opacity)
+                } else {
+                    revealInTerminalBar
                         .transition(.opacity)
                 }
             }
@@ -479,20 +485,17 @@ struct ChatView: View {
     }
 
     /// Can send messages if we can reach the session.
-    /// - Remote: always (forwarded over SSH).
     /// - cmux: always (we have a workspace/surface id to target via `cmux send`).
     /// - OpenCode: always (control socket / HTTP / clipboard fallback).
-    /// - Claude Code / Codex / fork: tmux send-keys, AppleScript into Terminal.app or
-    ///   iTerm2, or TTY injection — all of which require a tty to identify the target.
+    /// - tmux: send-keys via pid-based pane lookup, no tty needed.
+    /// - AppleScript: Terminal.app and iTerm2 expose scriptable text input.
+    /// - TIOCSTI: last resort, probed by the hook on every invocation.
     private var canSendMessages: Bool {
-        if session.isRemote {
-            return true
-        }
-        // Claude Code / Codex: multiplexer or raw TTY is sufficient
-        if !isOpenCodeSession && !isCodexSession {
-            return session.isInMultiplexer || session.tty != nil
-        }
-        return true // OpenCode always has a path (control socket / HTTP / clipboard)
+        if session.isInMultiplexer { return true }
+        if isOpenCodeSession { return true }
+        guard session.tty != nil else { return false }
+        if !session.isRemote && TerminalTextSender.canSend(session: session) { return true }
+        return session.canInjectKeystrokes
     }
 
     private var inputBar: some View {
@@ -575,6 +578,34 @@ struct ChatView: View {
             .allowsHitTesting(false)
         }
         .zIndex(1) // Render above message list
+    }
+
+    // MARK: - Reveal in Terminal Bar
+
+    private var revealInTerminalBar: some View {
+        HStack {
+            Spacer()
+            Button {
+                focusTerminal()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "eye")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(L10n.revealSession)
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(isNotchMode ? .black : .white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(isNotchMode ? Color.white.opacity(0.9) : Color.accentColor)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(isNotchMode ? Color.black.opacity(0.2) : Color.white.opacity(0.05))
     }
 
     // MARK: - Approval Bar
@@ -770,9 +801,17 @@ struct ChatView: View {
             }
             return
         case .tmux:
-            guard let tty = session.tty else { return }
-            if let target = await findTmuxTarget(tty: tty) {
-                _ = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            guard let pid = session.pid else {
+                logger.warning("tmux send: no pid for session \(session.sessionId, privacy: .public)")
+                return
+            }
+            guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: pid) else {
+                logger.warning("tmux send: no target found for pid \(pid)")
+                return
+            }
+            let ok = await ToolApprovalHandler.shared.sendMessage(text, to: target)
+            if !ok {
+                logger.warning("tmux send: sendMessage failed for \(target.targetString, privacy: .public)")
             }
         case .zellij:
             _ = await ZellijController.shared.sendMessage(text, session: session)
@@ -805,36 +844,6 @@ struct ChatView: View {
                 }
             }
         }
-    }
-
-    private func findTmuxTarget(tty: String) async -> TmuxTarget? {
-        guard let tmuxPath = await TmuxPathFinder.shared.getTmuxPath() else {
-            return nil
-        }
-
-        do {
-            let output = try await ProcessExecutor.shared.run(
-                tmuxPath,
-                arguments: ["list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_tty}"]
-            )
-
-            let lines = output.components(separatedBy: "\n")
-            for line in lines {
-                let parts = line.components(separatedBy: " ")
-                guard parts.count >= 2 else { continue }
-
-                let target = parts[0]
-                let paneTty = parts[1].replacingOccurrences(of: "/dev/", with: "")
-
-                if paneTty == tty {
-                    return TmuxTarget(from: target)
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        return nil
     }
 
     /// Send text to a TTY device using TIOCSTI ioctl (injects as keyboard input).

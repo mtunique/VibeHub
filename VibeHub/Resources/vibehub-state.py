@@ -226,6 +226,23 @@ def uninstall_all():
     return True
 
 
+def probe_tiocsti():
+    """Check whether TIOCSTI ioctl is available (blocked on macOS Ventura+)."""
+    try:
+        import fcntl, termios, struct, pty
+        m, s = pty.openpty()
+        try:
+            fcntl.ioctl(s, termios.TIOCSTI, struct.pack('B', 0))
+            return True
+        except Exception:
+            return False
+        finally:
+            os.close(m)
+            os.close(s)
+    except Exception:
+        return False
+
+
 def get_tty():
     """Get the TTY by walking up the process tree until a process with a TTY is found."""
     import subprocess
@@ -372,7 +389,14 @@ def get_new_jsonl_lines(session_id, cwd):
 
 
 
-VERSION = "1.0.9"
+def _file_hash():
+    """SHA-256 hash (first 16 hex chars) of this script file."""
+    import hashlib
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except Exception:
+        return "unknown"
 
 # Explicit CLI source. Every CLI's hook command sets this via
 # `VIBEHUB_SOURCE=<name>`. When absent we fall back to `.codex/` path
@@ -478,7 +502,7 @@ def _query_opencode_db(session_id):
 
 def main():
     if "--version" in sys.argv:
-        print(VERSION)
+        print(_file_hash())
         sys.exit(0)
 
     if "--opencode-db" in sys.argv:
@@ -549,6 +573,7 @@ def main():
     # Get process info
     claude_pid = os.getppid()
     tty = get_tty()
+    can_inject_keystrokes = probe_tiocsti()
 
     # Build state object
     state = {
@@ -557,6 +582,7 @@ def main():
         "event": event,
         "pid": claude_pid,
         "tty": tty,
+        "can_inject_keystrokes": can_inject_keystrokes,
         # Explicit CLI source (first-class field consumed by HookEvent._source).
         "_source": SOURCE,
     }
@@ -578,6 +604,13 @@ def main():
             state["zellij_pane_id"] = zellij_pane
     elif os.environ.get("TMUX"):
         state["multiplexer"] = "tmux"
+
+    # Report the tmux binary path so the app doesn't need a hardcoded list
+    if os.environ.get("TMUX"):
+        import shutil
+        tmux_bin = shutil.which("tmux")
+        if tmux_bin:
+            state["tmux_bin"] = tmux_bin
 
     # Include SSH client source port for remote tab matching
     ssh_client = os.environ.get("SSH_CLIENT")

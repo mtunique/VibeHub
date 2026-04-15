@@ -72,6 +72,9 @@ struct HookEvent: Codable, Sendable {
     // SSH client source port (from SSH_CLIENT env var on remote)
     let sshClientPort: String?
 
+    // Tmux binary path reported by hook (from `which tmux` in session env)
+    let tmuxBin: String?
+
     // Multiplexer detected by hook (reported as "tmux" or "zellij")
     let multiplexer: String?
     let zellijSession: String?
@@ -95,6 +98,10 @@ struct HookEvent: Codable, Sendable {
     let toolError: String?
     let denialReason: String?
     let stopError: String?
+    
+    /// Whether TIOCSTI ioctl is available in the session's environment.
+    /// Probed by the Python hook on every invocation.
+    let canInjectKeystrokes: Bool?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -112,6 +119,7 @@ struct HookEvent: Codable, Sendable {
         case serverHostname = "_server_hostname"
         case remoteHostId = "_remote_host_id"
         case sshClientPort = "ssh_client_port"
+        case tmuxBin = "tmux_bin"
         case multiplexer
         case zellijSession = "zellij_session"
         case zellijPaneId = "zellij_pane_id"
@@ -121,6 +129,7 @@ struct HookEvent: Codable, Sendable {
         case toolError = "tool_error"
         case denialReason = "denial_reason"
         case stopError = "stop_error"
+        case canInjectKeystrokes = "can_inject_keystrokes"
     }
 
     /// Create a copy with updated toolUseId
@@ -145,6 +154,7 @@ struct HookEvent: Codable, Sendable {
         serverHostname: String? = nil,
         remoteHostId: String? = nil,
         sshClientPort: String? = nil,
+        tmuxBin: String? = nil,
         multiplexer: String? = nil,
         zellijSession: String? = nil,
         zellijPaneId: String? = nil,
@@ -153,7 +163,8 @@ struct HookEvent: Codable, Sendable {
         cmuxSurfaceId: String? = nil,
         toolError: String? = nil,
         denialReason: String? = nil,
-        stopError: String? = nil
+        stopError: String? = nil,
+        canInjectKeystrokes: Bool? = nil
     ) {
         self.sessionId = sessionId
         self.cwd = cwd
@@ -175,6 +186,7 @@ struct HookEvent: Codable, Sendable {
         self.serverHostname = serverHostname
         self.remoteHostId = remoteHostId
         self.sshClientPort = sshClientPort
+        self.tmuxBin = tmuxBin
         self.multiplexer = multiplexer
         self.zellijSession = zellijSession
         self.zellijPaneId = zellijPaneId
@@ -184,6 +196,7 @@ struct HookEvent: Codable, Sendable {
         self.toolError = toolError
         self.denialReason = denialReason
         self.stopError = stopError
+        self.canInjectKeystrokes = canInjectKeystrokes
     }
 
     /// Resolve the source for this event:
@@ -410,6 +423,7 @@ class HookSocketServer {
             serverHostname: event.serverHostname,
             remoteHostId: remoteHostId,
             sshClientPort: event.sshClientPort,
+            tmuxBin: event.tmuxBin,
             multiplexer: event.multiplexer,
             zellijSession: event.zellijSession,
             zellijPaneId: event.zellijPaneId,
@@ -669,6 +683,7 @@ class HookSocketServer {
                 serverHostname: event.serverHostname,
                 remoteHostId: event.remoteHostId,
                 sshClientPort: event.sshClientPort,
+                tmuxBin: event.tmuxBin,
                 multiplexer: event.multiplexer,
                 zellijSession: event.zellijSession,
                 zellijPaneId: event.zellijPaneId,
